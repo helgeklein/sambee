@@ -931,6 +931,8 @@ pub enum LocalArchiveError {
     InvalidDirectorySourceSize,
     #[error("archive creation member is invalid or unavailable")]
     UnknownCreationMember,
+    #[error("selected archive member is invalid or unavailable")]
+    UnknownExtractionMember,
     #[error("archive creation member outcome is invalid")]
     InvalidCreationOutcome,
     #[error("archive creation member outcome conflicts with its prior result")]
@@ -1964,6 +1966,30 @@ pub fn reopen_partial_local_extraction_file(drive_root: &Path, destination_path:
 /// Validate a manifest member path before combining it with a local destination root.
 pub fn validate_local_extraction_member_path(member_path: &str, is_directory: bool) -> Result<(), LocalArchiveError> {
     normalized_archive_path(member_path, is_directory).map(|_| ())
+}
+
+/// Normalize, validate, and collapse the immutable roots selected for extraction.
+pub fn canonicalize_local_archive_member_roots(paths: Option<Vec<String>>) -> Result<Option<Vec<String>>, LocalArchiveError> {
+    let Some(paths) = paths else {
+        return Ok(None);
+    };
+    if paths.is_empty() {
+        return Err(LocalArchiveError::UnsafeEntryPath);
+    }
+    let mut roots = Vec::new();
+    for path in paths {
+        let normalized = normalized_archive_path(&path, false)?;
+        if roots
+            .iter()
+            .any(|root: &String| normalized == *root || normalized.starts_with(&format!("{root}/")))
+        {
+            continue;
+        }
+        roots.retain(|root| !root.starts_with(&format!("{normalized}/")));
+        roots.push(normalized);
+    }
+    roots.sort();
+    Ok(Some(roots))
 }
 
 fn normalized_archive_path(value: &str, is_directory: bool) -> Result<String, LocalArchiveError> {

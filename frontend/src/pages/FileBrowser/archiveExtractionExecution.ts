@@ -130,7 +130,7 @@ function toExtractionOutcome(operation: ArchiveOperation): ArchiveExtractionOutc
 }
 
 export function startZipArchiveExtraction(request: ArchiveExtractionRequest): ArchiveExtractionExecution {
-  const { source: location, destination } = request;
+  const { source: location, destination, selectedMemberPaths } = request;
   const destinationPath = destination.path;
   if (location.providerId !== "zip") {
     return {
@@ -329,9 +329,6 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
     const sourceIsLocal = isLocalDrive(location.connectionId);
     const destinationIsLocal = isLocalDrive(destination.connectionId);
     if (sourceIsLocal && destinationIsLocal) {
-      if (location.connectionId !== destination.connectionId) {
-        throw new Error("Archive extraction between local drives is not available");
-      }
       localSignal = beginForegroundLocalArchiveRequest();
       const onLocalAbort = () => {
         cancellationRequested = true;
@@ -339,7 +336,16 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
       };
       localSignal.addEventListener("abort", onLocalAbort, { once: true });
       try {
-        const execution = await api.startLocalArchiveExtraction(location.connectionId, location.source.path, destinationPath);
+        const execution =
+          selectedMemberPaths || location.connectionId !== destination.connectionId
+            ? await api.startLocalArchiveExtraction(
+                location.connectionId,
+                location.source.path,
+                destinationPath,
+                selectedMemberPaths,
+                destination.connectionId
+              )
+            : await api.startLocalArchiveExtraction(location.connectionId, location.source.path, destinationPath);
         localExecution = { executionId: execution.execution_id, revision: execution.revision };
         if (cancellationRequested) {
           await cancelLocalExecution();
@@ -350,10 +356,6 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
         clearForegroundLocalArchiveRequest(localSignal);
       }
     }
-    if (!sourceIsLocal && !destinationIsLocal && location.connectionId !== destination.connectionId) {
-      throw new Error("Archive extraction between SMB connections is not available");
-    }
-
     try {
       const operation = await api.prepareArchiveOperation({
         contract_version: "v2",
@@ -362,6 +364,7 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
         source_path: location.source.path,
         destination_connection_id: destination.connectionId,
         destination_path: destinationPath,
+        selected_member_paths: selectedMemberPaths,
       });
       operationId = operation.id;
       storeForegroundArchiveOperation(operationId);

@@ -233,6 +233,36 @@ async def test_live_extraction_streams_members_in_record_order_without_preflight
 
 
 @pytest.mark.asyncio
+async def test_live_extraction_limits_delivery_to_selected_member_roots() -> None:
+    backend = MemoryExtractionBackend(_flat_archive_bytes(["included/empty/", "included/report.txt", "excluded/secret.txt"]))
+    source_session = LiveSourceSession(
+        ZipReader(backend.reader, len(backend.archive)), selected_member_roots=("included", "included/report.txt")
+    )
+
+    aggregate = await extract_live_archive_to_new_paths(
+        source_session,
+        destination=backend,
+        destination_root="output",
+        existing_file_policy=None,
+    )
+
+    assert {"output", "output/included", "output/included/empty"}.issubset(backend.directories)
+    assert backend.written_file_paths == ["output/included/report.txt"]
+    assert "output/excluded" not in backend.directories
+    assert aggregate.members_processed == 2
+    assert source_session.phase == LiveSourceSessionPhase.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_live_extraction_rejects_selected_roots_absent_from_archive() -> None:
+    backend = MemoryExtractionBackend(_flat_archive_bytes(["included/report.txt"]))
+    source_session = LiveSourceSession(ZipReader(backend.reader, len(backend.archive)), selected_member_roots=("missing",))
+
+    with pytest.raises(Exception, match="selection does not match"):
+        await source_session.next_member()
+
+
+@pytest.mark.asyncio
 async def test_live_extraction_retains_current_member_for_a_collision_decision() -> None:
     backend = MemoryExtractionBackend(_flat_archive_bytes(["first.txt"]))
     backend.files["output/first.txt"] = b"existing"

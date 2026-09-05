@@ -503,6 +503,7 @@ export interface ArchiveOperationPrepare {
   destination_path: string;
   manifest_hash?: string;
   plan_json?: string;
+  selected_member_paths?: string[];
 }
 
 export interface ArchiveOperation {
@@ -535,6 +536,7 @@ export interface ArchiveCompanionSession {
   token: string;
   expires_in: number;
   operation: ArchiveOperation;
+  selected_member_paths: string[] | null;
 }
 
 export type ArchiveExtractionDecisionAction =

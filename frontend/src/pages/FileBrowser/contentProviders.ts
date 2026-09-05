@@ -125,6 +125,7 @@ export type ArchiveExtractionConflictAction = "skip" | "skip_all" | "replace" | 
 export interface ArchiveExtractionRequest {
   source: VirtualLocation;
   destination: PhysicalLocation;
+  selectedMemberPaths?: string[];
 }
 
 export type ArchiveExtractionOutcome =

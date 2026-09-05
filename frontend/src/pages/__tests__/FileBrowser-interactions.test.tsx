@@ -515,7 +515,7 @@ describe("Browser Component - Interactions", () => {
       ]);
     });
 
-    it("does not open Move when direct moves are unavailable", async () => {
+    it("opens Move when the destination is writable", async () => {
       const user = userEvent.setup();
 
       renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
@@ -530,7 +530,8 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard(" ");
       await user.keyboard("{F6}");
 
-      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Move" })).toBeInTheDocument();
       expect(api.moveItem).not.toHaveBeenCalled();
     });
 
@@ -580,7 +581,7 @@ describe("Browser Component - Interactions", () => {
       expect(api.copyItem).not.toHaveBeenCalled();
     });
 
-    it("phase_10_stabilization_move_commands_are_disabled", async () => {
+    it("opens a move dialog without executing a move immediately", async () => {
       const user = userEvent.setup();
 
       vi.mocked(api.getConnections).mockResolvedValue(mockConnections);
@@ -597,9 +598,7 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard(" ");
       await user.keyboard("{F6}");
 
-      await waitFor(() => {
-        expect(screen.queryByRole("button", { name: "Move" })).not.toBeInTheDocument();
-      });
+      expect(await screen.findByRole("button", { name: "Move" })).toBeInTheDocument();
       expect(api.moveItem).not.toHaveBeenCalled();
     });
 

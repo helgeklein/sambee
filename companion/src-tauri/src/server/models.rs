@@ -113,6 +113,8 @@ pub enum ArchiveV2ExecutionStartRequest {
         contract_version: ArchiveContractVersion,
         archive_path: String,
         destination_path: String,
+        destination_drive: Option<String>,
+        selected_member_paths: Option<Vec<String>>,
     },
 }
 
@@ -356,6 +358,15 @@ mod tests {
                 r#"{"kind":"create","contract_version":"v2","source_paths":["source.txt"],"target_path":"archive.zip"}"#
             ),
             Ok(ArchiveV2ExecutionStartRequest::Create { .. })
+        ));
+        assert!(matches!(
+            serde_json::from_str::<ArchiveV2ExecutionStartRequest>(
+                r#"{"kind":"extract","contract_version":"v2","archive_path":"archive.zip","destination_path":"output","selected_member_paths":["docs"]}"#
+            ),
+            Ok(ArchiveV2ExecutionStartRequest::Extract {
+                selected_member_paths: Some(paths),
+                ..
+            }) if paths == ["docs"]
         ));
         assert!(serde_json::from_str::<ArchiveV2ExecutionStartRequest>(
             r#"{"kind":"extract","contract_version":"v1","archive_path":"archive.zip","destination_path":"output"}"#

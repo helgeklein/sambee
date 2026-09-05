@@ -1,9 +1,9 @@
-import api from "../../services/api";
 import type { BrowserHistoryService } from "../../services/browserHistoryService";
 import { logger } from "../../services/logger";
 import { publishRecentFilesChanged } from "../../services/recentFilesSync";
 import type { StorageArchiveOperationCoordinator } from "../../services/storageArchiveOperations";
 import type { ContentTransferResult, StorageBackendRegistry, TargetResolutionPolicy } from "../../services/storageContracts";
+import { transferAcrossStorageBackends } from "../../services/storageTransferOperations";
 import { FileType, isApiError } from "../../types";
 import { startZipArchiveExtraction } from "./archiveExtractionExecution";
 import type {
@@ -285,7 +285,7 @@ export async function executeTransfer(request: TransferRequest, environment: Con
     (source.target.kind === "local" && destination.target.kind === "local" && source.target.driveId !== destination.target.driveId);
   if (requiresStreamRelay) {
     const targetPath = `${destination.path}/${targetName}`.replace(/^\//, "");
-    return api.transferAcrossBackends(
+    return transferAcrossStorageBackends(
       request.kind,
       request.source.location.connectionId,
       source.path,

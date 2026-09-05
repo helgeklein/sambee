@@ -83,6 +83,7 @@ class ArchiveOperation(SQLModel, table=True):
     manifest_hash: str = Field(default="", index=True)
     revision: int = Field(default=0, ge=0)
     plan_json: str = Field(default="{}")
+    selected_member_paths_json: str | None = Field(default=None)
     checkpoint_json: str | None = Field(default=None)
     pending_decision_json: str | None = Field(default=None)
     collision_policy: str | None = Field(default=None)
@@ -108,6 +109,7 @@ class ArchiveOperationPrepare(ArchiveV2Payload):
     destination_path: str
     manifest_hash: str = ""
     plan_json: str = "{}"
+    selected_member_paths: list[str] | None = None
 
 
 class ArchiveOperationError(SQLModel):
@@ -170,6 +172,7 @@ class ArchiveCompanionSession(SQLModel):
     token: str
     expires_in: int
     operation: ArchiveOperationRead
+    selected_member_paths: list[str] | None = None
 
 
 class ArchiveCompanionManifestEntry(ArchiveV2Payload):

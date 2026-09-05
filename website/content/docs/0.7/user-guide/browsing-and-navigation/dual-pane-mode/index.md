@@ -25,6 +25,12 @@ To copy or move files and directories:
 Copying files and directories between different SMB connections, different local drives, and SMB connections and local drives is supported. For a move across those boundaries, Sambee creates the destination but retains the source when it cannot safely verify and delete that source. Check both panes before deleting a retained source yourself.
 {{< /admonition >}}
 
+## Extract Selected ZIP Members
+
+When the active pane shows a ZIP archive, select the files or directories to extract and press <kbd>F5</kbd>. Sambee extracts the selected members into the physical location in the inactive pane. Selecting a directory extracts all of its contents, including empty directories.
+
+Archive members can't be moved. <kbd>F6</kbd> stays unavailable in a ZIP archive pane and doesn't modify the archive.
+
 ## Requirements
 
 - Dual-pane mode is currently a desktop-only feature (i.e., not available on mobile due to screen size limitations).

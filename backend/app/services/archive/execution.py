@@ -97,7 +97,21 @@ def resolve_archive_execution_topology(
     destination_is_local = destination_connection_id.startswith(LOCAL_DRIVE_PREFIX)
     if source_is_local == destination_is_local:
         if source_connection_id != destination_connection_id:
-            raise ValueError("Archive execution across distinct same-provider connections is unavailable")
+            if source_is_local:
+                return ArchiveExecutionTopology(
+                    driver=ArchiveExecutionDriver.COMPANION,
+                    source_is_local=True,
+                    destination_is_local=True,
+                    companion_purpose=None,
+                )
+            if kind == ArchiveOperationKind.EXTRACT:
+                return ArchiveExecutionTopology(
+                    driver=ArchiveExecutionDriver.BACKEND,
+                    source_is_local=False,
+                    destination_is_local=False,
+                    companion_purpose=None,
+                )
+            raise ValueError("Archive creation across distinct SMB connections is unavailable")
         return ArchiveExecutionTopology(
             driver=ArchiveExecutionDriver.COMPANION if source_is_local else ArchiveExecutionDriver.BACKEND,
             source_is_local=source_is_local,

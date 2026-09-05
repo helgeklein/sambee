@@ -111,6 +111,7 @@ from app.services.archive.live_extraction import (
     LiveSourceSessionError,
     LiveSourceSessionPhase,
     LiveSourceSessionRegistry,
+    canonicalize_selected_member_roots,
 )
 from app.services.archive.operations import (
     fail_operation,
@@ -430,6 +431,17 @@ def _require_expected_archive_operation_revision(operation: ArchiveOperation, ex
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation revision is stale")
 
 
+def _selected_member_roots(operation: ArchiveOperation) -> tuple[str, ...] | None:
+    """Decode immutable archive member roots stored when the operation was prepared."""
+
+    if operation.selected_member_paths_json is None:
+        return None
+    persisted_selection = json.loads(operation.selected_member_paths_json)
+    if not isinstance(persisted_selection, list) or not all(isinstance(path, str) for path in persisted_selection):
+        raise ArchiveFormatError("Archive member selection is invalid")
+    return canonicalize_selected_member_roots(persisted_selection)
+
+
 async def prepare_archive_operation(
     payload: ArchiveOperationPrepare,
     current_user: User = Depends(get_current_user_with_auth_check),
@@ -448,7 +460,12 @@ async def prepare_archive_operation(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
-    operation = ArchiveOperation(user_id=current_user.id, **payload.model_dump())
+    selected_member_paths_json = json.dumps(payload.selected_member_paths) if payload.selected_member_paths is not None else None
+    operation = ArchiveOperation(
+        user_id=current_user.id,
+        selected_member_paths_json=selected_member_paths_json,
+        **payload.model_dump(exclude={"selected_member_paths"}),
+    )
     session.add(operation)
     write_audit_event(
         session,
@@ -553,6 +570,7 @@ async def create_archive_companion_session(
         token=token,
         expires_in=ARCHIVE_COMPANION_TOKEN_EXPIRE_MINUTES * 60,
         operation=ArchiveOperationRead.model_validate(operation),
+        selected_member_paths=_selected_member_roots(operation),
     )
 
 
@@ -918,7 +936,12 @@ async def begin_live_companion_local_archive_extraction(
         if archive_info.type != FileType.FILE or archive_info.size is None:
             raise ArchiveFormatError("Archive extraction source must be a regular file")
         reader = await backend.open_archive_source_reader(operation.source_path)
-        source_session = await _live_extraction_sessions.open(reader, archive_info.size, operation_id=operation.id)
+        source_session = await _live_extraction_sessions.open(
+            reader,
+            archive_info.size,
+            operation_id=operation.id,
+            selected_member_roots=_selected_member_roots(operation),
+        )
         reader = None
         archive_operation_cleanup_registry.register(
             operation.id,
@@ -2122,6 +2145,45 @@ async def _open_direct_smb_archive_execution(
         await disconnect_backend_safely(backend, logger=logger, context=f"archive {kind_name} operation {operation.id}")
 
 
+@asynccontextmanager
+async def _open_direct_smb_archive_extraction(
+    operation_id: uuid.UUID,
+    current_user: User,
+    session: Session,
+) -> AsyncIterator[tuple[ArchiveOperation, SMBBackend, SMBBackend]]:
+    """Authorize and connect the source and destination SMB backends for ZIP extraction."""
+
+    operation = _get_owned_operation_or_404(session, current_user, operation_id)
+    if operation.kind != ArchiveOperationKind.EXTRACT:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not an extraction operation")
+    _require_backend_archive_execution(operation)
+    try:
+        source_connection = get_accessible_connection_or_404(session, current_user, uuid.UUID(operation.source_connection_id))
+        destination_connection = get_accessible_connection_or_404(session, current_user, uuid.UUID(operation.destination_connection_id))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive extraction connection ID is invalid"
+        ) from exc
+    require_connection_write_access(current_user, destination_connection, action="extract archive", path=operation.destination_path)
+    source_backend = build_smb_backend(source_connection, backend_factory=SMBBackend)
+    destination_backend = source_backend
+    if destination_connection.id != source_connection.id:
+        destination_backend = build_smb_backend(destination_connection, backend_factory=SMBBackend)
+    try:
+        await source_backend.connect()
+        if destination_backend is not source_backend:
+            await destination_backend.connect()
+        yield operation, source_backend, destination_backend
+    finally:
+        if destination_backend is not source_backend:
+            await disconnect_backend_safely(
+                destination_backend,
+                logger=logger,
+                context=f"archive extraction destination operation {operation.id}",
+            )
+        await disconnect_backend_safely(source_backend, logger=logger, context=f"archive extraction source operation {operation.id}")
+
+
 async def execute_archive_creation(
     operation_id: uuid.UUID,
     current_user: User = Depends(get_current_user_with_auth_check),
@@ -2179,23 +2241,26 @@ async def execute_archive_extraction(
 ) -> ArchiveOperation:
     """Extract in record order through one retained, source-owned ZIP session."""
 
-    async with _open_direct_smb_archive_execution(
-        operation_id,
-        current_user,
-        session,
-        expected_kind=ArchiveOperationKind.EXTRACT,
-        kind_name="extraction",
-        write_action="extract archive",
-    ) as (operation, backend):
+    async with _open_direct_smb_archive_extraction(operation_id, current_user, session) as (
+        operation,
+        source_backend,
+        destination_backend,
+    ):
         state_store = DurableArchiveExecutionStateStore(session)
         if operation.phase == ArchiveOperationPhase.PREPARED:
             random_reader = None
             try:
-                archive_info = await backend.get_file_info(operation.source_path)
+                selected_member_roots = _selected_member_roots(operation)
+                archive_info = await source_backend.get_file_info(operation.source_path)
                 if archive_info.type != FileType.FILE or archive_info.size is None:
                     raise ArchiveFormatError("Archive extraction source must be a regular file")
-                random_reader = await backend.open_archive_source_reader(operation.source_path)
-                source_session = await _live_extraction_sessions.open(random_reader, archive_info.size, operation_id=operation.id)
+                random_reader = await source_backend.open_archive_source_reader(operation.source_path)
+                source_session = await _live_extraction_sessions.open(
+                    random_reader,
+                    archive_info.size,
+                    operation_id=operation.id,
+                    selected_member_roots=selected_member_roots,
+                )
                 random_reader = None
             except LiveSourceSessionError as exc:
                 if random_reader is not None:
@@ -2253,7 +2318,7 @@ async def execute_archive_extraction(
             stream_heartbeat = _throttled_heartbeat(lambda: state_store.heartbeat(operation))
             aggregate = await extract_live_archive_to_new_paths(
                 source_session,
-                destination=backend,
+                destination=destination_backend,
                 destination_root=operation.destination_path,
                 existing_file_policy=operation.collision_policy,
                 is_cancelled=lambda: state_store.is_cancelled(operation),

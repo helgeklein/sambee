@@ -844,6 +844,17 @@ def _apply_nullable_archive_operation_checkpoint_migration(connection: Connectio
         connection.execute(text(f"CREATE INDEX IF NOT EXISTS ix_archive_operations_{column} ON archive_operations ({column})"))
 
 
+def _apply_archive_operation_member_selection_migration(connection: Connection) -> None:
+    """Store immutable selected-member roots for archive extraction operations."""
+
+    inspector = inspect(connection)
+    if not inspector.has_table("archive_operations"):
+        return
+    column_names = {column["name"] for column in inspector.get_columns("archive_operations")}
+    if "selected_member_paths_json" not in column_names:
+        connection.execute(text("ALTER TABLE archive_operations ADD COLUMN selected_member_paths_json TEXT"))
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="ensure_connection_slugs", apply=_apply_connection_slug_migration),
     Migration(version=2, name="add_user_role_and_session_fields", apply=_apply_user_role_migration),
@@ -879,6 +890,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(
         version=32, name="allow_uninitialized_archive_operation_checkpoints", apply=_apply_nullable_archive_operation_checkpoint_migration
     ),
+    Migration(version=33, name="add_archive_operation_member_selection", apply=_apply_archive_operation_member_selection_migration),
 )
 
 

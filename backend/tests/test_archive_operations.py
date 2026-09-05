@@ -1639,6 +1639,34 @@ def test_direct_extraction_source_loss_persists_known_aggregate_progress(
     assert reader.closed
 
 
+def test_companion_capability_returns_persisted_selected_member_paths(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        json={
+            "contract_version": "v2",
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "input.zip",
+            "destination_connection_id": "local-drive:c",
+            "destination_path": "output",
+            "selected_member_paths": ["docs", "docs/readme.txt"],
+        },
+    ).json()
+
+    capability = client.post(
+        f"/api/archive/v2/operations/{prepared['id']}/companion-session",
+        headers=auth_headers_user,
+    )
+
+    assert capability.status_code == 200
+    assert capability.json()["selected_member_paths"] == ["docs"]
+
+
 def test_live_smb_to_companion_relay_is_source_driven_and_aggregate_only(
     client: TestClient,
     auth_headers_user: dict,

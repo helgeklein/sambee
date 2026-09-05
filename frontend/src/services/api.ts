@@ -967,12 +967,22 @@ class ApiService {
     }
   }
 
-  async startLocalArchiveExtraction(connectionId: string, archivePath: string, destinationPath: string): Promise<LocalArchiveExecution> {
+  async startLocalArchiveExtraction(
+    connectionId: string,
+    archivePath: string,
+    destinationPath: string,
+    selectedMemberPaths?: string[],
+    destinationConnectionId?: string
+  ): Promise<LocalArchiveExecution> {
     return this.startLocalArchiveExecution(connectionId, {
       kind: "extract",
       contract_version: "v2",
       archive_path: archivePath,
       destination_path: destinationPath,
+      ...(selectedMemberPaths ? { selected_member_paths: selectedMemberPaths } : {}),
+      ...(destinationConnectionId && destinationConnectionId !== connectionId
+        ? { destination_drive: getBrowseSegment(destinationConnectionId) }
+        : {}),
     });
   }
 
@@ -988,7 +998,14 @@ class ApiService {
   private async startLocalArchiveExecution(
     connectionId: string,
     body:
-      | { kind: "extract"; contract_version: "v2"; archive_path: string; destination_path: string }
+      | {
+          kind: "extract";
+          contract_version: "v2";
+          archive_path: string;
+          destination_path: string;
+          selected_member_paths?: string[];
+          destination_drive?: string;
+        }
       | { kind: "create"; contract_version: "v2"; source_paths: string[]; target_path: string }
   ): Promise<LocalArchiveExecution> {
     const segment = getBrowseSegment(connectionId);

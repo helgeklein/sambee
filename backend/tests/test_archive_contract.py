@@ -108,6 +108,7 @@ def test_v2_runtime_backend_payloads_conform_to_the_shared_schema(
             "source_path": "backup.zip",
             "destination_connection_id": str(test_connection.id),
             "destination_path": "backup",
+            "selected_member_paths": ["docs", "readme.txt"],
         },
     )
     assert response.status_code == 201

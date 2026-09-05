@@ -35,7 +35,8 @@ use crate::http_client::{classify_proxy_auth_intercept, log_request_error, Sambe
 use crate::{commands, show_pairing_success, show_pairing_window};
 
 use super::archive::{
-    build_local_archive_manifest_for_remote_target, build_local_archive_manifest_with_cancellation, create_local_archive_relay_writer,
+    build_local_archive_manifest_for_remote_target, build_local_archive_manifest_with_cancellation,
+    canonicalize_local_archive_member_roots, create_local_archive_relay_writer,
     create_local_archive_with_execution_plan_progress_and_state, create_local_extraction_root, ensure_local_extraction_directory,
     prepare_local_archive_target_output, project_local_archive_creation_manifest, resolve_companion_archive_inspection_topology_plan,
     resolve_companion_archive_topology_plan, stream_validated_local_archive_entry, validate_local_extraction_member_path,
@@ -49,7 +50,7 @@ use super::archive::{
 use super::archive_sessions::{
     ArchiveSessionCompletion, ArchiveSessionKind, ArchiveSessionManager, ArchiveSessionProgress, ArchiveSessionStatus, ArchiveSessionWork,
     ExpiredRelaySourceCapability, LiveLocalArchiveSourcePhase, LiveLocalArchiveSourceSession, PreparedLocalArchiveCreation,
-    ARCHIVE_SESSION_TIMEOUT,
+    RelayLiveSourceDetails, ARCHIVE_SESSION_TIMEOUT,
 };
 use super::auth;
 use super::drives;
@@ -1924,9 +1925,20 @@ fn archive_relay_transport(
 #[derive(Deserialize)]
 struct ArchiveCompanionCapabilityResponse {
     token: String,
+    selected_member_paths: Option<Vec<String>>,
 }
 
-async fn mint_archive_relay_capability(state: &AppState, headers: &HeaderMap, operation_id: &str) -> Result<(String, String), ApiError> {
+struct ArchiveRelayCapability {
+    server_url: String,
+    operation_token: String,
+    selected_member_paths: Option<Vec<String>>,
+}
+
+async fn mint_archive_relay_capability(
+    state: &AppState,
+    headers: &HeaderMap,
+    operation_id: &str,
+) -> Result<ArchiveRelayCapability, ApiError> {
     let operation_id =
         uuid::Uuid::parse_str(operation_id).map_err(|_| ApiError::BadRequest("Archive operation ID is invalid".to_string()))?;
     let authorization = headers
@@ -1958,7 +1970,11 @@ async fn mint_archive_relay_capability(state: &AppState, headers: &HeaderMap, op
             ))
         })?;
     let capability: ArchiveCompanionCapabilityResponse = decode_archive_relay_json(response, "mint archive relay capability").await?;
-    Ok((server_url, capability.token))
+    Ok(ArchiveRelayCapability {
+        server_url,
+        operation_token: capability.token,
+        selected_member_paths: capability.selected_member_paths,
+    })
 }
 
 async fn fail_expired_relay_source(state: &AppState, headers: &HeaderMap, operation_id: &str, drive: &str) -> Result<bool, ApiError> {
@@ -3720,6 +3736,8 @@ async fn start_v2_local_archive_execution(
             contract_version,
             archive_path,
             destination_path,
+            destination_drive,
+            selected_member_paths,
         } => {
             require_archive_v2_contract_version(contract_version)?;
             match resolve_companion_archive_topology(CompanionArchiveOperationKind::Extract, true, true)? {
@@ -3731,10 +3749,18 @@ async fn start_v2_local_archive_execution(
                 }
             }
             let (base_path, archive_path, destination_path) =
-                resolve_local_archive_extraction_request(&drive, &archive_path, &destination_path)?;
+                resolve_local_archive_extraction_request(&drive, destination_drive.as_deref(), &archive_path, &destination_path)?;
+            let selected_member_roots = canonicalize_local_archive_member_roots(selected_member_paths).map_err(map_local_archive_error)?;
             state
                 .archive_sessions
-                .create_extraction(drive.clone(), owner_origin.clone(), base_path, archive_path, destination_path)
+                .create_extraction_with_selection(
+                    drive.clone(),
+                    owner_origin.clone(),
+                    base_path,
+                    archive_path,
+                    destination_path,
+                    selected_member_roots,
+                )
                 .await
         }
     };
@@ -3925,13 +3951,15 @@ async fn execute_relay_extraction_from_local_source(
     if fail_expired_relay_source(&state, &headers, &body.operation_id, &drive).await? {
         return Err(ApiError::conflict_message("Archive relay source expired and is unavailable"));
     }
-    let (server_url, operation_token) = mint_archive_relay_capability(&state, &headers, &body.operation_id).await?;
+    let capability = mint_archive_relay_capability(&state, &headers, &body.operation_id).await?;
+    let selected_member_roots = canonicalize_local_archive_member_roots(capability.selected_member_paths)
+        .map_err(|error| ApiError::Internal(format!("Archive capability contains invalid selected member paths: {error}")))?;
     let transport = archive_relay_transport(
         &state,
         &headers,
-        &server_url,
+        &capability.server_url,
         &body.operation_id,
-        operation_token.clone(),
+        capability.operation_token.clone(),
         ArchiveRelayBinding::LocalZipToSmbExtract,
     )?;
     let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
@@ -3940,13 +3968,16 @@ async fn execute_relay_extraction_from_local_source(
     let owner_origin = extract_origin(&headers)?;
     let (source, cancellation_requested) = state
         .archive_sessions
-        .start_relay_live_source(
+        .start_relay_live_source_with_selection(
             &body.operation_id,
-            &drive,
-            &owner_origin,
-            archive_path,
-            &server_url,
-            &operation_token,
+            RelayLiveSourceDetails {
+                drive: drive.clone(),
+                owner_origin,
+                archive_path,
+                server_url: capability.server_url.clone(),
+                operation_token: capability.operation_token.clone(),
+                selected_member_roots,
+            },
         )
         .await?;
     let result = match extract_local_archive_to_smb_destination_live(&relay, source, cancellation_requested).await {
@@ -4319,13 +4350,13 @@ async fn execute_relay_extraction_to_local_destination(
     if body.destination_path.trim().is_empty() || body.operation_id.trim().is_empty() {
         return Err(ApiError::BadRequest("Destination and operation are required".to_string()));
     }
-    let (server_url, operation_token) = mint_archive_relay_capability(&state, &headers, &body.operation_id).await?;
+    let capability = mint_archive_relay_capability(&state, &headers, &body.operation_id).await?;
     let transport = archive_relay_transport(
         &state,
         &headers,
-        &server_url,
+        &capability.server_url,
         &body.operation_id,
-        operation_token,
+        capability.operation_token,
         ArchiveRelayBinding::SmbZipToLocalExtract,
     )?;
     let drive_root = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
@@ -4713,6 +4744,7 @@ fn map_local_archive_error(error: LocalArchiveError) -> ApiError {
         | LocalArchiveError::EmptyCreationManifest
         | LocalArchiveError::InvalidDirectorySourceSize
         | LocalArchiveError::UnknownCreationMember
+        | LocalArchiveError::UnknownExtractionMember
         | LocalArchiveError::InvalidCreationOutcome
         | LocalArchiveError::ConflictingCreationOutcome
         | LocalArchiveError::IncompleteCreationManifest
@@ -5520,16 +5552,20 @@ fn resolve_safe_path_for_new(base: &std::path::Path, drive: &str, relative: &str
 
 fn resolve_local_archive_extraction_request(
     drive: &str,
+    destination_drive: Option<&str>,
     archive_path: &str,
     destination_path: &str,
 ) -> Result<(PathBuf, PathBuf, PathBuf), ApiError> {
     if archive_path.trim().is_empty() || destination_path.trim().is_empty() {
         return Err(ApiError::BadRequest("Archive and destination paths are required".to_string()));
     }
-    let base_path = drives::resolve_drive_path(drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
-    let archive_path = resolve_safe_path(&base_path, drive, archive_path)?;
-    let destination_path = resolve_safe_path_for_new(&base_path, drive, destination_path)?;
-    Ok((base_path, archive_path, destination_path))
+    let source_base_path = drives::resolve_drive_path(drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let archive_path = resolve_safe_path(&source_base_path, drive, archive_path)?;
+    let destination_drive = destination_drive.unwrap_or(drive);
+    let destination_base_path =
+        drives::resolve_drive_path(destination_drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {destination_drive}")))?;
+    let destination_path = resolve_safe_path_for_new(&destination_base_path, destination_drive, destination_path)?;
+    Ok((destination_base_path, archive_path, destination_path))
 }
 
 fn resolve_local_archive_creation_request(

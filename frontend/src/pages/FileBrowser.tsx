@@ -468,6 +468,7 @@ const Browser: React.FC = () => {
   const archiveCreationExecutionRef = React.useRef<ContentOperationExecution | null>(null);
   const [archiveExtractionContext, setArchiveExtractionContext] = useState<{
     location: VirtualLocation;
+    selectedMemberPaths?: string[];
     destinationParent: PhysicalLocation;
     destinationPaneId: PaneId;
     usesSiblingDirectory: boolean;
@@ -731,6 +732,17 @@ const Browser: React.FC = () => {
           contentOperationEnvironment
         ).available
     );
+  const inactivePane = effectiveActivePaneId === "left" ? rightPane : leftPane;
+  const activePaneCanExtractSelectedMembers =
+    isDualMode &&
+    activePane.currentLocation.kind === "virtual" &&
+    activePane.currentLocation.providerId === "zip" &&
+    activePane.contentCapabilities.extract &&
+    inactivePane.currentLocation.kind === "physical" &&
+    inactivePane.contentCapabilities.mutate &&
+    activePane
+      .getEffectiveSelection()
+      .some((item) => item.handle.kind === "virtual" && item.handle.location.providerId === "zip" && item.entry.is_readable);
   const createContainerDestination = isDualMode
     ? (effectiveActivePaneId === "left" ? rightPane : leftPane).currentLocation
     : activePane.currentLocation;
@@ -1840,9 +1852,6 @@ const Browser: React.FC = () => {
     [allConnections, contentOperationEnvironment, isDualMode, leftPane, rightPane]
   );
 
-  /** Open the copy dialog (F5). */
-  const handleCopyToOtherPane = useCallback(() => handleOpenCopyMoveDialog("copy"), [handleOpenCopyMoveDialog]);
-
   /** Open the move dialog (F6). */
   const handleMoveToOtherPane = useCallback(() => handleOpenCopyMoveDialog("move"), [handleOpenCopyMoveDialog]);
 
@@ -2157,37 +2166,41 @@ const Browser: React.FC = () => {
     }
   }, [t]);
 
-  const handleArchiveExtractionRequest = useCallback(() => {
-    const location = archiveExtractionSource;
-    if (!location) {
-      return;
-    }
-    const destinationPaneId: PaneId = isDualMode ? (effectiveActivePaneId === "left" ? "right" : "left") : effectiveActivePaneId;
-    const destinationPane = destinationPaneId === "right" ? rightPane : leftPane;
-    if (isDualMode && (destinationPane.currentLocation.kind !== "physical" || !destinationPane.contentCapabilities.mutate)) {
-      return;
-    }
-    const archiveName = fileName(location.source.path);
-    const usesSiblingDirectory = !isDualMode;
-    setArchiveExtractionError(null);
-    setArchiveExtractionContext({
-      location,
-      destinationParent: usesSiblingDirectory
-        ? physicalLocation(location.source.connectionId, parentPath(location.source.path))
-        : destinationPane.currentLocation,
-      destinationPaneId,
-      usesSiblingDirectory,
-      destination: null,
-      destinationLabel: getLocationDisplayName(
-        usesSiblingDirectory
+  const handleArchiveExtractionRequest = useCallback(
+    (selectedMemberPaths?: string[]) => {
+      const location = archiveExtractionSource;
+      if (!location) {
+        return;
+      }
+      const destinationPaneId: PaneId = isDualMode ? (effectiveActivePaneId === "left" ? "right" : "left") : effectiveActivePaneId;
+      const destinationPane = destinationPaneId === "right" ? rightPane : leftPane;
+      if (isDualMode && (destinationPane.currentLocation.kind !== "physical" || !destinationPane.contentCapabilities.mutate)) {
+        return;
+      }
+      const archiveName = fileName(location.source.path);
+      const usesSiblingDirectory = !isDualMode;
+      setArchiveExtractionError(null);
+      setArchiveExtractionContext({
+        location,
+        selectedMemberPaths,
+        destinationParent: usesSiblingDirectory
           ? physicalLocation(location.source.connectionId, parentPath(location.source.path))
           : destinationPane.currentLocation,
-        (connectionId) => getConnectionById(allConnections, connectionId)?.name ?? connectionId
-      ),
-      archiveName,
-      initialDestinationName: archiveName.replace(/\.zip$/i, "") || archiveName,
-    });
-  }, [allConnections, archiveExtractionSource, effectiveActivePaneId, isDualMode, leftPane, rightPane]);
+        destinationPaneId,
+        usesSiblingDirectory,
+        destination: null,
+        destinationLabel: getLocationDisplayName(
+          usesSiblingDirectory
+            ? physicalLocation(location.source.connectionId, parentPath(location.source.path))
+            : destinationPane.currentLocation,
+          (connectionId) => getConnectionById(allConnections, connectionId)?.name ?? connectionId
+        ),
+        archiveName,
+        initialDestinationName: archiveName.replace(/\.zip$/i, "") || archiveName,
+      });
+    },
+    [allConnections, archiveExtractionSource, effectiveActivePaneId, isDualMode, leftPane, rightPane]
+  );
 
   const completeArchiveExtraction = useCallback(
     (outcome: ArchiveExtractionOutcome, context: NonNullable<typeof archiveExtractionContext>) => {
@@ -2243,6 +2256,7 @@ const Browser: React.FC = () => {
       const execution = startArchiveExtraction(browserContentServices.providers, {
         source: executionContext.location,
         destination,
+        selectedMemberPaths: executionContext.selectedMemberPaths,
       });
       archiveExtractionExecutionRef.current = execution;
       const unsubscribeProgress = execution.onProgress(setArchiveExtractionProgress);
@@ -2317,6 +2331,29 @@ const Browser: React.FC = () => {
     },
     [archiveExtractionContext, archiveExtractionMemberError, completeArchiveExtraction, t]
   );
+
+  /** Route F5 in a ZIP pane to selected-member extraction. */
+  const handleCopyToOtherPane = useCallback(() => {
+    const location = activePane.currentLocation;
+    if (location.kind === "virtual" && location.providerId === "zip" && isDualMode) {
+      const selectedMemberPaths = activePane
+        .getEffectiveSelection()
+        .flatMap((item) =>
+          item.handle.kind === "virtual" &&
+          item.handle.location.providerId === "zip" &&
+          item.handle.location.connectionId === location.connectionId &&
+          item.handle.location.source.path === location.source.path &&
+          item.entry.is_readable
+            ? [item.handle.path]
+            : []
+        );
+      if (selectedMemberPaths.length > 0) {
+        handleArchiveExtractionRequest(selectedMemberPaths);
+      }
+      return;
+    }
+    handleOpenCopyMoveDialog("copy");
+  }, [activePane, handleArchiveExtractionRequest, handleOpenCopyMoveDialog, isDualMode]);
 
   const browserCommandContext = useMemo(
     () => ({
@@ -2641,7 +2678,7 @@ const Browser: React.FC = () => {
       {
         ...COPY_MOVE_SHORTCUTS.COPY_TO_OTHER_PANE,
         handler: handleCopyToOtherPane,
-        enabled: isDualMode && browsing && !activePaneIsArchive && noDialogOrCopyMove,
+        enabled: isDualMode && browsing && noDialogOrCopyMove && (!activePaneIsArchive || activePaneCanExtractSelectedMembers),
       },
       // Move to other pane (F6 in dual mode)
       {
@@ -2725,6 +2762,7 @@ const Browser: React.FC = () => {
   }, [
     activePane,
     activePaneCanOpenInApp,
+    activePaneCanExtractSelectedMembers,
     activePaneIsArchive,
     handleOpenSettings,
     handleOpenConnectionSelector,

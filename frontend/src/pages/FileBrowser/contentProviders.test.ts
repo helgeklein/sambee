@@ -276,6 +276,27 @@ describe("content providers", () => {
     vi.clearAllMocks();
   });
 
+  it("persists selected ZIP member roots before starting extraction", async () => {
+    vi.mocked(api.prepareArchiveOperation).mockResolvedValueOnce({ id: "extract-selected" } as never);
+    vi.mocked(api.executeArchiveExtraction).mockResolvedValueOnce({
+      phase: "completed",
+      checkpoint_json: JSON.stringify({}),
+    } as never);
+    const destination = physicalLocation("conn-1", "output");
+
+    await expect(
+      startArchiveExtraction(createContentProviderRegistry(), {
+        source: archiveLocation,
+        destination,
+        selectedMemberPaths: ["docs", "docs/readme.txt"],
+      }).result
+    ).resolves.toMatchObject({ status: "completed" });
+
+    expect(api.prepareArchiveOperation).toHaveBeenCalledWith(
+      expect.objectContaining({ selected_member_paths: ["docs", "docs/readme.txt"] })
+    );
+  });
+
   it("resumes a paused direct-local extraction through the Companion decision endpoint", async () => {
     const localArchiveLocation = virtualLocation("zip", "local-drive:c", physicalLocation("local-drive:c", "archives/one.zip"), "");
     vi.mocked(api.startLocalArchiveExtraction).mockResolvedValueOnce({
@@ -632,24 +653,51 @@ describe("content providers", () => {
     expect(api.executeArchiveExtraction).not.toHaveBeenCalled();
   });
 
-  it("rejects unsupported cross-connection archive extraction pairs", async () => {
+  it("extracts ZIP members across local drives and distinct SMB connections", async () => {
     vi.clearAllMocks();
     const localArchiveLocation = virtualLocation("zip", "local-drive:c", physicalLocation("local-drive:c", "archives/one.zip"), "");
     const otherSmbArchiveLocation = virtualLocation("zip", "conn-1", physicalLocation("conn-1", "archives/one.zip"), "");
+    vi.mocked(api.startLocalArchiveExtraction).mockResolvedValueOnce({
+      execution_id: "local-extract-1",
+      phase: "streaming",
+      revision: 1,
+      progress: localArchiveProgress(),
+      cancellation_requested: false,
+    });
+    vi.mocked(api.waitForLocalArchiveExecution).mockResolvedValueOnce({
+      execution_id: "local-extract-1",
+      phase: "completed",
+      revision: 2,
+      progress: localArchiveProgress(),
+      cancellation_requested: false,
+      aggregate_counters: extractionAggregate(),
+    });
 
     await expect(
       startArchiveExtraction(createContentProviderRegistry(), {
         source: localArchiveLocation,
         destination: physicalLocation("local-drive:d", "output"),
       }).result
-    ).rejects.toThrow("between local drives");
+    ).resolves.toMatchObject({ status: "completed" });
+    expect(api.startLocalArchiveExtraction).toHaveBeenCalledWith("local-drive:c", "archives/one.zip", "output", undefined, "local-drive:d");
+    vi.mocked(api.prepareArchiveOperation).mockResolvedValueOnce({ id: "extract-remote-1" } as never);
+    vi.mocked(api.executeArchiveExtraction).mockResolvedValueOnce({
+      phase: "completed",
+      checkpoint_json: JSON.stringify({ version: 2, aggregate_counters: extractionAggregate(1, 1, 5) }),
+    } as never);
     await expect(
       startArchiveExtraction(createContentProviderRegistry(), {
         source: otherSmbArchiveLocation,
         destination: physicalLocation("conn-2", "output"),
       }).result
-    ).rejects.toThrow("between SMB connections");
-    expect(api.prepareArchiveOperation).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({ status: "completed", summary: { filesExtracted: 1, directoriesCreated: 1 } });
+    expect(api.prepareArchiveOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source_connection_id: "conn-1",
+        destination_connection_id: "conn-2",
+      })
+    );
+    expect(api.executeArchiveExtraction).toHaveBeenCalledWith("extract-remote-1");
   });
 
   it("preserves a server collision decision and resumes the same extraction operation", async () => {

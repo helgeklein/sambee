@@ -475,6 +475,13 @@
         },
         "destination_path": {
           "type": "string"
+        },
+        "selected_member_paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/memberPath"
+          }
         }
       }
     },
@@ -679,6 +686,15 @@
         },
         "operation": {
           "$ref": "#/$defs/operationRead"
+        },
+        "selected_member_paths": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/memberPath"
+          }
         }
       }
     },
