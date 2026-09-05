@@ -3,7 +3,7 @@ import { logger } from "../../services/logger";
 import { publishRecentFilesChanged } from "../../services/recentFilesSync";
 import type { StorageArchiveOperationCoordinator } from "../../services/storageArchiveOperations";
 import type { ContentTransferResult, StorageBackendRegistry, TargetResolutionPolicy } from "../../services/storageContracts";
-import { transferAcrossStorageBackends } from "../../services/storageTransferOperations";
+import { recoverForegroundStorageTransfer, transferAcrossStorageBackends } from "../../services/storageTransferOperations";
 import { FileType, isApiError } from "../../types";
 import { startZipArchiveExtraction } from "./archiveExtractionExecution";
 import type {
@@ -280,9 +280,7 @@ export async function executeTransfer(request: TransferRequest, environment: Con
   const idempotencyKey = crypto.randomUUID();
   const targetResolutionPolicy = request.targetResolutionPolicy ?? "ask";
   const targetName = request.targetName ?? source.path.split("/").pop() ?? "";
-  const requiresStreamRelay =
-    source.target.kind !== destination.target.kind ||
-    (source.target.kind === "local" && destination.target.kind === "local" && source.target.driveId !== destination.target.driveId);
+  const requiresStreamRelay = source.target.kind !== destination.target.kind;
   if (requiresStreamRelay) {
     const targetPath = `${destination.path}/${targetName}`.replace(/^\//, "");
     return transferAcrossStorageBackends(
@@ -403,6 +401,10 @@ export function cancelForegroundArchiveOperationOnPageHide(archiveOperations: St
 
 export function hasForegroundArchiveOperationWork(archiveOperations: StorageArchiveOperationCoordinator): boolean {
   return archiveOperations.hasForegroundWork();
+}
+
+export async function recoverInterruptedPhysicalTransfer(): Promise<boolean> {
+  return recoverForegroundStorageTransfer();
 }
 
 export async function deleteContentItems(items: readonly ContentItemHandle[], environment: ContentOperationEnvironment): Promise<void> {

@@ -94,6 +94,7 @@ import {
   hasForegroundArchiveOperationWork,
   isPartialContainerOutputError,
   recoverInterruptedArchiveOperation,
+  recoverInterruptedPhysicalTransfer,
   startArchiveExtraction,
   startCreateContainer,
 } from "./FileBrowser/contentOperations";
@@ -500,6 +501,7 @@ const Browser: React.FC = () => {
     void recoverInterruptedArchiveOperation(browserContentServices.archiveOperations).then((interrupted) => {
       if (interrupted) setArchiveInterruptionNoticeOpen(true);
     });
+    void recoverInterruptedPhysicalTransfer();
 
     const handlePageHide = () => {
       cancelForegroundArchiveOperationOnPageHide(browserContentServices.archiveOperations);
@@ -1868,8 +1870,6 @@ const Browser: React.FC = () => {
       setCopyMoveTransferProgress(null);
       setCopyMoveProgress({ current: 0, total: copyMoveItems.length });
       const errors: string[] = [];
-      let destinationMutated = false;
-      let sourceMutated = false;
       let effectiveStrategy: CopyMoveConflictPolicy = "ask";
       let conflictCount = 0;
       let operationCancelled = false;
@@ -1882,11 +1882,10 @@ const Browser: React.FC = () => {
         const execute = (targetResolutionPolicy: TargetResolutionPolicy = "ask") =>
           executeTransfer({ ...request, targetName, targetResolutionPolicy }, contentOperationEnvironment);
         const applyTransferResult = (result: import("./services/storageContracts").ContentTransferResult) => {
-          destinationMutated ||= result.effects.destination !== "unchanged";
-          sourceMutated ||= result.effects.source !== "unchanged";
           if (result.status === "completed" || result.status === "skipped") return;
           if (result.status === "completed_with_source_retained") {
-            throw new Error(result.error.detail);
+            errors.push(`${item.entry.name}: ${result.error.detail}`);
+            return;
           }
           if (result.status === "outcome_unknown") {
             outcomeUnknown = true;
@@ -1979,8 +1978,8 @@ const Browser: React.FC = () => {
       setCopyMoveTransferProgress(null);
       const sourcePane = copyMoveSourcePaneId === "left" ? leftPane : rightPane;
       const destinationPane = copyMoveDestinationPaneId === "left" ? leftPane : rightPane;
-      if (destinationMutated) void destinationPane.reloadCurrentLocation({ forceRefresh: true });
-      if (sourceMutated) void sourcePane.reloadCurrentLocation({ forceRefresh: true });
+      void destinationPane.reloadCurrentLocation({ forceRefresh: true });
+      void sourcePane.reloadCurrentLocation({ forceRefresh: true });
       if (operationCancelled) {
         setCopyMoveDialogOpen(false);
         setConflictInfo(null);

@@ -1122,29 +1122,27 @@ pub struct ContentTransferResult {
     error: Option<ContentTransferError>,
 }
 
-const TRANSFER_UNAVAILABLE_DETAIL: &str = "Transfers are unavailable in this release";
-
-fn unavailable_transfer_result() -> ContentTransferResult {
-    ContentTransferResult {
-        status: "failed",
-        effects: ContentTransferEffects {
-            source: "unchanged",
-            destination: "unchanged",
-        },
-        replaced: false,
-        error: Some(ContentTransferError {
-            code: "unavailable",
-            detail: TRANSFER_UNAVAILABLE_DETAIL.to_string(),
-        }),
-    }
-}
-
 fn completed_transfer_result(source: &'static str, destination: &'static str) -> ContentTransferResult {
     ContentTransferResult {
         status: "completed",
         effects: ContentTransferEffects { source, destination },
         replaced: false,
         error: None,
+    }
+}
+
+fn completed_with_source_retained_transfer_result() -> ContentTransferResult {
+    ContentTransferResult {
+        status: "completed_with_source_retained",
+        effects: ContentTransferEffects {
+            source: "unchanged",
+            destination: "mutated",
+        },
+        replaced: false,
+        error: Some(ContentTransferError {
+            code: "source_delete_failed",
+            detail: "Destination was created but the source was retained because guarded cross-drive deletion is unavailable.".to_string(),
+        }),
     }
 }
 
@@ -1559,7 +1557,15 @@ async fn execute_browse_move(drive: &str, body: &CopyMoveRequest) -> Result<Cont
     let base_path = drives::resolve_drive_path(drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
     let (dest_drive, dest_base) = resolve_dest_drive(drive, &body.dest_connection_id)?;
     if base_path != dest_base {
-        return Ok(unavailable_transfer_result());
+        let copy_result = execute_browse_copy(drive, body).await?;
+        return Ok(if copy_result.status == "completed" {
+            ContentTransferResult {
+                replaced: copy_result.replaced,
+                ..completed_with_source_retained_transfer_result()
+            }
+        } else {
+            copy_result
+        });
     }
 
     validate_copy_move_paths(&body.source_path, &body.dest_path)?;
@@ -6086,6 +6092,43 @@ mod tests {
         .await;
 
         assert!(matches!(response, Err(ApiError::NotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn cross_drive_move_commits_destination_and_retains_source() {
+        let source_directory = tempfile::tempdir().expect("source directory should be created");
+        let destination_directory = tempfile::tempdir().expect("destination directory should be created");
+        let source_drive = format!("source-{}", uuid::Uuid::new_v4());
+        let destination_drive = format!("destination-{}", uuid::Uuid::new_v4());
+        super::drives::register_test_drive_path(source_drive.clone(), source_directory.path().to_path_buf());
+        super::drives::register_test_drive_path(destination_drive.clone(), destination_directory.path().to_path_buf());
+        let source = source_directory.path().join("report.txt");
+        tokio::fs::write(&source, b"report").await.expect("source should be written");
+
+        let result = super::execute_browse_move(
+            &source_drive,
+            &CopyMoveRequest {
+                source_path: "report.txt".to_string(),
+                dest_path: "incoming/report.txt".to_string(),
+                dest_connection_id: Some(format!("local-drive:{destination_drive}")),
+                target_resolution_policy: Some("ask".to_string()),
+                overwrite: None,
+                idempotency_key: uuid::Uuid::new_v4().to_string(),
+            },
+        )
+        .await
+        .expect("cross-drive copy should succeed");
+
+        assert_eq!(result.status, "completed_with_source_retained");
+        assert_eq!(result.effects.source, "unchanged");
+        assert_eq!(result.effects.destination, "mutated");
+        assert!(source.exists());
+        assert_eq!(
+            tokio::fs::read(destination_directory.path().join("incoming/report.txt"))
+                .await
+                .expect("destination should exist"),
+            b"report"
+        );
     }
 
     #[tokio::test]

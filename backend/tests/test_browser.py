@@ -22,6 +22,7 @@ from app.core.security import create_access_token
 from app.models.connection import Connection, ConnectionScope
 from app.models.edit_lock import EditLock
 from app.models.file import ContentTransferEffects, ContentTransferResult, CopyMoveRequest, DirectoryListing, FileInfo, FileType
+from app.models.transfer_operation import TransferOperation, TransferOperationPhase
 
 
 class _MemoryRandomAccessReader:
@@ -261,6 +262,322 @@ def test_durable_transfer_operation_replays_preparation_and_persists_execution_r
     assert status.json()["phase"] == "completed"
     assert status.json()["bytes_transferred"] == 6
     assert status.json()["result"]["status"] == "completed"
+
+
+def test_durable_transfer_operation_rejects_a_source_changed_after_preparation(
+    client: TestClient,
+    auth_headers_user: dict,
+    multiple_connections: list[Connection],
+):
+    """Execution must not reset the prepared source identity baseline."""
+
+    source_connection, destination_connection = multiple_connections[:2]
+    prepared_info = FileInfo(
+        name="report.txt",
+        path="reports/report.txt",
+        type=FileType.FILE,
+        size=6,
+        modified_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        stable_id="original-id",
+    )
+    changed_info = prepared_info.model_copy(update={"stable_id": "replacement-id"})
+    with patch("app.api.browser.SMBBackend") as mock_backend:
+        prepared_source = AsyncMock()
+        execution_source = AsyncMock()
+        destination = AsyncMock()
+        prepared_source.get_file_info.return_value = prepared_info
+        execution_source.get_file_info.return_value = changed_info
+        mock_backend.side_effect = [prepared_source, execution_source, destination]
+        prepared = client.post(
+            f"/api/browse/{destination_connection.id}/transfer-operations",
+            headers=auth_headers_user,
+            json={
+                "protocol_version": "v1",
+                "idempotency_key": str(uuid.uuid4()),
+                "kind": "copy",
+                "source_connection_id": str(source_connection.id),
+                "source_path": "reports/report.txt",
+                "destination_path": "incoming/report.txt",
+            },
+        )
+        operation_id = prepared.json()["id"]
+        executed = client.post(
+            f"/api/browse/{destination_connection.id}/transfer-operations/{operation_id}/execute",
+            headers=auth_headers_user,
+        )
+
+    assert executed.status_code == 200
+    assert executed.json() == {
+        "status": "failed",
+        "replaced": False,
+        "effects": {"source": "unchanged", "destination": "unchanged"},
+        "error": {
+            "code": "source_changed",
+            "detail": "Source changed before durable transfer execution: reports/report.txt",
+        },
+    }
+    destination.stage_and_commit_new_file_from_stream.assert_not_awaited()
+
+
+def test_durable_transfer_operation_cancels_before_provider_execution(
+    client: TestClient,
+    auth_headers_user: dict,
+    multiple_connections: list[Connection],
+):
+    """A prepared operation can be cancelled without opening either SMB provider."""
+
+    source_connection, destination_connection = multiple_connections[:2]
+    source_info = FileInfo(
+        name="report.txt",
+        path="reports/report.txt",
+        type=FileType.FILE,
+        size=6,
+        modified_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        stable_id="source-file-id",
+    )
+    with patch("app.api.browser.SMBBackend") as mock_backend:
+        prepared_source = AsyncMock()
+        prepared_source.get_file_info.return_value = source_info
+        mock_backend.return_value = prepared_source
+        prepared = client.post(
+            f"/api/browse/{destination_connection.id}/transfer-operations",
+            headers=auth_headers_user,
+            json={
+                "protocol_version": "v1",
+                "idempotency_key": str(uuid.uuid4()),
+                "kind": "move",
+                "source_connection_id": str(source_connection.id),
+                "source_path": "reports/report.txt",
+                "destination_path": "incoming/report.txt",
+            },
+        )
+        operation_id = prepared.json()["id"]
+        cancelled = client.post(
+            f"/api/browse/{destination_connection.id}/transfer-operations/{operation_id}/cancel",
+            headers=auth_headers_user,
+        )
+        executed = client.post(
+            f"/api/browse/{destination_connection.id}/transfer-operations/{operation_id}/execute",
+            headers=auth_headers_user,
+        )
+
+    assert cancelled.status_code == 200
+    assert cancelled.json()["phase"] == "cancelled"
+    assert cancelled.json()["cancellation_requested"] is True
+    assert cancelled.json()["result"]["status"] == "cancelled"
+    assert executed.json()["status"] == "cancelled"
+    assert mock_backend.call_count == 1
+
+
+def test_durable_transfer_operation_cancels_during_streaming(
+    client: TestClient,
+    session: Session,
+    auth_headers_user: dict,
+    multiple_connections: list[Connection],
+):
+    """A cancellation observed during a bounded write aborts before promotion."""
+
+    source_connection, destination_connection = multiple_connections[:2]
+    source_info = FileInfo(
+        name="report.txt",
+        path="reports/report.txt",
+        type=FileType.FILE,
+        size=6,
+        modified_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        stable_id="source-file-id",
+    )
+    with patch("app.api.browser.SMBBackend") as mock_backend:
+        prepared_source = AsyncMock()
+        execution_source = AsyncMock()
+        destination = AsyncMock()
+        prepared_source.get_file_info.return_value = source_info
+        execution_source.get_file_info.return_value = source_info
+
+        async def source_chunks():
+            yield b"report"
+
+        async def stage_and_cancel(_path: str, _stream, *, on_progress, **_kwargs: object) -> int:
+            operation = session.exec(select(TransferOperation)).one()
+            operation.cancellation_requested = True
+            session.add(operation)
+            session.commit()
+            on_progress(6, 6)
+            raise AssertionError("cancellation should interrupt the stage callback")
+
+        execution_source.read_file = lambda _path: source_chunks()
+        destination.get_file_info.side_effect = FileNotFoundError("missing target")
+        destination.stage_and_commit_new_file_from_stream.side_effect = stage_and_cancel
+        mock_backend.side_effect = [prepared_source, execution_source, destination]
+        prepared = client.post(
+            f"/api/browse/{destination_connection.id}/transfer-operations",
+            headers=auth_headers_user,
+            json={
+                "protocol_version": "v1",
+                "idempotency_key": str(uuid.uuid4()),
+                "kind": "copy",
+                "source_connection_id": str(source_connection.id),
+                "source_path": "reports/report.txt",
+                "destination_path": "incoming/report.txt",
+            },
+        )
+        executed = client.post(
+            f"/api/browse/{destination_connection.id}/transfer-operations/{prepared.json()['id']}/execute",
+            headers=auth_headers_user,
+        )
+
+    assert executed.status_code == 200
+    assert executed.json()["status"] == "cancelled"
+    assert executed.json()["effects"] == {"source": "unchanged", "destination": "unchanged"}
+
+
+def test_durable_transfer_operation_repairs_a_corrupt_terminal_receipt(
+    client: TestClient,
+    session: Session,
+    auth_headers_user: dict,
+    multiple_connections: list[Connection],
+):
+    """A terminal operation with unreadable state is recoverable as unknown, not restarted."""
+
+    source_connection, destination_connection = multiple_connections[:2]
+    source_info = FileInfo(
+        name="report.txt",
+        path="reports/report.txt",
+        type=FileType.FILE,
+        size=6,
+        modified_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        stable_id="source-file-id",
+    )
+    with patch("app.api.browser.SMBBackend") as mock_backend:
+        source_backend = AsyncMock()
+        source_backend.get_file_info.return_value = source_info
+        mock_backend.return_value = source_backend
+        prepared = client.post(
+            f"/api/browse/{destination_connection.id}/transfer-operations",
+            headers=auth_headers_user,
+            json={
+                "protocol_version": "v1",
+                "idempotency_key": str(uuid.uuid4()),
+                "kind": "copy",
+                "source_connection_id": str(source_connection.id),
+                "source_path": "reports/report.txt",
+                "destination_path": "incoming/report.txt",
+            },
+        )
+        operation = session.get(TransferOperation, uuid.UUID(prepared.json()["id"]))
+        assert operation is not None
+        operation.phase = TransferOperationPhase.COMPLETED
+        operation.result_json = "not json"
+        session.add(operation)
+        session.commit()
+        repaired = client.get(
+            f"/api/browse/{destination_connection.id}/transfer-operations/{operation.id}",
+            headers=auth_headers_user,
+        )
+
+    assert repaired.status_code == 200
+    assert repaired.json()["phase"] == "failed"
+    assert repaired.json()["result"] == {
+        "status": "outcome_unknown",
+        "replaced": False,
+        "effects": {"source": "unknown", "destination": "unknown"},
+        "error": None,
+    }
+    assert mock_backend.call_count == 1
+
+
+def test_durable_transfer_operation_is_scoped_to_its_destination_connection(
+    client: TestClient,
+    auth_headers_user: dict,
+    multiple_connections: list[Connection],
+):
+    """An operation ID cannot be used through another SMB destination route."""
+
+    source_connection, destination_connection = multiple_connections[:2]
+    source_info = FileInfo(
+        name="report.txt",
+        path="reports/report.txt",
+        type=FileType.FILE,
+        size=6,
+        modified_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        stable_id="source-file-id",
+    )
+    with patch("app.api.browser.SMBBackend") as mock_backend:
+        source_backend = AsyncMock()
+        source_backend.get_file_info.return_value = source_info
+        mock_backend.return_value = source_backend
+        prepared = client.post(
+            f"/api/browse/{destination_connection.id}/transfer-operations",
+            headers=auth_headers_user,
+            json={
+                "protocol_version": "v1",
+                "idempotency_key": str(uuid.uuid4()),
+                "kind": "copy",
+                "source_connection_id": str(source_connection.id),
+                "source_path": "reports/report.txt",
+                "destination_path": "incoming/report.txt",
+            },
+        )
+        wrong_destination = client.get(
+            f"/api/browse/{source_connection.id}/transfer-operations/{prepared.json()['id']}",
+            headers=auth_headers_user,
+        )
+
+    assert wrong_destination.status_code == 404
+    assert wrong_destination.json()["detail"] == "Transfer operation not found"
+
+
+def test_expired_streaming_transfer_operation_reports_an_unknown_outcome(
+    client: TestClient,
+    session: Session,
+    auth_headers_user: dict,
+    multiple_connections: list[Connection],
+):
+    """Expiry during streaming cannot claim either filesystem is unchanged."""
+
+    source_connection, destination_connection = multiple_connections[:2]
+    source_info = FileInfo(
+        name="report.txt",
+        path="reports/report.txt",
+        type=FileType.FILE,
+        size=6,
+        modified_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        stable_id="source-file-id",
+    )
+    with patch("app.api.browser.SMBBackend") as mock_backend:
+        source_backend = AsyncMock()
+        source_backend.get_file_info.return_value = source_info
+        mock_backend.return_value = source_backend
+        prepared = client.post(
+            f"/api/browse/{destination_connection.id}/transfer-operations",
+            headers=auth_headers_user,
+            json={
+                "protocol_version": "v1",
+                "idempotency_key": str(uuid.uuid4()),
+                "kind": "copy",
+                "source_connection_id": str(source_connection.id),
+                "source_path": "reports/report.txt",
+                "destination_path": "incoming/report.txt",
+            },
+        )
+        operation = session.get(TransferOperation, uuid.UUID(prepared.json()["id"]))
+        assert operation is not None
+        operation.phase = TransferOperationPhase.STREAMING
+        operation.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.add(operation)
+        session.commit()
+        expired = client.get(
+            f"/api/browse/{destination_connection.id}/transfer-operations/{operation.id}",
+            headers=auth_headers_user,
+        )
+
+    assert expired.status_code == 200
+    assert expired.json()["phase"] == "failed"
+    assert expired.json()["result"] == {
+        "status": "outcome_unknown",
+        "replaced": False,
+        "effects": {"source": "unknown", "destination": "unknown"},
+        "error": None,
+    }
 
 
 @pytest.mark.parametrize("idempotency_key", [None, "not-a-uuid"])

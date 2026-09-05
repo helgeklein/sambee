@@ -69,12 +69,20 @@ import { clearBrowserRecoverySnapshot } from "./browserRecoverySnapshot";
 import { COMPANION_BASE_URL } from "./companion";
 import { companionSession } from "./companionSession";
 import { snapshotRegisteredDrafts } from "./draftRecovery";
+import { clearForegroundTransferOperation, storeForegroundTransferOperation } from "./foregroundTransferOperation";
 import { logger } from "./logger";
 import type { ContentTransferResult, TargetResolutionPolicy } from "./storageContracts";
 
 export interface DirectorySearchOptions {
   includeDotDirectories?: boolean;
   signal?: AbortSignal;
+}
+
+export interface DurableTransferOperation {
+  id: string;
+  phase: "prepared" | "streaming" | "completed" | "failed" | "cancelled";
+  cancellation_requested: boolean;
+  result?: ContentTransferResult | null;
 }
 
 const CONNECTIONS_API_BASE = "/connections";
@@ -1618,7 +1626,7 @@ class ApiService {
   ): Promise<ContentTransferResult> {
     const destinationSegment = getBrowseSegment(destinationConnectionId);
     const { client, extraConfig } = await this.getClientConfig(destinationConnectionId);
-    const prepared = await client.post<{ id: string }>(
+    const prepared = await client.post<DurableTransferOperation>(
       `/browse/${destinationSegment}/transfer-operations`,
       {
         protocol_version: "v1",
@@ -1631,12 +1639,40 @@ class ApiService {
       },
       extraConfig
     );
-    return this.postTransfer(
+    storeForegroundTransferOperation(prepared.data.id, destinationConnectionId);
+    const result = await this.postTransfer(
       client,
       `/browse/${destinationSegment}/transfer-operations/${encodeURIComponent(prepared.data.id)}/execute`,
       {},
       extraConfig
     );
+    if (result.status !== "outcome_unknown") {
+      clearForegroundTransferOperation(prepared.data.id);
+    }
+    return result;
+  }
+
+  async getDurableTransferOperation(destinationConnectionId: string, operationId: string): Promise<DurableTransferOperation> {
+    const destinationSegment = getBrowseSegment(destinationConnectionId);
+    const { client, extraConfig } = await this.getClientConfig(destinationConnectionId);
+    return (
+      await client.get<DurableTransferOperation>(
+        `/browse/${destinationSegment}/transfer-operations/${encodeURIComponent(operationId)}`,
+        extraConfig
+      )
+    ).data;
+  }
+
+  async cancelDurableTransferOperation(destinationConnectionId: string, operationId: string): Promise<DurableTransferOperation> {
+    const destinationSegment = getBrowseSegment(destinationConnectionId);
+    const { client, extraConfig } = await this.getClientConfig(destinationConnectionId);
+    return (
+      await client.post<DurableTransferOperation>(
+        `/browse/${destinationSegment}/transfer-operations/${encodeURIComponent(operationId)}/cancel`,
+        {},
+        extraConfig
+      )
+    ).data;
   }
 
   private normalizeTransferResult(result: ContentTransferResult): ContentTransferResult {

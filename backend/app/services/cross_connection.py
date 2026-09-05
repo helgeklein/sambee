@@ -19,7 +19,7 @@ Design decisions
 """
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Optional
 
 from app.models.file import FileInfo, FileType
@@ -50,6 +50,7 @@ async def cross_connection_copy(
     source_path: str,
     dest_path: str,
     on_progress: ProgressCallback | None = None,
+    before_destination_commit: Callable[[], Awaitable[None]] | None = None,
     *,
     overwrite: bool = False,
     target_resolution_policy: TargetResolutionPolicy | None = None,
@@ -110,6 +111,7 @@ async def cross_connection_copy(
                 source_path,
                 dest_path,
                 on_progress,
+                before_destination_commit=before_destination_commit,
                 source_info=info,
                 source_snapshot=source_snapshot,
                 overwrite=False,
@@ -130,6 +132,7 @@ async def cross_connection_copy(
             source_path,
             dest_path,
             on_progress,
+            before_destination_commit=before_destination_commit,
             source_info=info,
             source_snapshot=source_snapshot,
             overwrite=overwrite,
@@ -236,6 +239,7 @@ async def _copy_file(
     dest_path: str,
     on_progress: ProgressCallback | None,
     *,
+    before_destination_commit: Callable[[], Awaitable[None]] | None = None,
     source_info: FileInfo | None = None,
     source_snapshot: RegularFileSourceSnapshot | None = None,
     overwrite: bool = False,
@@ -277,6 +281,8 @@ async def _copy_file(
             raise SourceChangedError(f"Source disappeared before commit: {source_path}") from error
         if not source_snapshot.matches(current_source):
             raise SourceChangedError(f"Source changed before commit: {source_path}")
+        if before_destination_commit is not None:
+            await before_destination_commit()
 
     # A fresh reader is created only after target policy has authorized this
     # attempt. The destination owns and discards its private stage on failure.

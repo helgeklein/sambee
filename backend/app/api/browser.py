@@ -71,6 +71,7 @@ from app.services.archive.execution import resolve_archive_inspection_topology_p
 from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.services.content_transfer import (
+    RegularFileSourceSnapshot,
     SourceChangedError,
     TargetCollisionError,
     resolve_regular_file_transfer,
@@ -107,7 +108,12 @@ logger = get_logger(__name__)
 DIRECTORY_LIST_ROUTE_TIMEOUT_SECONDS = 35.0
 TRANSFER_RECEIPT_TTL_SECONDS = 5 * 60
 TRANSFER_OPERATION_TTL = timedelta(seconds=TRANSFER_RECEIPT_TTL_SECONDS)
+TRANSFER_OPERATION_PROGRESS_PERSIST_INTERVAL_BYTES = 1024 * 1024
 TRANSFER_UNAVAILABLE_DETAIL = "Transfers are unavailable in this release"
+
+
+class TransferOperationCancelled(RuntimeError):
+    """Raised when a durable transfer observes a cooperative cancellation request."""
 
 
 @dataclass(frozen=True)
@@ -1310,16 +1316,12 @@ def _record_transfer_operation_result(
 ) -> TransferOperation:
     """Persist one terminal result before returning it to a retried caller."""
 
-    operation.phase = (
-        TransferOperationPhase.COMPLETED
-        if result.status
-        in {
-            "completed",
-            "skipped",
-            "completed_with_source_retained",
-        }
-        else TransferOperationPhase.FAILED
-    )
+    if result.status in {"completed", "skipped", "completed_with_source_retained"}:
+        operation.phase = TransferOperationPhase.COMPLETED
+    elif result.status == "cancelled":
+        operation.phase = TransferOperationPhase.CANCELLED
+    else:
+        operation.phase = TransferOperationPhase.FAILED
     operation.bytes_transferred = operation.source_size if result.effects.destination == "mutated" else 0
     operation.result_json = result.model_dump_json()
     operation.updated_at = datetime.now(timezone.utc)
@@ -1327,6 +1329,41 @@ def _record_transfer_operation_result(
     session.commit()
     session.refresh(operation)
     return operation
+
+
+def _record_transfer_operation_progress(session: Session, operation: TransferOperation, bytes_transferred: int) -> None:
+    """Persist monotonic copy progress for reload recovery without changing commit state."""
+
+    if bytes_transferred <= operation.bytes_transferred:
+        return
+    operation.bytes_transferred = bytes_transferred
+    operation.updated_at = datetime.now(timezone.utc)
+    session.add(operation)
+    session.commit()
+
+
+def _repair_corrupt_terminal_transfer_operation(session: Session, operation: TransferOperation) -> TransferOperation:
+    """Replace an unreadable terminal receipt with a conservative recovery outcome."""
+
+    if (
+        operation.phase
+        not in {
+            TransferOperationPhase.COMPLETED,
+            TransferOperationPhase.FAILED,
+            TransferOperationPhase.CANCELLED,
+        }
+        or _transfer_operation_result(operation) is not None
+    ):
+        return operation
+    logger.error("Repairing corrupt terminal transfer receipt: operation_id=%s", operation.id)
+    return _record_transfer_operation_result(
+        session,
+        operation,
+        ContentTransferResult(
+            status="outcome_unknown",
+            effects=ContentTransferEffects(source="unknown", destination="unknown"),
+        ),
+    )
 
 
 def _transfer_operation_is_expired(operation: TransferOperation) -> bool:
@@ -1376,7 +1413,7 @@ def _get_owned_transfer_operation(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transfer operation not found")
     if _transfer_operation_is_expired(operation):
         return _expire_transfer_operation(session, operation)
-    return operation
+    return _repair_corrupt_terminal_transfer_operation(session, operation)
 
 
 @router.post("/{connection_id}/transfer-operations", response_model=TransferOperationRead)
@@ -1447,9 +1484,17 @@ async def prepare_transfer_operation(
         session.refresh(operation)
     except IntegrityError as exc:
         session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Transfer operation could not reserve its idempotency key"
-        ) from exc
+        existing = session.exec(
+            select(TransferOperation).where(
+                TransferOperation.user_id == current_user.id,
+                TransferOperation.idempotency_key == body.idempotency_key,
+            )
+        ).first()
+        if existing is not None and existing.request_fingerprint == fingerprint:
+            return _transfer_operation_read(
+                _expire_transfer_operation(session, existing) if _transfer_operation_is_expired(existing) else existing
+            )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Idempotency key conflicts with its transfer operation") from exc
     return _transfer_operation_read(operation)
 
 
@@ -1465,6 +1510,33 @@ async def get_transfer_operation(
     return _transfer_operation_read(_get_owned_transfer_operation(session, current_user, operation_id, connection_id))
 
 
+@router.post("/{connection_id}/transfer-operations/{operation_id}/cancel", response_model=TransferOperationRead)
+async def cancel_transfer_operation(
+    connection_id: uuid.UUID,
+    operation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> TransferOperationRead:
+    """Cancel a prepared operation or record an in-flight cancellation request."""
+
+    operation = _get_owned_transfer_operation(session, current_user, operation_id, connection_id)
+    if _transfer_operation_result(operation) is not None:
+        return _transfer_operation_read(operation)
+    operation.cancellation_requested = True
+    operation.updated_at = datetime.now(timezone.utc)
+    if operation.phase == TransferOperationPhase.PREPARED:
+        result = ContentTransferResult(
+            status="cancelled",
+            effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
+        )
+        _record_transfer_operation_result(session, operation, result)
+    else:
+        session.add(operation)
+        session.commit()
+        session.refresh(operation)
+    return _transfer_operation_read(operation)
+
+
 @router.post("/{connection_id}/transfer-operations/{operation_id}/execute", response_model=ContentTransferResult)
 async def execute_transfer_operation(
     connection_id: uuid.UUID,
@@ -1478,6 +1550,13 @@ async def execute_transfer_operation(
     existing_result = _transfer_operation_result(operation)
     if existing_result is not None:
         return existing_result
+    if operation.cancellation_requested:
+        result = ContentTransferResult(
+            status="cancelled",
+            effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
+        )
+        _record_transfer_operation_result(session, operation, result)
+        return result
     if operation.phase != TransferOperationPhase.PREPARED:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Transfer operation is already streaming")
     source_connection = _get_connection_or_404(session, current_user, uuid.UUID(operation.source_connection_id))
@@ -1491,11 +1570,44 @@ async def execute_transfer_operation(
     try:
         await source_backend.connect()
         await destination_backend.connect()
+        expected_source = RegularFileSourceSnapshot(
+            path=operation.source_path,
+            size=operation.source_size,
+            modified_at=operation.source_modified_at,
+            stable_id=operation.source_stable_id,
+        )
+        current_source = await source_backend.get_file_info(operation.source_path)
+        if not expected_source.matches(current_source):
+            raise SourceChangedError(f"Source changed before durable transfer execution: {operation.source_path}")
+
+        last_persisted_progress = 0
+
+        def check_cancellation() -> None:
+            session.refresh(operation)
+            if operation.cancellation_requested:
+                raise TransferOperationCancelled()
+
+        def persist_progress(bytes_transferred: int, total_bytes: int | None) -> None:
+            nonlocal last_persisted_progress
+            check_cancellation()
+            if (
+                bytes_transferred - last_persisted_progress < TRANSFER_OPERATION_PROGRESS_PERSIST_INTERVAL_BYTES
+                and bytes_transferred != total_bytes
+            ):
+                return
+            _record_transfer_operation_progress(session, operation, bytes_transferred)
+            last_persisted_progress = bytes_transferred
+
+        async def check_cancellation_before_commit() -> None:
+            check_cancellation()
+
         bytes_written, _source_info = await cross_connection_copy(
             source_backend,
             destination_backend,
             operation.source_path,
             operation.destination_path,
+            on_progress=persist_progress,
+            before_destination_commit=check_cancellation_before_commit,
             target_resolution_policy=TargetResolutionPolicy(operation.target_resolution_policy),
         )
         if bytes_written is None:
@@ -1532,6 +1644,11 @@ async def execute_transfer_operation(
                 destination="mutated" if exc.destination_mutated else "unchanged",
             ),
             error=ContentTransferError(code="source_changed", detail=str(exc)),
+        )
+    except TransferOperationCancelled:
+        result = ContentTransferResult(
+            status="cancelled",
+            effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
         )
     except Exception:
         logger.exception("Durable transfer operation outcome is unknown: operation_id=%s", operation.id)

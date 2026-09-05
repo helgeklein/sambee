@@ -7,7 +7,7 @@ source deletion remain in the caller that owns those resources.
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TypeVar
 
 from app.models.file import FileInfo, FileType
@@ -85,7 +85,17 @@ class RegularFileSourceSnapshot:
             return False
         if self.stable_id != current.stable_id:
             return False
-        return self.size == current.size and self.modified_at == current.modified_at
+        return self.size == current.size and _same_utc_timestamp(self.modified_at, current.modified_at)
+
+
+def _same_utc_timestamp(left: datetime | None, right: datetime | None) -> bool:
+    """Compare persisted and provider timestamps without SQLite timezone drift."""
+
+    if left is None or right is None:
+        return left == right
+    normalized_left = left.replace(tzinfo=timezone.utc) if left.tzinfo is None else left.astimezone(timezone.utc)
+    normalized_right = right.replace(tzinfo=timezone.utc) if right.tzinfo is None else right.astimezone(timezone.utc)
+    return normalized_left == normalized_right
 
 
 class SourceChangedError(RuntimeError):

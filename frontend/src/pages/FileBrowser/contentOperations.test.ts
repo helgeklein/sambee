@@ -230,7 +230,7 @@ describe("content operations", () => {
     expect(api.transferAcrossBackends).toHaveBeenCalledWith("copy", "source", "report.txt", "local-drive:c", "output/report.txt", "ask");
   });
 
-  it("relays a copy between different local drives", async () => {
+  it("delegates a copy between different local drives to the Companion adapter", async () => {
     const sourceResolvedTarget = {
       target: { kind: "local", driveId: "c" },
       connection: null,
@@ -241,6 +241,11 @@ describe("content operations", () => {
       connection: null,
       capabilitySnapshot: { capabilityRevision: 1 },
     };
+    const copyWithinBackend = vi.fn().mockResolvedValue({
+      status: "completed",
+      replaced: false,
+      effects: { source: "unchanged", destination: "mutated" },
+    });
     const storageRegistry = {
       resolveItem: vi.fn(() => ({ target: sourceResolvedTarget.target, path: "report.txt", resolvedTarget: sourceResolvedTarget })),
       resolveDirectory: vi.fn(() => ({
@@ -249,7 +254,7 @@ describe("content operations", () => {
         resolvedTarget: destinationResolvedTarget,
       })),
       getCapabilities: vi.fn(() => ({ writable: true })),
-      getBackend: vi.fn(),
+      getBackend: vi.fn(() => ({ copyWithinBackend })),
     };
     vi.mocked(api.transferAcrossBackends).mockResolvedValue({
       status: "completed",
@@ -268,15 +273,51 @@ describe("content operations", () => {
       )
     ).resolves.toMatchObject({ status: "completed" });
 
-    expect(storageRegistry.getBackend).not.toHaveBeenCalled();
-    expect(api.transferAcrossBackends).toHaveBeenCalledWith(
-      "copy",
-      "local-drive:c",
-      "report.txt",
-      "local-drive:d",
-      "output/report.txt",
-      "ask"
-    );
+    expect(copyWithinBackend).toHaveBeenCalledWith(expect.objectContaining({ targetResolutionPolicy: "ask" }));
+    expect(api.transferAcrossBackends).not.toHaveBeenCalled();
+  });
+
+  it("delegates a move between different local drives to the Companion adapter", async () => {
+    const sourceResolvedTarget = {
+      target: { kind: "local", driveId: "c" },
+      connection: null,
+      capabilitySnapshot: { capabilityRevision: 1 },
+    };
+    const destinationResolvedTarget = {
+      target: { kind: "local", driveId: "d" },
+      connection: null,
+      capabilitySnapshot: { capabilityRevision: 1 },
+    };
+    const moveWithinBackend = vi.fn().mockResolvedValue({
+      status: "completed_with_source_retained",
+      replaced: false,
+      effects: { source: "unchanged", destination: "mutated" },
+      error: { code: "source_delete_failed", detail: "source retained" },
+    });
+    const storageRegistry = {
+      resolveItem: vi.fn(() => ({ target: sourceResolvedTarget.target, path: "report.txt", resolvedTarget: sourceResolvedTarget })),
+      resolveDirectory: vi.fn(() => ({
+        target: destinationResolvedTarget.target,
+        path: "output",
+        resolvedTarget: destinationResolvedTarget,
+      })),
+      getCapabilities: vi.fn(() => ({ writable: true })),
+      getBackend: vi.fn(() => ({ moveWithinBackend })),
+    };
+
+    await expect(
+      executeTransfer(
+        {
+          kind: "move",
+          source: physicalItemHandle("local-drive:c", "report.txt"),
+          destination: physicalLocation("local-drive:d", "output"),
+        },
+        { ...environment, storageRegistry } as never
+      )
+    ).resolves.toMatchObject({ status: "completed_with_source_retained" });
+
+    expect(moveWithinBackend).toHaveBeenCalledWith(expect.objectContaining({ targetResolutionPolicy: "ask" }));
+    expect(api.transferAcrossBackends).not.toHaveBeenCalled();
   });
 
   it("rejects container sources from different connections before starting an operation", async () => {
