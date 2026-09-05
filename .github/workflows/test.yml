@@ -112,6 +112,8 @@ jobs:
           -e ENCRYPTION_KEY \
           sambee:backend-test \
           sh -c '
+            git --version &&
+            jq --version &&
             QUIET=1 scripts/setup-test-images &&
             cd backend &&
             .venv/bin/python -m mypy --cache-dir=/home/vscode/.cache/mypy app &&

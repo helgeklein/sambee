@@ -4,8 +4,8 @@ Comprehensive test suite for the Sambee backend API.
 
 ## Test Results
 
-**Status**: ✅ All tests passing  
-**Total Tests**: 48  
+**Status**: ✅ All tests passing
+**Total Tests**: 48
 **Code Coverage**: 49%
 
 ## Test Suites
@@ -40,7 +40,7 @@ Comprehensive test suite for the Sambee backend API.
 ## Running Tests
 
 ```bash
-# All tests with coverage
+# All tests
 pytest
 
 # Specific test file
@@ -123,12 +123,10 @@ class TestMyFeature:
 
 ## CI/CD Integration
 
-Tests are configured for CI with:
-- Coverage reporting (HTML, XML, terminal)
-- JUnit XML output for CI systems
-- Configurable via `pytest.ini`
+CI requests XML and terminal coverage explicitly. Normal pytest runs do not
+collect coverage or generate reports.
 
 ```bash
 # CI-friendly run
-pytest --cov=app --cov-report=xml --cov-report=term --junitxml=junit.xml
+pytest --cov=app --cov-report=xml --cov-report=term-missing
 ```
