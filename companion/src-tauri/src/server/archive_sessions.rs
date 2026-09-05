@@ -135,6 +135,8 @@ pub(crate) struct LiveLocalArchiveSourceSession {
     pending_member_error: bool,
     claimed_decision: Option<ClaimedLiveSourceDecision>,
     aggregate: LocalArchiveExtractionResult,
+    projected_entries: Option<Vec<LocalArchiveReadEntry>>,
+    projected_entry_index: usize,
 }
 
 impl LiveLocalArchiveSourceSession {
@@ -156,6 +158,8 @@ impl LiveLocalArchiveSourceSession {
             pending_member_error: false,
             claimed_decision: None,
             aggregate: LocalArchiveExtractionResult::default(),
+            projected_entries: None,
+            projected_entry_index: 0,
         })
     }
 
@@ -431,13 +435,29 @@ impl LiveLocalArchiveSourceSession {
         if self.phase != LiveLocalArchiveSourcePhase::Ready {
             return Err(Self::invalid_state("Archive source is not ready for the next member"));
         }
+        if self.projected_entries.is_none() {
+            let projection = self.reader.effective_projection()?;
+            for _ in 0..projection.skipped_entries {
+                self.record_source_terminal(true)?;
+            }
+            self.projected_entries = Some(projection.entries);
+        }
         loop {
-            let Some(entry) = self.reader.next_entry()? else {
+            let entries = self
+                .projected_entries
+                .as_ref()
+                .ok_or_else(|| Self::invalid_state("Archive source projection is unavailable"))?;
+            if self.projected_entry_index >= entries.len() {
                 self.phase = LiveLocalArchiveSourcePhase::Completed;
                 return Ok(None);
-            };
+            }
+            let entry = entries[self.projected_entry_index].clone();
+            self.projected_entry_index = self
+                .projected_entry_index
+                .checked_add(1)
+                .ok_or_else(|| Self::invalid_state("Archive source projection index overflowed"))?;
             if !entry.is_safe || !entry.has_supported_file_type {
-                self.record_source_terminal(false)?;
+                self.record_source_terminal(true)?;
                 continue;
             }
             if entry.encrypted || !matches!(entry.compression_method, 0 | 8 | 12) {
