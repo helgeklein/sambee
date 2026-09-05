@@ -1103,7 +1103,7 @@ export const EN_TRANSLATIONS = {
       errorGeneric: "Operation failed. Some items may not have been processed.",
     },
     overwriteConflict: {
-      title: "Resolve existing target",
+      title: "Target already exists",
       alreadyExists: "A target with this name already exists:",
       labelPath: "Path",
       labelTargetName: "Target name",
