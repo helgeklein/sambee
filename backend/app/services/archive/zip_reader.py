@@ -112,6 +112,27 @@ class ArchiveInspectionManifestMember:
         )
 
 
+@dataclass(frozen=True)
+class ZipDirectoryPage:
+    """One page of projected immediate children in a virtual ZIP directory."""
+
+    path: str
+    entries: tuple[ZipEntry, ...]
+    next_cursor: str | None
+
+
+@dataclass(frozen=True)
+class EffectiveZipProjection:
+    """Selected safe archive entries and virtual directories for one reader."""
+
+    entries: tuple[ZipEntry, ...]
+    regular_entries: tuple[ZipEntry, ...]
+    explicit_directories: tuple[ZipEntry, ...]
+    directories: frozenset[str]
+    member_by_path: dict[str, ZipEntry]
+    skipped_entries: int
+
+
 def _u16(data: bytes, offset: int) -> int:
     return int(struct.unpack_from("<H", data, offset)[0])
 
@@ -268,6 +289,32 @@ def _decode_forward_cursor(value: str) -> tuple[int, int]:
     return position, remaining_entries
 
 
+def _directory_cursor(path: str, offset: int) -> str:
+    """Encode a projected directory-list continuation."""
+
+    return base64.urlsafe_b64encode(json.dumps({"path": path, "offset": offset}, separators=(",", ":")).encode()).decode().rstrip("=")
+
+
+def _decode_directory_cursor(value: str, path: str) -> int:
+    """Decode and bind a directory-list continuation to its virtual path."""
+
+    try:
+        padded = value + "=" * (-len(value) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode()).decode())
+        cursor_path = payload["path"]
+        offset = payload["offset"]
+    except (KeyError, TypeError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
+        raise ArchiveFormatError("Archive listing cursor is invalid") from exc
+    if cursor_path != path or type(offset) is not int or offset < 0:
+        raise ArchiveFormatError("Archive listing cursor is invalid")
+    return offset
+
+
+def _parent_paths(path: str) -> tuple[str, ...]:
+    parts = path.split("/")
+    return tuple("/".join(parts[:index]) for index in range(1, len(parts)))
+
+
 class ZipReader:
     """Read ZIP metadata without staging archive contents or member bytes."""
 
@@ -285,6 +332,7 @@ class ZipReader:
         self._forward_buffer = bytearray()
         self._read_operations = 0
         self._read_bytes = 0
+        self._projection: EffectiveZipProjection | None = None
 
     async def close(self) -> None:
         """Release the retained random-access archive source."""
@@ -379,6 +427,112 @@ class ZipReader:
         assert self._forward_remaining_entries is not None
         return tuple(entries), _forward_cursor(self._forward_position, self._forward_remaining_entries)
 
+    async def _effective_projection(self) -> EffectiveZipProjection:
+        """Build the source-entry projection once without reading member payloads."""
+
+        if self._projection is not None:
+            return self._projection
+        if self._forward_position is not None:
+            raise ArchiveFormatError("Archive projection cannot begin after traversal starts")
+
+        raw_entries: list[ZipEntry] = []
+        while (entry := await self.next_entry()) is not None:
+            raw_entries.append(entry)
+
+        selected_by_path: dict[str, ZipEntry] = {}
+        explicit_directories_by_path: dict[str, ZipEntry] = {}
+        for entry in raw_entries:
+            if not entry.is_safe or not entry.has_supported_file_type:
+                continue
+            if entry.is_directory:
+                explicit_directories_by_path[entry.path] = entry
+            else:
+                selected_by_path[entry.path] = entry
+
+        regular_entries = tuple(entry for entry in raw_entries if selected_by_path.get(entry.path) is entry)
+        explicit_directories = tuple(
+            entry for entry in raw_entries if entry.path not in selected_by_path and explicit_directories_by_path.get(entry.path) is entry
+        )
+        entries = tuple(
+            entry
+            for entry in raw_entries
+            if selected_by_path.get(entry.path) is entry
+            or (entry.path not in selected_by_path and explicit_directories_by_path.get(entry.path) is entry)
+        )
+        directories = set(explicit_directories_by_path)
+        for entry in entries:
+            directories.update(_parent_paths(entry.path))
+        directories.difference_update(selected_by_path)
+        self._projection = EffectiveZipProjection(
+            entries=entries,
+            regular_entries=regular_entries,
+            explicit_directories=explicit_directories,
+            directories=frozenset(directories),
+            member_by_path=selected_by_path,
+            skipped_entries=len(raw_entries) - len(entries),
+        )
+        return self._projection
+
+    async def extraction_entries(self) -> tuple[tuple[ZipEntry, ...], int]:
+        """Return selected source entries and aggregate-only skipped record count."""
+
+        projection = await self._effective_projection()
+        return projection.entries, projection.skipped_entries
+
+    async def list_directory(self, virtual_path: str, cursor: str | None, page_size: int) -> ZipDirectoryPage:
+        """List selected immediate children of a safe virtual ZIP directory."""
+
+        if not 1 <= page_size <= 500:
+            raise ValueError("Archive listing page size is invalid")
+        path, _is_directory = _normalize_path(virtual_path)
+        if virtual_path and (not path or not _is_safe_path(virtual_path, path)):
+            raise ArchiveFormatError("Archive virtual directory path is invalid")
+        projection = await self._effective_projection()
+        if path in projection.member_by_path:
+            raise ArchiveFormatError("Archive virtual path is not a directory")
+        if path and path not in projection.directories:
+            raise ArchiveFormatError("Archive virtual directory was not found")
+        offset = _decode_directory_cursor(cursor, path) if cursor is not None else 0
+        prefix = f"{path}/" if path else ""
+        children: dict[str, ZipEntry] = {}
+        for entry in (*projection.explicit_directories, *projection.regular_entries):
+            if not entry.path.startswith(prefix):
+                continue
+            remainder = entry.path[len(prefix) :]
+            if remainder and "/" not in remainder:
+                children[entry.path] = entry
+        for directory_path in projection.directories:
+            if not directory_path.startswith(prefix):
+                continue
+            remainder = directory_path[len(prefix) :]
+            if not remainder or "/" in remainder or directory_path in children:
+                continue
+            representative = next((entry for entry in projection.entries if entry.path.startswith(f"{directory_path}/")), None)
+            if representative is None:
+                continue
+            children[directory_path] = ZipEntry(
+                path=directory_path,
+                is_directory=True,
+                compressed_size=0,
+                uncompressed_size=0,
+                compression_method=0,
+                crc32=0,
+                modified_at=representative.modified_at,
+                encrypted=False,
+                is_safe=True,
+                has_supported_file_type=True,
+                local_header_offset=0,
+                flags=0,
+                raw_name=b"",
+                reader_identity=self._entry_identity,
+            )
+        ordered_children = tuple(sorted(children.values(), key=lambda entry: entry.path))
+        if offset > len(ordered_children):
+            raise ArchiveFormatError("Archive listing cursor is out of range")
+        entries = ordered_children[offset : offset + page_size]
+        next_offset = offset + len(entries)
+        return ZipDirectoryPage(path, entries, _directory_cursor(path, next_offset) if next_offset < len(ordered_children) else None)
+
     async def _fill_forward_buffer(self, required_length: int, directory_end: int) -> None:
         next_read_offset = self._forward_next_read_offset
         if next_read_offset is None:
@@ -468,20 +622,16 @@ class ZipReader:
         return await self.validate_member_in_record_order(path)
 
     async def validate_member_in_record_order(self, path: str) -> ValidatedZipEntry:
-        """Find and validate one safe regular member without collecting all entries."""
+        """Find and validate one selected regular member."""
 
         normalized_path, is_directory = _normalize_path(path)
         if is_directory or not normalized_path:
             raise ArchiveFormatError("Archive member path must identify a regular file")
-        while (entry := await self.next_entry()) is not None:
-            if not entry.is_safe or not entry.has_supported_file_type:
-                raise ArchiveFormatError("Archive contains an unsafe or unsupported member")
-            if entry.path != normalized_path:
-                continue
-            if entry.is_directory:
-                raise ArchiveFormatError("Archive member path must identify a regular file")
-            return await self.validate_entry(entry)
-        raise ArchiveFormatError("Archive member was not found")
+        projection = await self._effective_projection()
+        entry = projection.member_by_path.get(normalized_path)
+        if entry is None:
+            raise ArchiveFormatError("Archive member was not found")
+        return await self.validate_entry(entry)
 
     async def validate_entry(self, entry: ZipEntry) -> ValidatedZipEntry:
         """Validate one selected readable entry without resolving its path again."""
