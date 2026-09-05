@@ -319,6 +319,51 @@ async def test_skipped_regular_file_move_keeps_its_retained_source() -> None:
 
 
 @pytest.mark.asyncio
+async def test_skipped_directory_move_keeps_source_unchanged() -> None:
+    now = datetime.now(timezone.utc)
+
+    class DirectoryTransferBackend(MemoryTransferBackend):
+        async def delete_item(self, path: str) -> None:
+            del self.files[path]
+
+    source = DirectoryTransferBackend({"source": b"directory"}, now)
+    target = DirectoryTransferBackend({"target": b"directory"}, now)
+    source.get_file_info = lambda path: _return(
+        FileInfo(
+            name=path,
+            path=path,
+            type=FileType.DIRECTORY,
+            size=0,
+            modified_at=now,
+            stable_id=f"identity:{path}",
+        )
+    )
+    target.get_file_info = lambda path: _return(
+        FileInfo(
+            name=path,
+            path=path,
+            type=FileType.DIRECTORY,
+            size=0,
+            modified_at=now,
+            stable_id=f"identity:{path}",
+        )
+    )
+
+    bytes_written, source_info = await cross_connection_move(
+        source,
+        target,
+        "source",
+        "target",
+        target_resolution_policy=TargetResolutionPolicy.SKIP,
+    )
+
+    assert bytes_written is None
+    assert source_info.path == "source"
+    assert source.files == {"source": b"directory"}
+    assert target.files == {"target": b"directory"}
+
+
+@pytest.mark.asyncio
 async def test_source_change_before_staged_commit_leaves_target_unchanged() -> None:
     now = datetime.now(timezone.utc)
     source = MemoryTransferBackend({"source.txt": b"content"}, now)
@@ -346,7 +391,7 @@ async def test_source_change_before_staged_commit_leaves_target_unchanged() -> N
 
 
 @pytest.mark.asyncio
-async def test_directory_child_collision_reports_a_mutated_destination() -> None:
+async def test_directory_child_failure_discards_the_private_stage() -> None:
     now = datetime.now(timezone.utc)
 
     class DirectoryTransferBackend(MemoryTransferBackend):
@@ -360,11 +405,26 @@ async def test_directory_child_collision_reports_a_mutated_destination() -> None
                 raise FileExistsError(path)
             self.files[path] = b"directory"
 
+        async def rename_item(self, path: str, new_name: str) -> None:
+            parent_path = path.rpartition("/")[0]
+            destination_path = f"{parent_path}/{new_name}" if parent_path else new_name
+            for existing_path in [item_path for item_path in self.files if item_path == path or item_path.startswith(f"{path}/")]:
+                self.files[destination_path + existing_path.removeprefix(path)] = self.files.pop(existing_path)
+
+        async def delete_item(self, path: str) -> None:
+            for existing_path in [item_path for item_path in self.files if item_path == path or item_path.startswith(f"{path}/")]:
+                del self.files[existing_path]
+
+        async def stage_and_commit_new_file_from_stream(self, path: str, stream, *, before_commit, **kwargs: object) -> int:
+            if path.endswith("/child.txt"):
+                raise FileExistsError(path)
+            return await super().stage_and_commit_new_file_from_stream(path, stream, before_commit=before_commit, **kwargs)
+
         async def set_file_times(self, _path: str, _modified_at: datetime) -> None:
             return None
 
     source = DirectoryTransferBackend({"source": b"directory", "source/child.txt": b"content"}, now)
-    target = DirectoryTransferBackend({"target/child.txt": b"existing"}, now)
+    target = DirectoryTransferBackend({}, now)
     source.get_file_info = lambda path: _return(
         FileInfo(
             name=path.rsplit("/", 1)[-1],
@@ -379,9 +439,8 @@ async def test_directory_child_collision_reports_a_mutated_destination() -> None
     with pytest.raises(DirectoryTransferError, match="child target already exists") as error:
         await cross_connection_copy(source, target, "source", "target")
 
-    assert error.value.destination_mutated
-    assert target.files["target"] == b"directory"
-    assert target.files["target/child.txt"] == b"existing"
+    assert not error.value.destination_mutated
+    assert target.files == {}
 
 
 @pytest.mark.asyncio
@@ -396,6 +455,12 @@ async def test_directory_move_deletes_source_after_destination_copy() -> None:
 
         async def create_directory(self, path: str) -> None:
             self.files[path] = b"directory"
+
+        async def rename_item(self, path: str, new_name: str) -> None:
+            parent_path = path.rpartition("/")[0]
+            destination_path = f"{parent_path}/{new_name}" if parent_path else new_name
+            for existing_path in [item_path for item_path in self.files if item_path == path or item_path.startswith(f"{path}/")]:
+                self.files[destination_path + existing_path.removeprefix(path)] = self.files.pop(existing_path)
 
         async def set_file_times(self, _path: str, _modified_at: datetime) -> None:
             return None

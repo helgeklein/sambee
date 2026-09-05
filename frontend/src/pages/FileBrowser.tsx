@@ -1916,6 +1916,10 @@ const Browser: React.FC = () => {
         try {
           applyTransferResult(await execute());
         } catch (error) {
+          if (outcomeUnknown) {
+            errors.push("The transfer outcome is unknown. Both locations were refreshed.");
+            break;
+          }
           if (abortController.signal.aborted) {
             operationCancelled = true;
             break;
@@ -2004,15 +2008,20 @@ const Browser: React.FC = () => {
       void sourcePane.reloadCurrentLocation({ forceRefresh: true });
       if (operationCancelled) {
         setCopyMoveError(`${copyMoveMode === "copy" ? "Copy" : "Move"} cancelled.`);
+        if (warnings.length > 0) {
+          setCopyMoveWarning(warnings.join("; "));
+        }
         setConflictInfo(null);
         return;
       }
 
       if (errors.length > 0) {
         setCopyMoveError(errors.join("; "));
-      } else if (warnings.length > 0) {
+      }
+      if (warnings.length > 0) {
         setCopyMoveWarning(warnings.join("; "));
-      } else {
+      }
+      if (errors.length === 0 && warnings.length === 0) {
         setCopyMoveDialogOpen(false);
         sourcePane.handleClearSelection();
       }

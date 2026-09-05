@@ -21,6 +21,7 @@ Design decisions
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Optional
+from uuid import uuid4
 
 from app.models.file import FileInfo, FileType
 from app.services.content_transfer import (
@@ -97,7 +98,7 @@ async def cross_connection_copy(
                 if target_resolution_policy == TargetResolutionPolicy.SKIP:
                     return None, info
                 raise TargetCollisionError(source=info, target=await dest.get_file_info(dest_path))
-        return await _copy_directory(source, dest, source_path, dest_path, on_progress, overwrite=overwrite), info
+        return await _copy_directory_staged(source, dest, source_path, dest_path, on_progress, overwrite=overwrite), info
 
     source_snapshot = RegularFileSourceSnapshot.from_file_info(info)
     if target_resolution_policy is not None:
@@ -209,7 +210,7 @@ async def cross_connection_move(
 
     source_info = await source.get_file_info(source_path)
     if source_info.type == FileType.DIRECTORY:
-        await cross_connection_copy(
+        bytes_written, _ = await cross_connection_copy(
             source,
             dest,
             source_path,
@@ -218,6 +219,8 @@ async def cross_connection_move(
             overwrite=overwrite,
             target_resolution_policy=target_resolution_policy,
         )
+        if bytes_written is None:
+            return None, source_info
         try:
             await source.delete_item(source_path)
         except Exception as error:
@@ -462,3 +465,39 @@ async def _copy_directory(
 
     logger.info(f"Cross-connection copy directory: '{source_path}' -> '{dest_path}' ({total_bytes} bytes, {listing.total} items)")
     return total_bytes
+
+
+async def _copy_directory_staged(
+    source: StorageBackend,
+    dest: StorageBackend,
+    source_path: str,
+    dest_path: str,
+    on_progress: ProgressCallback | None,
+    *,
+    overwrite: bool,
+) -> int:
+    """Copy a directory through a private sibling stage before publishing it."""
+
+    if overwrite:
+        return await _copy_directory(source, dest, source_path, dest_path, on_progress, overwrite=True)
+
+    parent_path, separator, target_name = dest_path.rpartition("/")
+    stage_name = f".{target_name}.sambee-stage-{uuid4().hex}"
+    stage_path = f"{parent_path}/{stage_name}" if separator else stage_name
+    try:
+        total_bytes = await _copy_directory(source, dest, source_path, stage_path, on_progress, overwrite=False)
+        await dest.rename_item(stage_path, target_name)
+        return total_bytes
+    except Exception as error:
+        try:
+            await dest.delete_item(stage_path)
+        except FileNotFoundError:
+            pass
+        except Exception as cleanup_error:
+            raise DirectoryTransferError(
+                f"Directory copy failed and its private stage could not be removed: {stage_path}",
+                destination_mutated=True,
+            ) from cleanup_error
+        if isinstance(error, DirectoryTransferError):
+            raise DirectoryTransferError(str(error), destination_mutated=False) from error
+        raise

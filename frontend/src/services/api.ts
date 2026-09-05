@@ -70,20 +70,12 @@ import { clearBrowserRecoverySnapshot } from "./browserRecoverySnapshot";
 import { COMPANION_BASE_URL } from "./companion";
 import { companionSession } from "./companionSession";
 import { snapshotRegisteredDrafts } from "./draftRecovery";
-import { clearForegroundTransferOperation, storeForegroundTransferOperation } from "./foregroundTransferOperation";
 import { logger } from "./logger";
 import type { ContentTransferResult, TargetResolutionPolicy } from "./storageContracts";
 
 export interface DirectorySearchOptions {
   includeDotDirectories?: boolean;
   signal?: AbortSignal;
-}
-
-export interface DurableTransferOperation {
-  id: string;
-  phase: "prepared" | "streaming" | "completed" | "failed" | "cancelled";
-  cancellation_requested: boolean;
-  result?: ContentTransferResult | null;
 }
 
 export interface CrossBackendTransferOptions {
@@ -1440,24 +1432,11 @@ class ApiService {
     destPath: string,
     idempotencyKey: string,
     destConnectionId?: string,
-    targetResolutionPolicy: TargetResolutionPolicy = "ask"
+    targetResolutionPolicy: TargetResolutionPolicy = "ask",
+    options: Pick<CrossBackendTransferOptions, "signal"> = {}
   ): Promise<ContentTransferResult> {
     if (destConnectionId && this.isCrossBackendTransfer(connectionId, destConnectionId)) {
-      return this.transferAcrossBackends("copy", connectionId, sourcePath, destConnectionId, destPath, targetResolutionPolicy);
-    }
-    if (destConnectionId && destConnectionId !== connectionId && !isLocalDrive(connectionId) && !isLocalDrive(destConnectionId)) {
-      const sourceInfo = await this.getFileInfo(connectionId, sourcePath);
-      if (sourceInfo.type === "file") {
-        return this.executeDurableSmbTransfer(
-          "copy",
-          connectionId,
-          sourcePath,
-          destConnectionId,
-          destPath,
-          idempotencyKey,
-          targetResolutionPolicy
-        );
-      }
+      return this.transferAcrossBackends("copy", connectionId, sourcePath, destConnectionId, destPath, targetResolutionPolicy, options);
     }
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
@@ -1471,7 +1450,7 @@ class ApiService {
         target_resolution_policy: targetResolutionPolicy,
         idempotency_key: idempotencyKey,
       },
-      extraConfig
+      { ...extraConfig, signal: options.signal }
     );
   }
 
@@ -1482,24 +1461,11 @@ class ApiService {
     destPath: string,
     idempotencyKey: string,
     destConnectionId?: string,
-    targetResolutionPolicy: TargetResolutionPolicy = "ask"
+    targetResolutionPolicy: TargetResolutionPolicy = "ask",
+    options: Pick<CrossBackendTransferOptions, "signal"> = {}
   ): Promise<ContentTransferResult> {
     if (destConnectionId && this.isCrossBackendTransfer(connectionId, destConnectionId)) {
-      return this.transferAcrossBackends("move", connectionId, sourcePath, destConnectionId, destPath, targetResolutionPolicy);
-    }
-    if (destConnectionId && destConnectionId !== connectionId && !isLocalDrive(connectionId) && !isLocalDrive(destConnectionId)) {
-      const sourceInfo = await this.getFileInfo(connectionId, sourcePath);
-      if (sourceInfo.type === "file") {
-        return this.executeDurableSmbTransfer(
-          "move",
-          connectionId,
-          sourcePath,
-          destConnectionId,
-          destPath,
-          idempotencyKey,
-          targetResolutionPolicy
-        );
-      }
+      return this.transferAcrossBackends("move", connectionId, sourcePath, destConnectionId, destPath, targetResolutionPolicy, options);
     }
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
@@ -1513,7 +1479,7 @@ class ApiService {
         target_resolution_policy: targetResolutionPolicy,
         idempotency_key: idempotencyKey,
       },
-      extraConfig
+      { ...extraConfig, signal: options.signal }
     );
   }
 
@@ -1593,7 +1559,7 @@ class ApiService {
       } as RequestInit & { duplex: "half" });
     } catch {
       if (options.signal?.aborted) {
-        return { status: "cancelled", replaced: false, effects: { source: "unchanged", destination: "unknown" } };
+        return { status: "outcome_unknown", replaced: false, effects: { source: "unchanged", destination: "unknown" } };
       }
       return { status: "outcome_unknown", replaced: false, effects: { source: "unknown", destination: "unknown" } };
     }
@@ -1651,67 +1617,6 @@ class ApiService {
       }
       return { status: "outcome_unknown", replaced: false, effects: { source: "unknown", destination: "unknown" } };
     }
-  }
-
-  /** Execute a backend-owned durable transfer between two SMB connections. */
-  private async executeDurableSmbTransfer(
-    kind: "copy" | "move",
-    sourceConnectionId: string,
-    sourcePath: string,
-    destinationConnectionId: string,
-    destinationPath: string,
-    idempotencyKey: string,
-    targetResolutionPolicy: TargetResolutionPolicy
-  ): Promise<ContentTransferResult> {
-    const destinationSegment = getBrowseSegment(destinationConnectionId);
-    const { client, extraConfig } = await this.getClientConfig(destinationConnectionId);
-    const prepared = await client.post<DurableTransferOperation>(
-      `/browse/${destinationSegment}/transfer-operations`,
-      {
-        protocol_version: "v1",
-        idempotency_key: idempotencyKey,
-        kind,
-        source_connection_id: sourceConnectionId,
-        source_path: sourcePath,
-        destination_path: destinationPath,
-        target_resolution_policy: targetResolutionPolicy,
-      },
-      extraConfig
-    );
-    storeForegroundTransferOperation(prepared.data.id, destinationConnectionId);
-    const result = await this.postTransfer(
-      client,
-      `/browse/${destinationSegment}/transfer-operations/${encodeURIComponent(prepared.data.id)}/execute`,
-      {},
-      extraConfig
-    );
-    if (result.status !== "outcome_unknown") {
-      clearForegroundTransferOperation(prepared.data.id);
-    }
-    return result;
-  }
-
-  async getDurableTransferOperation(destinationConnectionId: string, operationId: string): Promise<DurableTransferOperation> {
-    const destinationSegment = getBrowseSegment(destinationConnectionId);
-    const { client, extraConfig } = await this.getClientConfig(destinationConnectionId);
-    return (
-      await client.get<DurableTransferOperation>(
-        `/browse/${destinationSegment}/transfer-operations/${encodeURIComponent(operationId)}`,
-        extraConfig
-      )
-    ).data;
-  }
-
-  async cancelDurableTransferOperation(destinationConnectionId: string, operationId: string): Promise<DurableTransferOperation> {
-    const destinationSegment = getBrowseSegment(destinationConnectionId);
-    const { client, extraConfig } = await this.getClientConfig(destinationConnectionId);
-    return (
-      await client.post<DurableTransferOperation>(
-        `/browse/${destinationSegment}/transfer-operations/${encodeURIComponent(operationId)}/cancel`,
-        {},
-        extraConfig
-      )
-    ).data;
   }
 
   private normalizeTransferResult(result: ContentTransferResult): ContentTransferResult {

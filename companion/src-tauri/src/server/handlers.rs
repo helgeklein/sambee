@@ -5932,7 +5932,80 @@ enum DirectoryCopyError {
     Failed { error: std::io::Error, destination_mutated: bool },
 }
 
-/// Copy one directory to an exclusively created destination root.
+async fn discard_directory_stage(stage: &FsPath) -> Result<(), std::io::Error> {
+    match tokio::fs::remove_dir_all(stage).await {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+async fn rename_directory_noreplace(source: &FsPath, destination: &FsPath) -> Result<(), std::io::Error> {
+    let source = source.to_path_buf();
+    let destination = destination.to_path_buf();
+    tokio::task::spawn_blocking(move || rename_directory_noreplace_sync(&source, &destination))
+        .await
+        .map_err(|error| std::io::Error::other(format!("Directory promotion task failed: {error}")))?
+}
+
+#[cfg(target_os = "linux")]
+fn rename_directory_noreplace_sync(source: &FsPath, destination: &FsPath) -> Result<(), std::io::Error> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let source = CString::new(source.as_os_str().as_bytes())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Directory stage path contains a null byte"))?;
+    let destination = CString::new(destination.as_os_str().as_bytes())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Directory destination path contains a null byte"))?;
+    let result = unsafe {
+        libc::renameat2(
+            libc::AT_FDCWD,
+            source.as_ptr(),
+            libc::AT_FDCWD,
+            destination.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn rename_directory_noreplace_sync(source: &FsPath, destination: &FsPath) -> Result<(), std::io::Error> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let source = CString::new(source.as_os_str().as_bytes())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Directory stage path contains a null byte"))?;
+    let destination = CString::new(destination.as_os_str().as_bytes())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Directory destination path contains a null byte"))?;
+    let result = unsafe { libc::renamex_np(source.as_ptr(), destination.as_ptr(), libc::RENAME_EXCL) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(windows)]
+async fn rename_directory_noreplace(source: &FsPath, destination: &FsPath) -> Result<(), std::io::Error> {
+    // Windows rename fails when the destination already exists.
+    tokio::fs::rename(source, destination).await
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+async fn rename_directory_noreplace(_source: &FsPath, _destination: &FsPath) -> Result<(), std::io::Error> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "The local platform does not provide a no-replace directory rename",
+    ))
+}
+
+/// Copy one directory through a private sibling stage before publishing it.
 async fn copy_directory_exclusively(src: &std::path::Path, dst: &std::path::Path) -> Result<(), DirectoryCopyError> {
     let parent = dst.parent().ok_or_else(|| DirectoryCopyError::Failed {
         error: std::io::Error::new(std::io::ErrorKind::InvalidInput, "Directory target has no parent"),
@@ -5944,7 +6017,15 @@ async fn copy_directory_exclusively(src: &std::path::Path, dst: &std::path::Path
             error,
             destination_mutated: false,
         })?;
-    match tokio::fs::create_dir(dst).await {
+    let target_name = dst
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| DirectoryCopyError::Failed {
+            error: std::io::Error::new(std::io::ErrorKind::InvalidInput, "Directory target name is not valid UTF-8"),
+            destination_mutated: false,
+        })?;
+    let stage = parent.join(format!(".{target_name}.sambee-stage-{}", uuid::Uuid::new_v4()));
+    match tokio::fs::create_dir(&stage).await {
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Err(DirectoryCopyError::TargetExists),
         Err(error) => {
@@ -5954,10 +6035,47 @@ async fn copy_directory_exclusively(src: &std::path::Path, dst: &std::path::Path
             });
         }
     }
-    copy_dir_contents(src, dst).await.map_err(|error| DirectoryCopyError::Failed {
-        error,
-        destination_mutated: true,
-    })
+    if let Err(error) = copy_dir_contents(src, &stage).await {
+        return match discard_directory_stage(&stage).await {
+            Ok(()) => Err(DirectoryCopyError::Failed {
+                error,
+                destination_mutated: false,
+            }),
+            Err(cleanup_error) => Err(DirectoryCopyError::Failed {
+                error: std::io::Error::other(format!(
+                    "Directory copy failed: {error}; the private stage '{}' could not be removed: {cleanup_error}",
+                    stage.display()
+                )),
+                destination_mutated: true,
+            }),
+        };
+    }
+    match rename_directory_noreplace(&stage, dst).await {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => match discard_directory_stage(&stage).await {
+            Ok(()) => Err(DirectoryCopyError::TargetExists),
+            Err(cleanup_error) => Err(DirectoryCopyError::Failed {
+                error: std::io::Error::other(format!(
+                    "Directory target appeared during promotion and private stage '{}' could not be removed: {cleanup_error}",
+                    stage.display()
+                )),
+                destination_mutated: true,
+            }),
+        },
+        Err(error) => match discard_directory_stage(&stage).await {
+            Ok(()) => Err(DirectoryCopyError::Failed {
+                error,
+                destination_mutated: false,
+            }),
+            Err(cleanup_error) => Err(DirectoryCopyError::Failed {
+                error: std::io::Error::other(format!(
+                    "Directory promotion failed: {error}; private stage '{}' could not be removed: {cleanup_error}",
+                    stage.display()
+                )),
+                destination_mutated: true,
+            }),
+        },
+    }
 }
 
 /// Recursively populate an already exclusively owned directory.
@@ -6232,7 +6350,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn local_directory_copy_reports_a_visible_partial_destination() {
+    async fn local_directory_copy_discards_its_private_stage_on_failure() {
         let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
         let source = directory.path().join("missing-source");
         let target = directory.path().join("target");
@@ -6244,11 +6362,11 @@ mod tests {
         assert!(matches!(
             error,
             DirectoryCopyError::Failed {
-                destination_mutated: true,
+                destination_mutated: false,
                 ..
             }
         ));
-        assert!(target.is_dir());
+        assert!(!target.exists());
     }
 
     fn relay_control_payload_example(name: &str) -> serde_json::Value {

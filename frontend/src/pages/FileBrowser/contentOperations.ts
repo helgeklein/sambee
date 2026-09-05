@@ -3,7 +3,7 @@ import { logger } from "../../services/logger";
 import { publishRecentFilesChanged } from "../../services/recentFilesSync";
 import type { StorageArchiveOperationCoordinator } from "../../services/storageArchiveOperations";
 import type { ContentTransferResult, StorageBackendRegistry, TargetResolutionPolicy } from "../../services/storageContracts";
-import { recoverForegroundStorageTransfer, transferAcrossStorageBackends } from "../../services/storageTransferOperations";
+import { transferAcrossStorageBackends } from "../../services/storageTransferOperations";
 import { FileType, isApiError } from "../../types";
 import { startZipArchiveExtraction } from "./archiveExtractionExecution";
 import type {
@@ -418,7 +418,7 @@ export function hasForegroundArchiveOperationWork(archiveOperations: StorageArch
 }
 
 export async function recoverInterruptedPhysicalTransfer(): Promise<boolean> {
-  return recoverForegroundStorageTransfer();
+  return false;
 }
 
 export async function deleteContentItems(items: readonly ContentItemHandle[], environment: ContentOperationEnvironment): Promise<void> {
