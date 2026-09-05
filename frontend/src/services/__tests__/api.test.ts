@@ -310,9 +310,126 @@ describe("API Service", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:3000/api/viewer/source/download?path=source.txt", expect.anything());
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      "http://localhost:3000/api/browse/destination/transfer-stream?path=target.txt",
+      "http://localhost:3000/api/browse/destination/transfer-stream?path=target.txt&target_resolution_policy=ask",
       expect.objectContaining({ body: sourceResponse.body, duplex: "half" })
     );
+  });
+
+  it("reports byte progress while relaying a cross-provider stream", async () => {
+    mockAxiosInstance.get.mockResolvedValue({
+      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, size: 3, is_readable: true, is_hidden: false },
+    } as AxiosResponse);
+    const progress: Array<[number, number | null]> = [];
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          new ReadableStream({
+            start: (controller) => {
+              controller.enqueue(new Uint8Array([1, 2, 3]));
+              controller.close();
+            },
+          })
+        )
+      )
+      .mockImplementationOnce(async (_url: string, request: RequestInit) => {
+        await new Response(request.body).arrayBuffer();
+        return new Response(
+          JSON.stringify({ status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } }),
+          {
+            status: 200,
+          }
+        );
+      });
+
+    await apiService.transferAcrossBackends("copy", "source", "source.txt", "destination", "target.txt", "ask", {
+      onProgress: (bytesTransferred, totalBytes) => progress.push([bytesTransferred, totalBytes]),
+    });
+
+    expect(progress).toEqual([[3, 3]]);
+  });
+
+  it("cancels before publication without deleting the source", async () => {
+    mockAxiosInstance.get.mockResolvedValue({
+      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, is_readable: true, is_hidden: false },
+    } as AxiosResponse);
+    const abortController = new AbortController();
+    abortController.abort();
+    fetchMock.mockRejectedValueOnce(new DOMException("The operation was aborted", "AbortError"));
+
+    await expect(
+      apiService.transferAcrossBackends("move", "source", "source.txt", "destination", "target.txt", "ask", {
+        signal: abortController.signal,
+      })
+    ).resolves.toMatchObject({ status: "cancelled", effects: { source: "unchanged", destination: "unchanged" } });
+
+    expect(mockAxiosInstance.delete).not.toHaveBeenCalled();
+  });
+
+  it("converts a relay target conflict into existing conflict-dialog metadata", async () => {
+    const source = { name: "source.txt", path: "source.txt", type: FileType.FILE, size: 3, is_readable: true, is_hidden: false };
+    const existing = { name: "target.txt", path: "target.txt", type: FileType.FILE, size: 4, is_readable: true, is_hidden: false };
+    mockAxiosInstance.get
+      .mockResolvedValueOnce({ data: source } as AxiosResponse)
+      .mockResolvedValueOnce({ data: existing } as AxiosResponse);
+    fetchMock
+      .mockResolvedValueOnce(new Response(new ReadableStream({ start: (controller) => controller.close() })))
+      .mockResolvedValueOnce(new Response("Destination already exists", { status: 409 }));
+
+    await expect(apiService.transferAcrossBackends("copy", "source", "source.txt", "destination", "target.txt")).rejects.toMatchObject({
+      response: { status: 409, data: { detail: { existing_file: existing, incoming_file: source } } },
+    });
+  });
+
+  it.each(["copy", "move"] as const)("routes a mixed-provider %s facade call through the staged relay", async (operation) => {
+    localStorage.setItem("companion_secret", "test-companion-secret");
+    mockAxiosInstance.delete.mockResolvedValue({});
+    mockAxiosInstance.get.mockResolvedValue({
+      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, is_readable: true, is_hidden: false },
+    } as AxiosResponse);
+    fetchMock.mockResolvedValueOnce(new Response(new ReadableStream({ start: (controller) => controller.close() }))).mockResolvedValueOnce(
+      new Response(JSON.stringify({ status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } }), {
+        status: 200,
+      })
+    );
+
+    await expect(
+      apiService[operation === "copy" ? "copyItem" : "moveItem"](
+        "local-drive:c",
+        "source.txt",
+        "target.txt",
+        "00000000-0000-4000-8000-000000000008",
+        "destination"
+      )
+    ).resolves.toMatchObject({ status: "completed" });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("/browse/destination/transfer-stream?path=target.txt"),
+      expect.objectContaining({ duplex: "half" })
+    );
+    if (operation === "move") {
+      expect(mockAxiosInstance.delete).toHaveBeenCalledWith("/browse/c/item", expect.objectContaining({ params: { path: "source.txt" } }));
+    }
+  });
+
+  it("retains a mixed-provider source when deletion fails after destination publication", async () => {
+    localStorage.setItem("companion_secret", "test-companion-secret");
+    mockAxiosInstance.get.mockResolvedValue({
+      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, is_readable: true, is_hidden: false },
+    } as AxiosResponse);
+    mockAxiosInstance.delete.mockRejectedValue(new Error("Source is read-only"));
+    fetchMock.mockResolvedValueOnce(new Response(new ReadableStream({ start: (controller) => controller.close() }))).mockResolvedValueOnce(
+      new Response(JSON.stringify({ status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } }), {
+        status: 200,
+      })
+    );
+
+    await expect(
+      apiService.transferAcrossBackends("move", "local-drive:c", "source.txt", "destination", "target.txt")
+    ).resolves.toMatchObject({
+      status: "completed_with_source_retained",
+      effects: { source: "unchanged", destination: "mutated" },
+    });
   });
 
   it("stages a cross-provider directory tree before publishing its final name", async () => {
@@ -320,6 +437,7 @@ describe("API Service", () => {
       .mockResolvedValueOnce({
         data: { name: "source", path: "source", type: FileType.DIRECTORY, is_readable: true, is_hidden: false },
       } as AxiosResponse)
+      .mockRejectedValueOnce({ isAxiosError: true, response: { status: 404 } })
       .mockResolvedValueOnce({
         data: {
           path: "source",
@@ -356,23 +474,53 @@ describe("API Service", () => {
     ]);
   });
 
-  it("reports source retention after a cross-provider directory move", async () => {
+  it("deletes the source after publishing a cross-provider directory move", async () => {
+    mockAxiosInstance.delete.mockResolvedValue({});
     mockAxiosInstance.get
       .mockResolvedValueOnce({
         data: { name: "source", path: "source", type: FileType.DIRECTORY, is_readable: true, is_hidden: false },
       } as AxiosResponse)
+      .mockRejectedValueOnce({ isAxiosError: true, response: { status: 404 } })
       .mockResolvedValueOnce({ data: { path: "source", items: [] } satisfies DirectoryListing } as AxiosResponse);
     mockAxiosInstance.post.mockResolvedValue({ data: {} } as AxiosResponse);
 
     await expect(apiService.transferAcrossBackends("move", "source", "source", "destination", "output/source")).resolves.toMatchObject({
-      status: "completed_with_source_retained",
-      effects: { source: "unchanged", destination: "mutated" },
+      status: "completed",
+      effects: { source: "mutated", destination: "mutated" },
     });
     expect(mockAxiosInstance.post).toHaveBeenLastCalledWith(
       "/browse/destination/rename",
       expect.objectContaining({ new_name: "source" }),
       expect.anything()
     );
+    expect(mockAxiosInstance.delete).toHaveBeenCalledWith("/browse/source/item", expect.objectContaining({ params: { path: "source" } }));
+  });
+
+  it("finishes source deletion when a directory move is cancelled after publication", async () => {
+    const abortController = new AbortController();
+    mockAxiosInstance.delete.mockResolvedValue({});
+    mockAxiosInstance.get
+      .mockResolvedValueOnce({
+        data: { name: "source", path: "source", type: FileType.DIRECTORY, is_readable: true, is_hidden: false },
+      } as AxiosResponse)
+      .mockRejectedValueOnce({ isAxiosError: true, response: { status: 404 } })
+      .mockResolvedValueOnce({ data: { path: "source", items: [] } satisfies DirectoryListing } as AxiosResponse);
+    mockAxiosInstance.post.mockImplementation(async (path: string) => {
+      if (path === "/browse/destination/rename") {
+        abortController.abort();
+      }
+      return { data: {} } as AxiosResponse;
+    });
+
+    await expect(
+      apiService.transferAcrossBackends("move", "source", "source", "destination", "output/source", "ask", {
+        signal: abortController.signal,
+      })
+    ).resolves.toMatchObject({
+      status: "completed",
+      effects: { source: "mutated", destination: "mutated" },
+    });
+    expect(mockAxiosInstance.delete).toHaveBeenCalledWith("/browse/source/item", expect.objectContaining({ params: { path: "source" } }));
   });
 
   it("phase_10_stabilization_no_response_returns_unknown_without_retry", async () => {

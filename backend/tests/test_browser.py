@@ -152,6 +152,7 @@ def test_cross_provider_stream_destination_stages_before_publishing(
     with patch("app.api.browser.SMBBackend") as mock_backend:
         mock_instance = AsyncMock()
         mock_backend.return_value = mock_instance
+        mock_instance.get_file_info.side_effect = FileNotFoundError("incoming/report.txt")
 
         async def stage_and_commit(path: str, stream, *, before_commit, **_kwargs: object) -> int:
             assert path == "incoming/report.txt"

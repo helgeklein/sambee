@@ -218,10 +218,14 @@ async def cross_connection_move(
             overwrite=overwrite,
             target_resolution_policy=target_resolution_policy,
         )
-        raise SourceDeleteError(
-            f"Destination was created but guarded directory deletion is unavailable: {source_path}",
-            destination_mutated=True,
-        )
+        try:
+            await source.delete_item(source_path)
+        except Exception as error:
+            raise SourceDeleteError(
+                f"Destination was created but the original directory could not be removed: {source_path}",
+                destination_mutated=True,
+            ) from error
+        return None, source_info
     source_snapshot = RegularFileSourceSnapshot.from_file_info(source_info)
     try:
         source_reader = await source.open_move_source_reader(source_path)

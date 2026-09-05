@@ -1745,6 +1745,7 @@ class SMBBackend(StorageBackend):
         before_commit: Callable[[], Awaitable[None]],
         on_progress: ProgressCallback | None = None,
         source_mtime: datetime | None = None,
+        overwrite: bool = False,
     ) -> int:
         """Publish a streamed file through a private sibling stage.
 
@@ -1839,6 +1840,13 @@ class SMBBackend(StorageBackend):
                     )
 
                 await before_commit()
+                if overwrite:
+                    await self._run_blocking_smb_operation(
+                        "replace transfer destination",
+                        lambda: smbclient.remove(smb_path, **self._smb_auth_kwargs()),
+                        SMB_DELETE_TIMEOUT_SECONDS,
+                        smb_path=smb_path,
+                    )
                 await self._run_blocking_smb_operation(
                     "commit transfer stage",
                     lambda: smbclient.rename(smb_stage_path, smb_path, **self._smb_auth_kwargs()),

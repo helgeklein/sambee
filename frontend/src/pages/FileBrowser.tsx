@@ -456,6 +456,8 @@ const Browser: React.FC = () => {
     itemName: string;
   } | null>(null);
   const [copyMoveError, setCopyMoveError] = useState<string | null>(null);
+  const [copyMoveWarning, setCopyMoveWarning] = useState<string | null>(null);
+  const copyMoveAbortControllerRef = React.useRef<AbortController | null>(null);
 
   const [archiveCreateContext, setArchiveCreateContext] = useState<{
     sources: ContentItemHandle[];
@@ -1846,6 +1848,7 @@ const Browser: React.FC = () => {
       setCopyMoveSameDirectory(areSameContentLocations(sourcePane.currentLocation, destination));
       setCopyMoveDestinationPaneId(sourcePaneId === "left" ? "right" : "left");
       setCopyMoveError(null);
+      setCopyMoveWarning(null);
       setCopyMoveProgress(undefined);
       setCopyMoveTransferProgress(null);
       setCopyMoveProcessing(false);
@@ -1867,9 +1870,13 @@ const Browser: React.FC = () => {
 
       setCopyMoveProcessing(true);
       setCopyMoveError(null);
+      setCopyMoveWarning(null);
       setCopyMoveTransferProgress(null);
       setCopyMoveProgress({ current: 0, total: copyMoveItems.length });
+      const abortController = new AbortController();
+      copyMoveAbortControllerRef.current = abortController;
       const errors: string[] = [];
+      const warnings: string[] = [];
       let effectiveStrategy: CopyMoveConflictPolicy = "ask";
       let conflictCount = 0;
       let operationCancelled = false;
@@ -1877,14 +1884,22 @@ const Browser: React.FC = () => {
 
       for (let index = 0; index < copyMoveItems.length; index += 1) {
         const item = copyMoveItems[index]!;
-        const request = { kind: copyMoveMode, source: item.handle, destination: copyMoveDestination, targetName: destFileName } as const;
+        const request = {
+          kind: copyMoveMode,
+          source: item.handle,
+          destination: copyMoveDestination,
+          targetName: destFileName,
+          signal: abortController.signal,
+          onProgress: (bytesTransferred: number, totalBytes: number | null) =>
+            setCopyMoveTransferProgress({ bytesTransferred, totalBytes, itemName: item.entry.name }),
+        } as const;
         let targetName = destFileName;
         const execute = (targetResolutionPolicy: TargetResolutionPolicy = "ask") =>
           executeTransfer({ ...request, targetName, targetResolutionPolicy }, contentOperationEnvironment);
         const applyTransferResult = (result: import("./services/storageContracts").ContentTransferResult) => {
           if (result.status === "completed" || result.status === "skipped") return;
           if (result.status === "completed_with_source_retained") {
-            errors.push(`${item.entry.name}: ${result.error.detail}`);
+            warnings.push(`${item.entry.name}: ${result.error.detail}`);
             return;
           }
           if (result.status === "outcome_unknown") {
@@ -1901,6 +1916,10 @@ const Browser: React.FC = () => {
         try {
           applyTransferResult(await execute());
         } catch (error) {
+          if (abortController.signal.aborted) {
+            operationCancelled = true;
+            break;
+          }
           if (isApiError(error) && error.response?.status === 409) {
             const detail = error.response?.data?.detail;
             let conflict = typeof detail === "object" && detail !== null ? (detail as ConflictInfo) : null;
@@ -1976,18 +1995,23 @@ const Browser: React.FC = () => {
 
       setCopyMoveProcessing(false);
       setCopyMoveTransferProgress(null);
+      if (copyMoveAbortControllerRef.current === abortController) {
+        copyMoveAbortControllerRef.current = null;
+      }
       const sourcePane = copyMoveSourcePaneId === "left" ? leftPane : rightPane;
       const destinationPane = copyMoveDestinationPaneId === "left" ? leftPane : rightPane;
       void destinationPane.reloadCurrentLocation({ forceRefresh: true });
       void sourcePane.reloadCurrentLocation({ forceRefresh: true });
       if (operationCancelled) {
-        setCopyMoveDialogOpen(false);
+        setCopyMoveError(`${copyMoveMode === "copy" ? "Copy" : "Move"} cancelled.`);
         setConflictInfo(null);
         return;
       }
 
       if (errors.length > 0) {
         setCopyMoveError(errors.join("; "));
+      } else if (warnings.length > 0) {
+        setCopyMoveWarning(warnings.join("; "));
       } else {
         setCopyMoveDialogOpen(false);
         sourcePane.handleClearSelection();
@@ -2018,7 +2042,9 @@ const Browser: React.FC = () => {
 
   /** Cancel the copy/move dialog. */
   const handleCopyMoveCancel = useCallback(() => {
-    if (!copyMoveProcessing) {
+    if (copyMoveProcessing) {
+      copyMoveAbortControllerRef.current?.abort();
+    } else {
       setCopyMoveDialogOpen(false);
     }
   }, [copyMoveProcessing]);
@@ -3285,6 +3311,7 @@ const Browser: React.FC = () => {
         progress={copyMoveProgress}
         transferProgress={copyMoveTransferProgress}
         error={copyMoveError}
+        warning={copyMoveWarning}
       />
       {/* Overwrite Conflict Dialog (shown per-file during copy/move) */}
       <OverwriteResolutionDialog

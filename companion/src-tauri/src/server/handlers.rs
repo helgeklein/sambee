@@ -1141,7 +1141,7 @@ fn completed_with_source_retained_transfer_result() -> ContentTransferResult {
         replaced: false,
         error: Some(ContentTransferError {
             code: "source_delete_failed",
-            detail: "Destination was created but the source was retained because guarded cross-drive deletion is unavailable.".to_string(),
+            detail: "Destination was created but the original could not be removed.".to_string(),
         }),
     }
 }
@@ -1558,13 +1558,33 @@ async fn execute_browse_move(drive: &str, body: &CopyMoveRequest) -> Result<Cont
     let (dest_drive, dest_base) = resolve_dest_drive(drive, &body.dest_connection_id)?;
     if base_path != dest_base {
         let copy_result = execute_browse_copy(drive, body).await?;
-        return Ok(if copy_result.status == "completed" {
-            ContentTransferResult {
-                replaced: copy_result.replaced,
-                ..completed_with_source_retained_transfer_result()
-            }
+        if copy_result.status != "completed" {
+            return Ok(copy_result);
+        }
+        let source = resolve_safe_path(&base_path, drive, &body.source_path)?;
+        let source_metadata = tokio::fs::symlink_metadata(&source)
+            .await
+            .map_err(|error| map_io_error(error, &source))?;
+        let delete_result = if source_metadata.file_type().is_dir() {
+            tokio::fs::remove_dir_all(&source).await
         } else {
-            copy_result
+            tokio::fs::remove_file(&source).await
+        };
+        return Ok(match delete_result {
+            Ok(()) => ContentTransferResult {
+                replaced: copy_result.replaced,
+                ..completed_transfer_result("mutated", "mutated")
+            },
+            Err(error) => {
+                log::warn!(
+                    "Copied '{}' across drives but could not remove the original: {error}",
+                    source.display()
+                );
+                ContentTransferResult {
+                    replaced: copy_result.replaced,
+                    ..completed_with_source_retained_transfer_result()
+                }
+            }
         });
     }
 
@@ -1592,6 +1612,7 @@ async fn execute_browse_move(drive: &str, body: &CopyMoveRequest) -> Result<Cont
 #[derive(Deserialize)]
 pub struct StreamTransferQuery {
     path: String,
+    target_resolution_policy: Option<String>,
 }
 
 /// `POST /api/browse/{drive}/transfer-stream` — publish a streamed new file.
@@ -1611,6 +1632,15 @@ pub async fn browse_stream_transfer(
         .and_then(|value| value.to_str())
         .ok_or_else(|| ApiError::BadRequest("Transfer destination is invalid".to_string()))?;
     validate_name(name)?;
+    let target_policy = parse_target_resolution_policy(query.target_resolution_policy.as_deref())?;
+    match tokio::fs::symlink_metadata(&destination).await {
+        Ok(_) => match target_policy {
+            TargetResolutionPolicy::Skip => return Ok(Json(skipped_transfer_result())),
+            _ => return Err(ApiError::conflict_message(format!("Destination already exists: {}", query.path))),
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(map_io_error(error, &destination)),
+    }
 
     match stage_local_request_body(&destination, body).await {
         Ok(bytes_written) => {
@@ -1619,7 +1649,9 @@ pub async fn browse_stream_transfer(
                 destination.display(),
                 bytes_written
             );
-            Ok(Json(completed_transfer_result("unchanged", "mutated")))
+            Ok(Json(ContentTransferResult {
+                ..completed_transfer_result("unchanged", "mutated")
+            }))
         }
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
             Err(ApiError::conflict_message(format!("Destination already exists: {}", query.path)))
@@ -5742,20 +5774,24 @@ async fn build_conflict_error(source: &std::path::Path, dest: &std::path::Path, 
     }
 }
 
-fn copy_move_target_policy(body: &CopyMoveRequest) -> Result<TargetResolutionPolicy, ApiError> {
-    let resolved = match body.target_resolution_policy.as_deref() {
+fn parse_target_resolution_policy(target_resolution_policy: Option<&str>) -> Result<TargetResolutionPolicy, ApiError> {
+    Ok(match target_resolution_policy {
         None => {
-            return Ok(if body.overwrite.unwrap_or(false) {
-                TargetResolutionPolicy::Replace
-            } else {
-                TargetResolutionPolicy::Ask
-            });
+            return Ok(TargetResolutionPolicy::Ask);
         }
         Some("ask") => TargetResolutionPolicy::Ask,
         Some("skip") => TargetResolutionPolicy::Skip,
         Some("replace") => TargetResolutionPolicy::Replace,
         Some("replace_older") => TargetResolutionPolicy::ReplaceOlder,
         _ => return Err(ApiError::BadRequest("target_resolution_policy is invalid".to_string())),
+    })
+}
+
+fn copy_move_target_policy(body: &CopyMoveRequest) -> Result<TargetResolutionPolicy, ApiError> {
+    let resolved = if body.target_resolution_policy.is_none() && body.overwrite.unwrap_or(false) {
+        TargetResolutionPolicy::Replace
+    } else {
+        parse_target_resolution_policy(body.target_resolution_policy.as_deref())?
     };
     if let Some(overwrite) = body.overwrite {
         if overwrite != matches!(resolved, TargetResolutionPolicy::Replace) {
@@ -6095,7 +6131,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cross_drive_move_commits_destination_and_retains_source() {
+    async fn cross_drive_move_removes_source_after_destination_commit() {
         let source_directory = tempfile::tempdir().expect("source directory should be created");
         let destination_directory = tempfile::tempdir().expect("destination directory should be created");
         let source_drive = format!("source-{}", uuid::Uuid::new_v4());
@@ -6119,10 +6155,10 @@ mod tests {
         .await
         .expect("cross-drive copy should succeed");
 
-        assert_eq!(result.status, "completed_with_source_retained");
-        assert_eq!(result.effects.source, "unchanged");
+        assert_eq!(result.status, "completed");
+        assert_eq!(result.effects.source, "mutated");
         assert_eq!(result.effects.destination, "mutated");
-        assert!(source.exists());
+        assert!(!source.exists());
         assert_eq!(
             tokio::fs::read(destination_directory.path().join("incoming/report.txt"))
                 .await

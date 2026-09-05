@@ -384,6 +384,47 @@ async def test_directory_child_collision_reports_a_mutated_destination() -> None
     assert target.files["target/child.txt"] == b"existing"
 
 
+@pytest.mark.asyncio
+async def test_directory_move_deletes_source_after_destination_copy() -> None:
+    now = datetime.now(timezone.utc)
+
+    class DirectoryTransferBackend(MemoryTransferBackend):
+        async def list_directory(self, path: str):
+            if path == "source":
+                return type("Listing", (), {"items": [file_info("child.txt", now)], "total": 1})()
+            return type("Listing", (), {"items": [], "total": 0})()
+
+        async def create_directory(self, path: str) -> None:
+            self.files[path] = b"directory"
+
+        async def set_file_times(self, _path: str, _modified_at: datetime) -> None:
+            return None
+
+        async def delete_item(self, path: str) -> None:
+            for child_path in [item_path for item_path in self.files if item_path == path or item_path.startswith(f"{path}/")]:
+                del self.files[child_path]
+
+    source = DirectoryTransferBackend({"source": b"directory", "source/child.txt": b"content"}, now)
+    target = DirectoryTransferBackend({}, now)
+    source.get_file_info = lambda path: _return(
+        FileInfo(
+            name=path.rsplit("/", 1)[-1],
+            path=path,
+            type=FileType.DIRECTORY if path == "source" else FileType.FILE,
+            size=0,
+            modified_at=now,
+            stable_id=f"identity:{path}",
+        )
+    )
+
+    bytes_written, source_info = await cross_connection_move(source, target, "source", "target")
+
+    assert bytes_written is None
+    assert source_info.path == "source"
+    assert source.files == {}
+    assert target.files == {"target": b"directory", "target/child.txt": b"content"}
+
+
 def test_source_snapshot_rejects_an_identity_that_appears_after_planning() -> None:
     now = datetime.now(timezone.utc)
     snapshot = RegularFileSourceSnapshot.from_file_info(file_info("source.txt", now))

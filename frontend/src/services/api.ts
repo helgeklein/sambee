@@ -20,6 +20,7 @@ import type {
   AuthenticationModeActivationResponse,
   AuthToken,
   CompanionDownloadMetadata,
+  ConflictInfo,
   Connection,
   ConnectionCreate,
   ConnectionVisibilityOption,
@@ -83,6 +84,11 @@ export interface DurableTransferOperation {
   phase: "prepared" | "streaming" | "completed" | "failed" | "cancelled";
   cancellation_requested: boolean;
   result?: ContentTransferResult | null;
+}
+
+export interface CrossBackendTransferOptions {
+  signal?: AbortSignal;
+  onProgress?: (bytesTransferred: number, totalBytes: number | null) => void;
 }
 
 const CONNECTIONS_API_BASE = "/connections";
@@ -1437,12 +1443,7 @@ class ApiService {
     targetResolutionPolicy: TargetResolutionPolicy = "ask"
   ): Promise<ContentTransferResult> {
     if (destConnectionId && this.isCrossBackendTransfer(connectionId, destConnectionId)) {
-      return {
-        status: "failed",
-        replaced: false,
-        effects: { source: "unchanged", destination: "unchanged" },
-        error: { code: "unavailable", reason: "unsupported" },
-      };
+      return this.transferAcrossBackends("copy", connectionId, sourcePath, destConnectionId, destPath, targetResolutionPolicy);
     }
     if (destConnectionId && destConnectionId !== connectionId && !isLocalDrive(connectionId) && !isLocalDrive(destConnectionId)) {
       const sourceInfo = await this.getFileInfo(connectionId, sourcePath);
@@ -1483,6 +1484,9 @@ class ApiService {
     destConnectionId?: string,
     targetResolutionPolicy: TargetResolutionPolicy = "ask"
   ): Promise<ContentTransferResult> {
+    if (destConnectionId && this.isCrossBackendTransfer(connectionId, destConnectionId)) {
+      return this.transferAcrossBackends("move", connectionId, sourcePath, destConnectionId, destPath, targetResolutionPolicy);
+    }
     if (destConnectionId && destConnectionId !== connectionId && !isLocalDrive(connectionId) && !isLocalDrive(destConnectionId)) {
       const sourceInfo = await this.getFileInfo(connectionId, sourcePath);
       if (sourceInfo.type === "file") {
@@ -1524,16 +1528,9 @@ class ApiService {
     sourcePath: string,
     destinationConnectionId: string,
     destinationPath: string,
-    targetResolutionPolicy: TargetResolutionPolicy = "ask"
+    targetResolutionPolicy: TargetResolutionPolicy = "ask",
+    options: CrossBackendTransferOptions = {}
   ): Promise<ContentTransferResult> {
-    if (targetResolutionPolicy !== "ask") {
-      return {
-        status: "failed",
-        replaced: false,
-        effects: { source: "unchanged", destination: "unchanged" },
-        error: { code: "unavailable", reason: "unsupported" },
-      };
-    }
     const sourceInfo = await this.getFileInfo(sourceConnectionId, sourcePath);
     if (sourceInfo.type === "directory") {
       return this.transferDirectoryAcrossBackends(
@@ -1542,7 +1539,8 @@ class ApiService {
         sourcePath,
         destinationConnectionId,
         destinationPath,
-        targetResolutionPolicy
+        targetResolutionPolicy,
+        options
       );
     }
     if (sourceInfo.type !== "file") {
@@ -1554,7 +1552,15 @@ class ApiService {
       };
     }
 
-    const sourceResponse = await this.fetchRawFileStream(sourceConnectionId, sourcePath);
+    let sourceResponse: Response;
+    try {
+      sourceResponse = await this.fetchRawFileStream(sourceConnectionId, sourcePath, { signal: options.signal });
+    } catch (error) {
+      if (options.signal?.aborted) {
+        return { status: "cancelled", replaced: false, effects: { source: "unchanged", destination: "unchanged" } };
+      }
+      throw error;
+    }
     if (!sourceResponse.body) {
       return {
         status: "outcome_unknown",
@@ -1562,20 +1568,42 @@ class ApiService {
         effects: { source: "unknown", destination: "unknown" },
       };
     }
-    const destinationUrl = `${getBaseUrl(destinationConnectionId)}/browse/${getBrowseSegment(destinationConnectionId)}/transfer-stream?path=${encodeURIComponent(destinationPath)}`;
+    const destinationUrl = `${getBaseUrl(destinationConnectionId)}/browse/${getBrowseSegment(destinationConnectionId)}/transfer-stream?path=${encodeURIComponent(destinationPath)}&target_resolution_policy=${encodeURIComponent(targetResolutionPolicy)}`;
     const destinationHeaders = await this.getTransferFetchHeaders(destinationConnectionId);
+    let bytesTransferred = 0;
+    const relayStream = options.onProgress
+      ? sourceResponse.body.pipeThrough(
+          new TransformStream<Uint8Array, Uint8Array>({
+            transform: (chunk, controller) => {
+              bytesTransferred += chunk.byteLength;
+              options.onProgress?.(bytesTransferred, sourceInfo.size ?? null);
+              controller.enqueue(chunk);
+            },
+          })
+        )
+      : sourceResponse.body;
     let destinationResponse: Response;
     try {
       destinationResponse = await fetch(destinationUrl, {
         method: "POST",
         headers: { ...destinationHeaders, "Content-Type": "application/octet-stream" },
-        body: sourceResponse.body,
+        body: relayStream,
         duplex: "half",
+        signal: options.signal,
       } as RequestInit & { duplex: "half" });
     } catch {
+      if (options.signal?.aborted) {
+        return { status: "cancelled", replaced: false, effects: { source: "unchanged", destination: "unknown" } };
+      }
       return { status: "outcome_unknown", replaced: false, effects: { source: "unknown", destination: "unknown" } };
     }
     if (!destinationResponse.ok) {
+      if (destinationResponse.status === 409) {
+        const existingFile = await this.getFileInfo(destinationConnectionId, destinationPath).catch(() => null);
+        if (existingFile) {
+          throw this.createTransferConflictError(existingFile, sourceInfo);
+        }
+      }
       const detail = await destinationResponse.text().catch(() => destinationResponse.statusText);
       return {
         status: "failed",
@@ -1588,18 +1616,23 @@ class ApiService {
       };
     }
     const result = this.normalizeTransferResult((await destinationResponse.json()) as ContentTransferResult);
-    if (kind === "move" && result.status === "completed") {
+    if (kind !== "move" || result.status !== "completed") {
+      return result;
+    }
+    try {
+      await this.deleteItem(sourceConnectionId, sourcePath);
+      return { ...result, effects: { source: "mutated", destination: "mutated" } };
+    } catch (error) {
       return {
         status: "completed_with_source_retained",
         replaced: result.replaced,
         effects: { source: "unchanged", destination: "mutated" },
         error: {
           code: "source_delete_failed",
-          detail: "Destination was created but the source was retained because guarded cross-provider deletion is unavailable.",
+          detail: `Destination was created but the original could not be removed: ${error instanceof Error ? error.message : "unknown error"}`,
         },
       };
     }
-    return result;
   }
 
   // ── Transfer routing helpers ────────────────────────────────────────────
@@ -1688,6 +1721,15 @@ class ApiService {
     return result;
   }
 
+  private createTransferConflictError(
+    existingFile: FileInfo,
+    incomingFile: FileInfo
+  ): Error & { response: { status: number; data: { detail: ConflictInfo } } } {
+    const error = new Error("Destination already exists") as Error & { response: { status: number; data: { detail: ConflictInfo } } };
+    error.response = { status: 409, data: { detail: { existing_file: existingFile, incoming_file: incomingFile } } };
+    return error;
+  }
+
   /** Check whether source and destination are on different backend types. */
   private isCrossBackendTransfer(sourceConnectionId: string, destConnectionId: string): boolean {
     return isLocalDrive(sourceConnectionId) !== isLocalDrive(destConnectionId);
@@ -1716,15 +1758,22 @@ class ApiService {
     sourcePath: string,
     destinationConnectionId: string,
     destinationPath: string,
-    targetResolutionPolicy: TargetResolutionPolicy
+    targetResolutionPolicy: TargetResolutionPolicy,
+    options: CrossBackendTransferOptions
   ): Promise<ContentTransferResult> {
-    if (targetResolutionPolicy !== "ask") {
-      return {
-        status: "failed",
-        replaced: false,
-        effects: { source: "unchanged", destination: "unchanged" },
-        error: { code: "unavailable", reason: "unsupported" },
-      };
+    try {
+      const existingFile = await this.getFileInfo(destinationConnectionId, destinationPath);
+      if (targetResolutionPolicy === "skip") {
+        return { status: "skipped", replaced: false, effects: { source: "unchanged", destination: "unchanged" } };
+      }
+      throw this.createTransferConflictError(existingFile, await this.getFileInfo(sourceConnectionId, sourcePath));
+    } catch (error) {
+      if (error instanceof Error && "response" in error) {
+        throw error;
+      }
+      if (!axios.isAxiosError(error) || error.response?.status !== 404) {
+        throw error;
+      }
     }
     const separator = destinationPath.lastIndexOf("/");
     const destinationParent = separator < 0 ? "" : destinationPath.slice(0, separator);
@@ -1743,19 +1792,24 @@ class ApiService {
     try {
       await this.createItem(destinationConnectionId, destinationParent, stagePath.split("/").pop() ?? "", "directory");
       stageCreated = true;
-      await this.copyDirectoryContentsAcrossBackends(sourceConnectionId, sourcePath, destinationConnectionId, stagePath);
+      await this.copyDirectoryContentsAcrossBackends(sourceConnectionId, sourcePath, destinationConnectionId, stagePath, options);
       await this.renameItem(destinationConnectionId, stagePath, targetName);
       committed = true;
       if (kind === "move") {
-        return {
-          status: "completed_with_source_retained",
-          replaced: false,
-          effects: { source: "unchanged", destination: "mutated" },
-          error: {
-            code: "source_delete_failed",
-            detail: "Destination was created but the source was retained because guarded cross-provider deletion is unavailable.",
-          },
-        };
+        try {
+          await this.deleteItem(sourceConnectionId, sourcePath);
+          return { status: "completed", replaced: false, effects: { source: "mutated", destination: "mutated" } };
+        } catch (error) {
+          return {
+            status: "completed_with_source_retained",
+            replaced: false,
+            effects: { source: "unchanged", destination: "mutated" },
+            error: {
+              code: "source_delete_failed",
+              detail: `Destination was created but the original could not be removed: ${error instanceof Error ? error.message : "unknown error"}`,
+            },
+          };
+        }
       }
       return { status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } };
     } catch (error) {
@@ -1765,6 +1819,9 @@ class ApiService {
         } catch {
           return { status: "outcome_unknown", replaced: false, effects: { source: "unknown", destination: "unknown" } };
         }
+      }
+      if (options.signal?.aborted) {
+        return { status: "cancelled", replaced: false, effects: { source: "unchanged", destination: "unchanged" } };
       }
       if (axios.isAxiosError(error) && error.response?.status === 409) {
         return {
@@ -1787,15 +1844,25 @@ class ApiService {
     sourceConnectionId: string,
     sourcePath: string,
     destinationConnectionId: string,
-    destinationPath: string
+    destinationPath: string,
+    options: CrossBackendTransferOptions
   ): Promise<void> {
-    const listing = await this.listDirectory(sourceConnectionId, sourcePath);
+    if (options.signal?.aborted) {
+      throw new DOMException("Directory transfer cancelled", "AbortError");
+    }
+    const listing = await this.listDirectory(sourceConnectionId, sourcePath, { signal: options.signal });
     for (const item of listing.items) {
       const childSourcePath = [sourcePath, item.name].filter(Boolean).join("/");
       const childDestinationPath = [destinationPath, item.name].filter(Boolean).join("/");
       if (item.type === "directory") {
         await this.createItem(destinationConnectionId, destinationPath, item.name, "directory");
-        await this.copyDirectoryContentsAcrossBackends(sourceConnectionId, childSourcePath, destinationConnectionId, childDestinationPath);
+        await this.copyDirectoryContentsAcrossBackends(
+          sourceConnectionId,
+          childSourcePath,
+          destinationConnectionId,
+          childDestinationPath,
+          options
+        );
         continue;
       }
       const result = await this.transferAcrossBackends(
@@ -1803,7 +1870,9 @@ class ApiService {
         sourceConnectionId,
         childSourcePath,
         destinationConnectionId,
-        childDestinationPath
+        childDestinationPath,
+        "ask",
+        options
       );
       if (result.status !== "completed") {
         throw new Error(result.status === "failed" ? result.error.code : `Directory child transfer ${result.status}`);

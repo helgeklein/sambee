@@ -82,6 +82,8 @@ export interface TransferRequest {
   destination: ContentLocation;
   targetName?: string;
   targetResolutionPolicy?: TargetResolutionPolicy;
+  signal?: AbortSignal;
+  onProgress?: (bytesTransferred: number, totalBytes: number | null) => void;
 }
 
 export interface CreateContainerRequest {
@@ -283,6 +285,17 @@ export async function executeTransfer(request: TransferRequest, environment: Con
   const requiresStreamRelay = source.target.kind !== destination.target.kind;
   if (requiresStreamRelay) {
     const targetPath = `${destination.path}/${targetName}`.replace(/^\//, "");
+    if (request.signal || request.onProgress) {
+      return transferAcrossStorageBackends(
+        request.kind,
+        request.source.location.connectionId,
+        source.path,
+        request.destination.connectionId,
+        targetPath,
+        targetResolutionPolicy,
+        { signal: request.signal, onProgress: request.onProgress }
+      );
+    }
     return transferAcrossStorageBackends(
       request.kind,
       request.source.location.connectionId,
@@ -299,6 +312,7 @@ export async function executeTransfer(request: TransferRequest, environment: Con
     targetName: request.targetName,
     targetResolutionPolicy,
     idempotencyKey,
+    signal: request.signal,
   };
   return request.kind === "move" ? backend.moveWithinBackend(transfer) : backend.copyWithinBackend(transfer);
 }

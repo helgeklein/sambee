@@ -1228,6 +1228,7 @@ async def stream_transfer_to_new_item(
     connection_id: uuid.UUID,
     request: Request,
     path: str = Query(..., description="New destination path on the share"),
+    target_resolution_policy: TargetResolutionPolicy = Query(TargetResolutionPolicy.ASK),
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> ContentTransferResult:
@@ -1258,6 +1259,17 @@ async def stream_transfer_to_new_item(
     try:
         await backend.connect()
         try:
+            try:
+                existing_target = await backend.get_file_info(target_path)
+            except FileNotFoundError:
+                existing_target = None
+            if existing_target is not None:
+                if target_resolution_policy == TargetResolutionPolicy.SKIP:
+                    return ContentTransferResult(
+                        status="skipped",
+                        effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
+                    )
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Destination already exists: {target_path}")
             bytes_written = await backend.stage_and_commit_new_file_from_stream(
                 target_path,
                 request_stream(),

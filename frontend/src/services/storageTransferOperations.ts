@@ -1,3 +1,4 @@
+import type { CrossBackendTransferOptions } from "./api";
 import api from "./api";
 import { clearForegroundTransferOperation, loadForegroundTransferOperation } from "./foregroundTransferOperation";
 import type { ContentTransferResult, TargetResolutionPolicy } from "./storageContracts";
@@ -9,8 +10,20 @@ export function transferAcrossStorageBackends(
   sourcePath: string,
   destinationConnectionId: string,
   destinationPath: string,
-  targetResolutionPolicy: TargetResolutionPolicy
+  targetResolutionPolicy: TargetResolutionPolicy,
+  options?: CrossBackendTransferOptions
 ): Promise<ContentTransferResult> {
+  if (options) {
+    return api.transferAcrossBackends(
+      kind,
+      sourceConnectionId,
+      sourcePath,
+      destinationConnectionId,
+      destinationPath,
+      targetResolutionPolicy,
+      options
+    );
+  }
   return api.transferAcrossBackends(kind, sourceConnectionId, sourcePath, destinationConnectionId, destinationPath, targetResolutionPolicy);
 }
 

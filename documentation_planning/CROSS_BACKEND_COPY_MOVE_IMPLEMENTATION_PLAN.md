@@ -1,8 +1,8 @@
-# Comprehensive Copy, Move, and Selected Archive-Member Extraction Implementation Plan
+# Practical F5/F6 Copy, Move, and Archive-Member Extraction Plan
 
 ## Purpose
 
-Restore and make durable full copy and move support for physical files and
+Restore full copy and move support for physical files and
 directories between every supported storage location:
 
 - SMB connection to the same SMB connection
@@ -21,28 +21,24 @@ dual-pane mode, a user may select members in an archive pane and press F5 to
 extract them into the opposite physical pane. Archive members are never moved:
 F6 does not delete an archive member or mutate its containing archive.
 
-The solution must preserve correctness when a browser is closed, requests are
-retried, source or destination changes concurrently, an operation is cancelled,
-or one provider becomes unavailable. A browser-relayed operation pauses when
-its browser closes and may resume after reload; it does not continue in the
-background unless a provider-owned worker is introduced. It must not silently
-overwrite a target or delete a changed source.
+The solution must give users conventional file-manager behavior: copy contents
+without buffering entire files in the browser, move by copying then deleting the
+original, show useful progress, allow cancellation, and never silently
+overwrite a target or leave a partial file under the requested name.
 
 ## Current State and Root Cause
 
-`ContentOperation` currently rejects every move and rejects transfers whose
-source and destination are different backend kinds. The API layer repeats those
-gates. The underlying SMB and Companion services only expose path-based delete
-operations, while the SMB reader closes its handle before a later delete can be
-requested. Separately, archive extraction currently accepts an archive location
-and destination only, so it always extracts the whole archive. Its V2 contract
-rejects an unknown member-selection field, and current execution rejects
-different SMB connections and different local drives.
+The original no-op came from `ContentOperation` and the API layer rejecting
+moves and transfers whose source and destination were different backend kinds.
+Those gates have been removed for the supported staged paths. Staged copy and
+copy-then-delete F6 now work for cross-provider files and directories,
+cross-drive local transfers, and cross-SMB directory transfers. A source is
+retained only when its deletion fails after the destination is published, and
+that partial move is reported to the user.
 
-This prevents the required transfer matrix from reaching any transport. Simply
-removing the gates would be unsafe: a browser-side read-to-Blob-to-upload relay
-would buffer large files, bypass atomic collision handling, and cannot safely
-delete a source using a handle it does not own.
+The browser relay must remain streamed. Reading the source into a `Blob` would
+make large transfers consume browser memory and provide no useful cancellation
+or progress behavior.
 
 Likewise, treating a selected archive member as a physical source would be
 incorrect. An archive member is delivered by an archive reader, not a
@@ -50,21 +46,22 @@ filesystem object with an independently deletable source identity.
 
 ## Design Decisions
 
-### Provider-owned transfer sessions
+### Browser-relayed staged transfer
 
-Each provider owns an explicit, expiring transfer session when the operation
-needs a streamed fallback. A source session retains an identity-bound
-read/delete capability and a destination session owns a private staging target.
-The browser relays bytes only when the providers cannot transfer directly.
+When providers cannot transfer directly, the browser relays the source response
+body to a destination endpoint. The browser does not buffer a complete file or
+assert source/destination facts. The destination endpoint owns a private staging
+target and publishes it only after the complete request body is written.
 
 Same-filesystem, same-server, and same-provider operations first use a proven
-native rename, move, or server-side copy capability. They use the streamed
-session protocol only when the native operation cannot provide the requested
-conflict policy or factual outcome.
+native rename, move, or server-side copy capability. They use the staged relay
+only when the native operation cannot provide the requested conflict policy or
+factual outcome.
 
-The browser must never be trusted to assert that a source is unchanged, a
-destination is complete, or a source can be deleted. Those facts are checked by
-the provider that owns the relevant filesystem handle.
+The destination owns staging and publication. After publication, the
+orchestrator deletes the original through the existing source-provider delete
+API for a move. If deletion fails, it retains the original and reports that the
+copy succeeded but the move did not fully complete.
 
 ### Archive-owned selected-member extraction
 
@@ -102,39 +99,27 @@ The staged fallback uses these logical stages:
 1. inspect and reserve the requested target according to its conflict policy
 2. copy bytes and create the complete destination tree in private staging
 3. verify all copied content and atomically promote the staged target
-4. for a move only, delete the source through its retained identity-bound
-   session
-5. publish a factual result and retain it for idempotent retries
+4. for a move only, delete the original through the source provider's normal
+  delete API
+5. return a factual result to the active request
 
 Promotion before source deletion means a failed physical move can create a valid
 destination while preserving its source. This is reported as
-`completed_with_source_retained`, never hidden as a successful move. Direct
-destination writes are not used for ordinary transfers because interrupted
-copies expose partial data and can damage an existing target; they require an
-explicit, documented performance-oriented mode.
+`completed_with_source_retained`, with a clear user message, never hidden as a
+successful move. Direct destination writes are not used because interrupted
+copies expose partial data and can damage an existing target.
 
 Archive extraction applies the same destination collision and publication
 guarantees per extracted member where the destination supports them. It does
 not make a selected group atomically visible as one tree when its entries merge
 with an existing destination; it records factual per-member outcomes instead.
 
-### One logical operation protocol
+### One transfer result contract
 
-Define a versioned `TransferOperation` protocol shared by the backend,
-Companion, and frontend. It replaces the current source-backend-only
-`copyWithinBackend` / `moveWithinBackend` assumption for cross-provider work.
-
-The protocol must carry:
-
-- caller-provided idempotency key and server/provider-issued operation ID
-- operation kind (`copy` or `move`)
-- source and destination locations
-- target resolution policy and resolved final target name
-- source identity snapshot and recursive manifest for directories
-- destination staging identity and commit state
-- byte, entry, and total progress
-- factual source and destination effects
-- expiry, cancellation, and recovery state
+Use `ContentTransferResult` for all copy and move paths. Each request carries
+the operation kind, source and destination locations, target policy, progress,
+and factual source/destination effects. In-progress browser relays are not
+durable operations and do not survive reloads or retries.
 
 Existing `ContentTransferResult` remains the common result shape, extended only
 when it cannot represent an observable terminal state. Results must always
@@ -148,12 +133,13 @@ describe what actually changed, including partial destination output.
 | SMB | Other SMB connection | backend-to-backend stream | backend-to-backend staged tree | yes | yes |
 | Local | Same local drive | native filesystem operation, then staged fallback | native filesystem operation, then staged fallback | yes | yes |
 | Local | Other local drive | Companion-to-Companion stream | Companion staged tree | yes | yes |
-| SMB | Local | browser-relayed stream between provider sessions | browser-relayed staged tree | yes | yes |
-| Local | SMB | browser-relayed stream between provider sessions | browser-relayed staged tree | yes | yes |
+| SMB | Local | browser-relayed staged stream | browser-relayed staged tree | yes | yes |
+| Local | SMB | browser-relayed staged stream | browser-relayed staged tree | yes | yes |
 
 The matrix applies to one or many selected roots. A batch is sequential at the
-root level unless durable scheduling is later introduced. Each root has its own
-idempotency key, receipt, conflict decision, progress, and terminal result.
+root level. Each root has its own conflict decision, progress, and terminal
+result. If destination publication succeeds but source deletion fails, the
+result reports a partial move and leaves both items in place.
 
 ### Selected ZIP-member extraction matrix
 
@@ -170,85 +156,38 @@ The present archive executor handles same-SMB, same-local, and mixed SMB/local
 topologies. Different-SMB and different-local archive extraction are explicit
 parity work in this plan, not already-supported behavior.
 
-## Physical Source Session Requirements
+## Practical Move Safety
 
-### Common source contract
+Moves use normal copy-then-delete behavior:
 
-Introduce a source-session API with these logical operations:
+1. stage and publish the destination;
+2. call the existing delete endpoint on the original source path;
+3. report `completed` only when both steps succeed;
+4. report `completed_with_source_retained` when destination publication
+   succeeded but deletion did not.
 
-- `begin_source_transfer`: validate readability, capture immutable identity and
-  metadata, and retain the source lease
-- `read_source_chunk`: stream a bounded offset/range from the retained source
-  object; support reconnect/retry with offset and per-chunk digest
-- `get_source_manifest`: return a stable tree manifest for a directory source
-- `verify_source`: prove that every transferred source entry still matches the
-  captured identity
-- `commit_source_move`: delete only the captured source objects after a
-  destination commit
-- `abort_source_transfer`: close handles and release leases without mutation
-- `get_transfer_receipt`: return the durable factual result for an idempotency
-  retry
+No source identity snapshots, retained source handles, leases, or recursive
+manifests are required for this feature. A cancelled, failed, or unknown
+destination transfer never starts source deletion.
 
-Source sessions expire safely: expiry closes the lease and leaves the source
-unchanged. They may never delete automatically after expiry.
+Directories use the same rule: delete the original directory only after the
+staged destination tree has been promoted. Shortcut files copy as ordinary
+files. Hard links, device files, sockets, ACLs, ownership, and exact timestamp
+preservation are outside this feature unless they prevent ordinary file copies.
 
-### SMB source implementation
+## Physical Transfer Destination Requirements
 
-Implement an SMB transfer-handle abstraction in `backend/app/storage/`.
+Implement staged destination delivery in both the backend SMB API and Companion
+API.
 
-- Open files with the access and share modes necessary to retain their identity
-  and perform deletion through that same SMB handle after destination commit.
-- Capture SMB file identity, size, modification time, and other stable metadata
-  exposed by the server. Do not rely only on a path.
-- Implement conditional deletion with the retained SMB handle or an SMB-native
-  identity/lease primitive. A research spike must verify the exact `smbclient`
-  / SMB server APIs and their behavior on Windows, Samba, and NAS appliances.
-- If a server cannot provide the necessary conditional-delete primitive, return
-  `completed_with_source_retained` after destination commit. Do not fall back
-  to path-based deletion.
-- For directories, capture a recursive manifest before destination promotion;
-  a move removes only entries still matching their captured identities.
-
-### Local source implementation
-
-Implement the equivalent transfer-handle abstraction in the Companion Rust
-server.
-
-- Retain OS file handles for regular files for the duration of the session.
-- Capture platform-native identity: device/inode on Unix and volume serial plus
-  file ID on Windows. Include length and modification time as secondary checks.
-- Implement delete-through-handle where the platform supports it. Where deletion
-  remains path based, compare the current identity immediately before deletion
-  and treat any mismatch as source retention; document the remaining OS-level
-  race and eliminate it with a platform-specific guarded primitive before
-  claiming full move support on that platform.
-- Treat symlinks, Windows reparse points, and `.lnk` files as leaf entries by
-  default. Do not follow them across the exposed-drive boundary during a copy or
-  move. Preserve them only after an explicit per-platform link representation
-  contract is implemented.
-- A directory session uses a captured manifest plus per-entry identity guards;
-  it must not use `remove_dir_all` on the original path after copying.
-
-## Physical Transfer Destination Session Requirements
-
-Implement destination sessions in both the backend SMB API and Companion API.
-
-- `begin_destination_transfer` validates write access and target policy, then
-  creates an operation-private sibling staging directory or temporary file on
-  the destination filesystem.
-- Write operations accept bounded chunk offsets and hashes, making retries
-  idempotent and preventing duplicate or reordered writes.
-- Build directory trees only beneath staging. Preserve supported file metadata
-  such as modification time and permissions according to an explicit
-  cross-platform policy.
-- `finalize_destination_transfer` verifies entry count, lengths, and whole-file
-  digests, then promotes staging to the final name using the filesystem's
-  strongest atomic rename/create primitive.
-- Final target reservation and promotion enforce `ask`, `skip`, `rename`,
-  `replace`, and `replace_older` without check-then-write races. Return the
-  existing structured conflict information whenever user resolution is needed.
-- `abort_destination_transfer` removes only the operation's staging data. It
-  never removes a promoted destination.
+- Validate destination access and create a private sibling temporary file or
+  directory.
+- Stream request bytes with backpressure, then publish the completed staging
+  item under the requested name.
+- On a failed or cancelled request, remove only its private staging item.
+- When the target already exists, return the current structured conflict so the
+  existing Target already exists dialog can choose skip or rename. Do not
+  introduce a second conflict UI or protocol.
 
 The existing upload endpoints may remain for editor save-back, but must not be
 used as the cross-backend transfer protocol because they overwrite a path and
@@ -260,36 +199,27 @@ buffer multipart content.
 
 Restore same-provider move dispatch first, using provider-native copy/move when
 they provide the required target policy and factual outcome. Route through the
-new operation coordinator so the UI observes the same result and receipt model
-as cross-provider transfers.
+common result handling used by cross-provider transfers.
 
-When a provider-native operation cannot meet the session contract, use the
-staged source/destination protocol within that provider instead.
+When a provider-native operation cannot meet the target safety contract, use
+staged delivery within that provider instead.
 
 ### Cross-provider operations
 
 The browser is the authenticated byte relay between the backend origin and the
 paired Companion origin. It does not receive filesystem authority.
 
-1. The frontend requests source and destination sessions using the single
-   idempotency key and receives opaque capability-scoped session URLs/tokens.
-2. It streams chunks with backpressure from source to destination; it must not
-   call `response.blob()` or assemble the file in memory.
-3. It resumes from the destination's acknowledged offset after a recoverable
-   request failure. Digest mismatches abort the destination session and retain
-   the source.
-4. The destination validates and promotes the entire root.
-5. For copy, the frontend asks the source session to verify and close. For move,
-   it asks the source session to commit its guarded deletion.
-6. Both providers persist their receipts. A retry asks for the receipt rather
-   than restarting a possibly completed mutation.
+1. It streams chunks with backpressure from source to destination and never
+  calls `response.blob()` or assembles a file in memory.
+2. The destination validates and promotes the complete staged root.
+3. A move deletes the original only after destination promotion succeeds.
+4. A request failure discards unpromoted staging and returns a factual failure
+  when known, otherwise `outcome_unknown`; retry starts a new attempt.
 
-For directories, the coordinator streams one manifest entry at a time and only
-promotes a newly created staged root after every entry has verified. Empty
-directories are manifest entries and must be preserved. A copy merged into an
-existing destination tree cannot be atomic as one unit, so it records factual
-per-entry results and does not delete its source entries until their target
-entries have committed.
+For directories, the coordinator creates the destination tree in a private
+staging directory, including empty directories, then promotes it after all
+children copy. Existing destination roots use the current Target already exists
+dialog; this milestone does not merge directory trees.
 
 ### Selected archive-member extraction
 
@@ -321,25 +251,13 @@ per-member outcome and refresh the destination. A later archive-protocol
 upgrade may add resumable member delivery, but must version the contract and
 cannot retrofit replay semantics into V2 checkpoints.
 
-### Browser closure and recovery
+### Browser closure and interruption
 
-Transfer state is durable at each provider and mirrored in browser session
-storage only for UX recovery. A browser-relayed transfer pauses when the
-browser closes; it may resume from provider-acknowledged offsets on reload. It
-continues after browser closure only if a future provider-owned worker performs
-the byte relay. On reload, the frontend queries both provider receipts and
-offers exactly one of these truthful states:
-
-- complete
-- skipped
-- destination committed; source retained
-- cancelled before destination commit
-- failed before destination mutation
-- failed with staged data cleaned up
-- outcome unknown; both locations must be refreshed and reconciled
-
-An orphaned session expires and cleans only unpromoted staging data. It must
-never automatically commit a source deletion.
+A browser-relayed transfer stops when its request is interrupted. Its
+destination endpoint discards only unpromoted staging. The UI refreshes both
+panes and reports a factual failure when available; otherwise it reports
+`outcome_unknown` and requires the user to reconcile and retry manually. It
+never automatically deletes a source after an interrupted request.
 
 Archive operations follow their own V2 recovery rules. Backend-owned selected
 extractions may remain observable through their durable archive operation, but
@@ -351,18 +269,14 @@ available, otherwise an interrupted or unknown result and refreshes the target.
 
 ### Backend and Companion
 
-- Add versioned transfer-session endpoints under their existing browse API
-  namespaces.
-- Authenticate backend sessions as the current user and Companion sessions with
-  the existing origin-scoped pairing HMAC. Session capabilities are opaque,
-  short-lived, single-operation, and bound to origin, source/destination,
-  operation kind, and idempotency key.
-- Rate limit chunk endpoints, cap transfer concurrency, enforce maximum chunk
-  size, and reject offset/digest mismatches.
-- Publish progress over the existing websocket model for provider-native and
-  staged transfers. Progress is advisory and must not decide correctness.
-- Extend transfer receipts to include session phase and final factual result.
-- Add cleanup jobs for expired source leases, destination staging, and receipts.
+- Keep transfers under the existing authenticated browse API namespaces.
+- Authenticate backend requests as the current user and Companion requests with
+  the existing origin-scoped pairing HMAC.
+- Add target-resolution support to the existing staged relay endpoints. Return
+  the existing structured target conflict before any destination mutation.
+- Add cancellation-aware request handling and cleanup for unpromoted staging.
+- Use the existing delete endpoints to complete cross-location moves after a
+  published destination copy.
 
 ### Archive extraction contract and executors
 
@@ -386,17 +300,16 @@ available, otherwise an interrupted or unknown result and refreshes the target.
 
 ### Frontend
 
-- Replace the cross-backend availability gate with capability queries from the
-  transfer coordinator. Archive sources remain unavailable.
-- Extend `StorageBackend` / `StorageBackendRegistry` with session factories and
-  a `TransferCoordinator`; do not make the source backend responsible for a
-  destination it does not own.
-- Update `executeTransfer` to dispatch `copy` and `move` independently.
-- Render root and byte progress from coordinator events. Preserve the current
-  conflict dialog; pause the operation at a conflict and resume the same
-  idempotency-backed root with the selected policy.
-- Always refresh source and destination panes after every terminal result,
-  including partial completion, cancellation, and unknown outcome.
+- Keep physical archive sources unavailable for generic F5/F6 transfers.
+- Dispatch F5 and F6 independently, with F6 deleting the source only after
+  the destination copy completes.
+- Add active-request byte progress and cancellation to the existing copy/move
+  dialog. The browser must not buffer a complete file to obtain progress.
+- Reuse the current Target already exists dialog and its conflict result. A
+  chosen rename restarts the transfer with the chosen name; skip leaves the
+  existing target untouched.
+- Always refresh source and destination panes after completed, skipped,
+  cancelled, partial-move, and unknown results.
 
 ### Frontend archive-member extraction
 
@@ -414,21 +327,13 @@ available, otherwise an interrupted or unknown result and refreshes the target.
   pane-refresh behavior. Progress includes selected members only and never
   reports archive-wide totals as selection totals.
 
-## Conflict, Metadata, and Link Policy
+## Conflict Behavior
 
-- Target policies apply before any source deletion and are evaluated again at
-  promotion, not just at dialog display time.
-- Replacement creates a recovery-safe prior-target strategy. The destination
-  provider must be able to restore or retain the previous target if promotion
-  fails before the commit is factual.
-- Preserve file contents and names exactly. Preserve modification times where
-  both providers support them; report unsupported metadata preservation rather
-  than failing a valid content transfer unless policy requires it.
-- Reject illegal names and names not representable on the destination before
-  copying. Offer rename resolution where the policy permits it.
-- Hard links, special files, device files, sockets, and unsupported links are
-  rejected per entry before staging. The result must identify the failing entry
-  and keep the original source.
+- Reuse the current Target already exists dialog for every physical copy/move
+  path. There is no new conflict dialog or decision API.
+- Skip leaves both paths unchanged. Rename retries with a different target name.
+- A directory target conflict follows the same dialog. This milestone does not
+  merge an incoming directory into an existing directory.
 
 ## Safety and Security Requirements
 
@@ -436,127 +341,97 @@ available, otherwise an interrupted or unknown result and refreshes the target.
   absolute path or path traversal sequence.
 - Do not expose arbitrary local filesystem paths; retain current drive-boundary
   and pairing rules.
-- Bind all session tokens to the browser origin, authenticated user/pairing,
-  transfer operation, and expiry.
-- Limit staging storage, total operation size, concurrent sessions, directory
-  depth, entry count, and retry attempts. Clean failures predictably.
-- Use structured logs and audit records with operation ID, source/destination
-  provider kinds, result, and factual effects. Never log credentials or session
-  capabilities.
-- Ensure cancellation is cooperative: it stops future reads/writes, cleans only
-  staging, and never deletes the source.
+- Ensure cancellation stops the active read/write, cleans staging, and never
+  starts source deletion.
+- Log source and destination provider kinds plus the terminal result. Never log
+  pairing credentials.
 
 ## Implementation Phases
 
-### Phase 0: Contract and platform research
+### Phase 1: Complete copy-then-delete moves
 
-- Specify the transfer-session OpenAPI/types and state machine.
-- Prove SMB delete-through-handle behavior against Samba, Windows Server, and
-  a representative NAS using integration tests.
-- Prove Companion identity and guarded-delete behavior on Windows, macOS, and
-  Linux. Do not mark a platform move-capable until its test passes.
-- Define metadata and link preservation policy.
+- Use the existing generic delete API after the staged destination result is
+  completed for SMB-to-local, local-to-SMB, local cross-drive, and cross-SMB
+  directory moves.
+- Return `completed` after a successful delete; return
+  `completed_with_source_retained` when the delete fails after destination
+  publication.
+- Show the retained-source outcome as a warning that names the successful copy,
+  then refresh both panes.
 
-Exit criterion: every provider/platform has either a proven guarded deletion
-implementation or explicitly reports source retention after copy.
+Exit criterion: F6 removes ordinary files and directories for every matrix row;
+a simulated delete failure visibly leaves both items.
 
-### Phase 1: Re-enable correct same-provider transfers
+### Phase 2: Route target conflicts through the existing dialog
 
-- Restore backend and Companion same-provider move implementations.
-- Route same-provider copy/move through the new common result and receipt
-  handling.
-- Remove the universal move availability gate only for proven same-provider
-  capability combinations.
+- Extend staged relay endpoints with the target policy used by the current
+  Target already exists dialog.
+- Implement skip without a second dialog or decision format.
+- Keep rename as a new-name retry through the same dialog.
 
-Exit criterion: all same-provider file and directory copy/move scenarios pass
-against concurrent conflict and retry tests.
+Exit criterion: every matrix row handles skip and rename without a silent
+replacement or a new conflict UI.
 
-### Phase 2: Destination staging sessions
+### Phase 3: Add progress and cancellation
 
-- Implement backend SMB and Companion local destination sessions for files,
-  then directories.
-- Implement atomic promotion, target policies, cleanup, and durable receipts.
+- Count bytes in the browser's streaming relay and show them in the existing
+  copy/move dialog.
+- Keep the existing root-count progress for multi-selection batches.
+- Enable Cancel during active work and use an `AbortController` to stop the
+  source and destination requests.
+- Stop the remaining batch after cancellation and report the result plainly.
 
-Exit criterion: staged fallback copy remains correct across conflicts,
-interruption, retry, cancellation, and destination restart; native operations
-are selected only when their semantics meet the common contract.
+Exit criterion: a large relay is visibly progressing, can be cancelled, leaves
+no requested destination item, and never deletes the source.
 
-### Phase 3: Source leases and guarded deletion
+### Phase 4: Verify directory and batch behavior
 
-- Implement regular-file source sessions, then manifest-backed directory
-  sessions for SMB and local providers.
-- Implement guarded move commit and the source-retained terminal outcome.
+- Confirm staged directory copies preserve nested and empty directories.
+- Test move deletion after directory promotion in every cross-location path.
+- Exercise multiple selected items, conflicts, partial moves, cancellation,
+  and pane refresh.
 
-Exit criterion: tests demonstrate that changing, replacing, renaming, or
-deleting a source during transfer never deletes an unverified replacement.
+Exit criterion: normal files and folders behave consistently across all matrix
+rows and are understandable when one item in a batch fails.
 
-### Phase 4: Browser streaming coordinator
+### Phase 5: Release hardening
 
-- Implement backpressure-aware, resumable browser relay between backend and
-  Companion sessions.
-- Integrate F5/F6, progress, conflict pause/resume, recovery, and pane refresh.
-- Enable only the source/destination capability pairs whose Phase 2 and Phase 3
-  checks pass.
+- Run browser end-to-end tests against real SMB and Companion endpoints.
+- Update user documentation for F5, F6, conflicts, cancellation, and the
+  retained-source warning.
+- Remove obsolete availability gates and tests that claim moves are unsupported.
 
-Exit criterion: SMB-to-local and local-to-SMB regular-file copy and move work
-without full-file browser buffering.
-
-### Phase 5: Recursive directory parity
-
-- Implement manifest creation, staged tree construction, per-entry validation,
-  promotion, and guarded source deletion.
-- Add batching for multiple roots and clear partial-result reporting.
-
-Exit criterion: every matrix entry supports nested directories, empty
-directories, cancellation, conflict, partial destination failure, and safe move
-semantics.
-
-### Phase 6: Documentation and release hardening
-
-- Update user and developer documentation to describe the exact supported
-  behavior and source-retained move outcome.
-- Add telemetry dashboards and operational cleanup monitoring.
-- Remove transitional availability checks and obsolete stabilization tests.
-
-Exit criterion: documentation, capability reporting, and runtime behavior agree
-for every supported platform and provider pair.
+Exit criterion: user documentation, available commands, dialogs, and observed
+behavior all agree.
 
 ## Test Strategy
 
 ### Unit and contract tests
 
-- Transfer state-machine legality, idempotency, token binding, expiry, and
-  receipt replay.
-- Target policy resolution, staging cleanup, chunk offset/digest checks, and
-  factual result validation.
-- Source identity checks and guarded-delete rejection on changed source paths.
-- Frontend coordinator dispatch, retry, cancellation, progress, and dialog
-  behavior.
+- Target policy resolution, staging cleanup, copy-then-delete result handling,
+  cancellation, and progress counting.
+- Frontend relay dispatch and reuse of the existing Target already exists dialog.
 
 ### Provider integration tests
 
 - SMB-to-SMB, local-to-local, SMB-to-local, and local-to-SMB.
-- Files from zero bytes through multi-chunk large files, nested directories,
-  empty directories, unicode and reserved names, and many selected roots.
-- Destination exists, target changes during operation, source changes during
-  read, source changes before move commit, destination provider disconnects,
-  browser reloads, duplicate requests, and session expiry.
-- Validate that move either removes exactly the original source or reports
-  `completed_with_source_retained`; no other source object may be removed.
+- Files from zero bytes through multi-chunk large files, nested and empty
+  directories, unicode names, and multiple selected roots.
+- Target exists, destination disconnects, browser cancellation, source deletion
+  failure, and a fresh manual retry after interruption.
 
 ### End-to-end tests
 
-- F5 and F6 open their dialogs for every available physical provider pair.
-- Progress updates without layout regressions and both panes refresh after each
-  terminal state.
-- Pairing loss, backend session expiry, and Companion restart show actionable
-  results without concealing partial mutations.
+- F5 and F6 open their normal dialogs for every physical provider pair.
+- The Target already exists dialog is the only conflict dialog used.
+- Progress updates without layout regressions; cancellation, partial moves, and
+  unknown outcomes refresh both panes and show actionable results.
 
 ## Definition of Done
 
-The work is complete only when all physical provider combinations in the matrix
-support files and directories for copy and move, excluding archive sources; all
-target policies have atomic semantics; no move can delete a source whose
-captured identity no longer matches; every operation is idempotent and
-recoverable; and automated tests cover the matrix on each supported desktop
-platform.
+The work is complete when F5 copies and F6 moves ordinary files and directories
+for every matrix row; transfers stream rather than buffer complete files; the
+existing Target already exists dialog handles conflicts; and users can see
+progress, cancel active work, and understand a partial move. A failed transfer
+must not silently overwrite a target, leave a partial requested target, or
+delete a source before destination publication.
