@@ -53,8 +53,10 @@ from app.models.archive_operation import (
     ArchiveCompanionSession,
     ArchiveContractVersion,
     ArchiveExtractionAggregate,
+    ArchiveExtractionConflictItem,
     ArchiveExtractionDecision,
-    ArchiveLiveExtractionPendingDecision,
+    ArchiveLiveExtractionCollisionPendingDecision,
+    ArchiveLiveExtractionMemberErrorPendingDecision,
     ArchiveLiveExtractionStatus,
     ArchiveOperation,
     ArchiveOperationErrorCode,
@@ -1103,6 +1105,8 @@ async def apply_live_companion_local_archive_result(
                 payload.replaced,
                 payload.target_path,
                 payload.message,
+                payload.target_size,
+                payload.target_modified_at,
             )
         )
     except LiveSourceSessionError as exc:
@@ -1183,6 +1187,8 @@ async def write_live_companion_archive_destination_member(
                 member_path=payload.member_path,
                 status="awaiting_collision",
                 target_path=exc.path,
+                target_size=exc.target.size if exc.target is not None else None,
+                target_modified_at=exc.target.modified_at if exc.target is not None else None,
                 message="Archive output directory is blocked",
             )
         if payload.is_directory:
@@ -1232,6 +1238,8 @@ async def write_live_companion_archive_destination_member(
                 member_path=payload.member_path,
                 status="awaiting_collision",
                 target_path=target_path,
+                target_size=target_info.size if target_info is not None else None,
+                target_modified_at=target_info.modified_at if target_info is not None else None,
                 message=(
                     "Archive target is not a regular file"
                     if target_info is not None and target_info.type != FileType.FILE
@@ -2414,20 +2422,38 @@ async def _live_extraction_status(source_session: LiveSourceSession) -> ArchiveL
     if decision is not None:
         if current_member is None:
             raise LiveSourceSessionError("Live archive source decision is unavailable")
-        pending_decision = ArchiveLiveExtractionPendingDecision(
-            revision=decision.revision,
-            kind=decision.kind,
-            member_path=decision.member_path,
-            delivery_sequence=current_member.delivery_sequence,
-            is_directory=current_member.is_directory,
-            allowed_actions=(
-                ["retry", "ignore"]
-                if decision.kind == "member_error"
-                else ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"]
-            ),
-            target_path=decision.target_path,
-            message=decision.message,
-        )
+        if decision.kind == "collision":
+            if decision.target_path is None:
+                raise LiveSourceSessionError("Live archive collision target is unavailable")
+            pending_decision = ArchiveLiveExtractionCollisionPendingDecision(
+                revision=decision.revision,
+                kind="collision",
+                member_path=decision.member_path,
+                delivery_sequence=current_member.delivery_sequence,
+                is_directory=current_member.is_directory,
+                allowed_actions=["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
+                source=ArchiveExtractionConflictItem(
+                    path=decision.member_path,
+                    size=decision.source_size,
+                    modified_at=decision.source_modified_at,
+                ),
+                target=ArchiveExtractionConflictItem(
+                    path=decision.target_path,
+                    size=decision.target_size,
+                    modified_at=decision.target_modified_at,
+                ),
+            )
+        else:
+            pending_decision = ArchiveLiveExtractionMemberErrorPendingDecision(
+                revision=decision.revision,
+                kind="member_error",
+                member_path=decision.member_path,
+                delivery_sequence=current_member.delivery_sequence,
+                is_directory=current_member.is_directory,
+                allowed_actions=["retry", "ignore"],
+                target_path=decision.target_path,
+                message=decision.message,
+            )
     return ArchiveLiveExtractionStatus(
         source_session_id=source_session.source_session_id,
         phase=source_session.phase.value,

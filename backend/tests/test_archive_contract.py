@@ -123,34 +123,42 @@ def test_v2_runtime_backend_payloads_conform_to_the_shared_schema(
 
 
 def test_v2_direct_local_execution_specimen_conforms_to_the_shared_schema() -> None:
-    _validate_contract_instance(
-        "directLocalExecution",
-        {
-            "contract_version": "v2",
-            "execution_id": "2de1fe1d-8f71-4fd0-9774-250001597a78",
-            "kind": "extract",
-            "phase": "awaiting_user_decision",
-            "revision": 3,
-            "progress": {
-                "completedMembers": 1,
-                "skippedMembers": 0,
-                "failedMembers": 0,
-                "partialMembers": 0,
-            },
-            "cancellation_requested": False,
-            "pendingDecision": {
-                "kind": "existing_files",
-                "allowed_actions": ["skip", "replace", "rename", "cancel"],
-                "conflicts": [
-                    {
-                        "member_path": "notes.txt",
-                        "target_path": "output/notes.txt",
-                        "is_directory": False,
-                    }
-                ],
-            },
+    collision = {
+        "kind": "collision",
+        "source_session_id": "source-session",
+        "delivery_sequence": 1,
+        "decision_revision": 1,
+        "member_path": "notes.txt",
+        "is_directory": False,
+        "allowed_actions": ["skip", "replace", "rename"],
+        "source": {"path": "notes.txt", "size": 42, "modified_at": "2025-01-01T00:00:00Z"},
+        "target": {"path": "output/notes.txt", "size": None, "modified_at": None},
+    }
+    execution = {
+        "contract_version": "v2",
+        "execution_id": "2de1fe1d-8f71-4fd0-9774-250001597a78",
+        "kind": "extract",
+        "phase": "awaiting_user_decision",
+        "revision": 3,
+        "progress": {
+            "completedMembers": 1,
+            "skippedMembers": 0,
+            "failedMembers": 0,
+            "partialMembers": 0,
         },
-    )
+        "cancellation_requested": False,
+        "pendingDecision": collision,
+    }
+    _validate_contract_instance("directLocalExecution", execution)
+
+    for invalid_collision in (
+        {key: value for key, value in collision.items() if key != "source"},
+        {**collision, "source": {"path": "notes.txt", "size": 42}},
+        {**collision, "target_path": "output/notes.txt"},
+        {**collision, "allowed_actions": ["retry"]},
+    ):
+        with pytest.raises(AssertionError):
+            _validate_contract_instance("directLocalExecution", {**execution, "pendingDecision": invalid_collision})
 
 
 def test_live_extraction_status_requires_the_exact_aggregate_counter_set() -> None:

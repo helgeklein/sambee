@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
+use chrono::{DateTime, Utc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -67,7 +68,11 @@ pub struct ArchiveSessionPendingDecision {
     pub delivery_sequence: u64,
     pub decision_revision: u64,
     pub member_path: String,
+    pub source_size: u64,
+    pub source_modified_at: Option<DateTime<Utc>>,
     pub target_path: Option<String>,
+    pub target_size: Option<u64>,
+    pub target_modified_at: Option<DateTime<Utc>>,
     pub is_directory: bool,
     pub member_error: Option<LocalArchiveExtractionMemberError>,
 }
@@ -131,6 +136,8 @@ pub(crate) struct LiveLocalArchiveSourceSession {
     next_decision_revision: u64,
     pending_decision_revision: Option<u64>,
     pending_decision_target_path: Option<String>,
+    pending_decision_target_size: Option<u64>,
+    pending_decision_target_modified_at: Option<DateTime<Utc>>,
     pending_decision_message: Option<String>,
     pending_member_error: bool,
     claimed_decision: Option<ClaimedLiveSourceDecision>,
@@ -154,6 +161,8 @@ impl LiveLocalArchiveSourceSession {
             next_decision_revision: 1,
             pending_decision_revision: None,
             pending_decision_target_path: None,
+            pending_decision_target_size: None,
+            pending_decision_target_modified_at: None,
             pending_decision_message: None,
             pending_member_error: false,
             claimed_decision: None,
@@ -206,6 +215,14 @@ impl LiveLocalArchiveSourceSession {
         self.pending_decision_target_path.as_deref()
     }
 
+    pub(crate) fn pending_decision_target_size(&self) -> Option<u64> {
+        self.pending_decision_target_size
+    }
+
+    pub(crate) fn pending_decision_target_modified_at(&self) -> Option<DateTime<Utc>> {
+        self.pending_decision_target_modified_at
+    }
+
     pub(crate) fn pending_decision_message(&self) -> Option<&str> {
         self.pending_decision_message.as_deref()
     }
@@ -242,7 +259,11 @@ impl LiveLocalArchiveSourceSession {
             delivery_sequence: current.delivery_sequence,
             decision_revision,
             member_path: current.entry.path.clone(),
+            source_size: current.entry.uncompressed_size,
+            source_modified_at: current.entry.modified_at,
             target_path: self.pending_decision_target_path.clone(),
+            target_size: self.pending_decision_target_size,
+            target_modified_at: self.pending_decision_target_modified_at,
             is_directory: current.entry.is_directory,
             member_error,
         }))
@@ -252,12 +273,16 @@ impl LiveLocalArchiveSourceSession {
         &mut self,
         target_path: Option<String>,
         message: Option<String>,
+        target_size: Option<u64>,
+        target_modified_at: Option<DateTime<Utc>>,
     ) -> Result<(), LocalArchiveError> {
         if self.phase != LiveLocalArchiveSourcePhase::AwaitingDecision {
             return Err(Self::invalid_state("Archive source is not awaiting a decision"));
         }
         self.pending_decision_target_path = target_path;
         self.pending_decision_message = message;
+        self.pending_decision_target_size = target_size;
+        self.pending_decision_target_modified_at = target_modified_at;
         Ok(())
     }
 
@@ -271,6 +296,8 @@ impl LiveLocalArchiveSourceSession {
         }
         self.pending_member_error = false;
         self.pending_decision_target_path = None;
+        self.pending_decision_target_size = None;
+        self.pending_decision_target_modified_at = None;
         self.pending_decision_message = None;
         self.pending_decision_revision = Some(self.next_decision_revision);
         self.next_decision_revision = self
@@ -291,6 +318,8 @@ impl LiveLocalArchiveSourceSession {
         }
         self.pending_member_error = true;
         self.pending_decision_target_path = None;
+        self.pending_decision_target_size = None;
+        self.pending_decision_target_modified_at = None;
         self.pending_decision_message = None;
         self.pending_decision_revision = Some(self.next_decision_revision);
         self.next_decision_revision = self
@@ -2591,7 +2620,7 @@ mod tests {
 
         source.pause_for_member_error(member.delivery_sequence).unwrap();
         source
-            .set_pending_decision_details(Some(member.entry.path.clone()), Some("CRC mismatch".to_string()))
+            .set_pending_decision_details(Some(member.entry.path.clone()), Some("CRC mismatch".to_string()), None, None)
             .unwrap();
         let decision = source.pending_decision().unwrap().unwrap();
         assert_eq!(decision.source_session_id, source.source_session_id());

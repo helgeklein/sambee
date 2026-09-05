@@ -294,15 +294,34 @@ class ArchiveExtractionDecision(ArchiveV2Payload):
     decision_revision: int | None = Field(default=None, ge=1)
 
 
-class ArchiveLiveExtractionPendingDecision(ArchiveV2Payload):
+class ArchiveExtractionConflictItem(ArchiveV2Payload):
+    path: str = Field(min_length=1)
+    size: int | None = Field(default=None, ge=0)
+    modified_at: datetime | None = None
+
+
+class ArchiveLiveExtractionPendingDecisionBase(ArchiveV2Payload):
     revision: int = Field(ge=1)
-    kind: Literal["collision", "member_error"]
     member_path: str
     delivery_sequence: int = Field(ge=1)
     is_directory: bool
-    allowed_actions: list[Literal["skip", "skip_all", "replace", "replace_all", "replace_older", "rename", "retry", "ignore"]]
+
+
+class ArchiveLiveExtractionCollisionPendingDecision(ArchiveLiveExtractionPendingDecisionBase):
+    kind: Literal["collision"]
+    allowed_actions: list[Literal["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"]]
+    source: ArchiveExtractionConflictItem
+    target: ArchiveExtractionConflictItem
+
+
+class ArchiveLiveExtractionMemberErrorPendingDecision(ArchiveLiveExtractionPendingDecisionBase):
+    kind: Literal["member_error"]
+    allowed_actions: list[Literal["retry", "ignore"]]
     target_path: str | None = None
     message: str | None = None
+
+
+ArchiveLiveExtractionPendingDecision = ArchiveLiveExtractionCollisionPendingDecision | ArchiveLiveExtractionMemberErrorPendingDecision
 
 
 class ArchiveExtractionAggregate(ArchiveV2Payload):
@@ -366,6 +385,8 @@ class ArchiveCompanionLiveDestinationWriteResult(ArchiveV2Payload):
     replaced: bool = False
     target_path: str | None = Field(default=None, min_length=1)
     message: str | None = Field(default=None, min_length=1, max_length=500)
+    target_size: int | None = Field(default=None, ge=0)
+    target_modified_at: datetime | None = None
 
 
 class ArchiveCompanionLiveDestinationWriteRequest(ArchiveV2Payload):

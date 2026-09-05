@@ -201,23 +201,26 @@ pub enum ArchiveExecutionDecisionAction {
 
 /// A conflict in a V2 extraction pending decision.
 #[derive(Debug, Serialize)]
-pub struct ArchiveExecutionConflict {
-    pub member_path: String,
-    pub target_path: String,
-    pub is_directory: bool,
+pub struct ArchiveExecutionConflictItem {
+    pub path: String,
+    pub size: Option<u64>,
+    pub modified_at: Option<DateTime<Utc>>,
 }
 
 /// The complete V2 decision state currently awaiting local user input.
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum ArchiveExecutionPendingDecision {
-    ExistingFiles {
+    Collision {
         kind: &'static str,
         source_session_id: String,
         delivery_sequence: u64,
         decision_revision: u64,
+        member_path: String,
+        is_directory: bool,
         allowed_actions: Vec<String>,
-        conflicts: Vec<ArchiveExecutionConflict>,
+        source: ArchiveExecutionConflictItem,
+        target: ArchiveExecutionConflictItem,
     },
     MemberError {
         kind: &'static str,

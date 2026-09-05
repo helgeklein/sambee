@@ -108,16 +108,15 @@ export interface LocalArchiveExecution {
   error?: string;
   pendingDecision?:
     | {
-        kind: "existing_files";
+        kind: "collision";
         source_session_id: string;
         delivery_sequence: number;
         decision_revision: number;
-        conflicts: Array<{
-          member_path: string;
-          target_path: string;
-          is_directory: boolean;
-        }>;
+        member_path: string;
+        is_directory: boolean;
         allowed_actions: ("skip" | "skip_all" | "replace" | "replace_all" | "replace_older" | "rename")[];
+        source: ArchiveConflictItem;
+        target: ArchiveConflictItem;
       }
     | {
         kind: "member_error";
@@ -145,16 +144,34 @@ export interface LocalArchiveRelayExtractionStatus {
     extracted_bytes: number;
     files_replaced: number;
   };
-  pending_decision: {
-    revision: number;
-    kind: "collision" | "member_error";
-    member_path: string;
-    target_path: string | null;
-    message: string | null;
-    delivery_sequence: number;
-    is_directory: boolean;
-    allowed_actions: ArchiveExtractionDecisionAction[];
-  } | null;
+  pending_decision:
+    | {
+        revision: number;
+        kind: "collision";
+        member_path: string;
+        delivery_sequence: number;
+        is_directory: boolean;
+        allowed_actions: ArchiveExtractionDecisionAction[];
+        source: ArchiveConflictItem;
+        target: ArchiveConflictItem;
+      }
+    | {
+        revision: number;
+        kind: "member_error";
+        member_path: string;
+        target_path: string | null;
+        message: string | null;
+        delivery_sequence: number;
+        is_directory: boolean;
+        allowed_actions: ArchiveExtractionDecisionAction[];
+      }
+    | null;
+}
+
+export interface ArchiveConflictItem {
+  path: string;
+  size: number | null;
+  modified_at: string | null;
 }
 
 export interface ArchiveRelayExtractionResponse {

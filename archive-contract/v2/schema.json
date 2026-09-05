@@ -330,58 +330,58 @@
           "additionalProperties": false,
           "required": [
             "kind",
+            "source_session_id",
+            "delivery_sequence",
+            "decision_revision",
+            "member_path",
+            "is_directory",
             "allowed_actions",
-            "conflicts"
+            "source",
+            "target"
           ],
           "properties": {
             "kind": {
-              "const": "existing_files"
+              "const": "collision"
+            },
+            "source_session_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "delivery_sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "decision_revision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "member_path": {
+              "$ref": "#/$defs/memberPath"
+            },
+            "is_directory": {
+              "type": "boolean"
             },
             "allowed_actions": {
               "type": "array",
               "minItems": 1,
               "uniqueItems": true,
               "items": {
-                "$ref": "#/$defs/decisionAction"
+                "enum": [
+                  "skip",
+                  "skip_all",
+                  "replace",
+                  "replace_all",
+                  "replace_older",
+                  "rename"
+                ]
               }
             },
-            "conflicts": {
-              "type": "array",
-              "minItems": 1,
-              "items": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "member_path",
-                  "target_path",
-                  "is_directory"
-                ],
-                "properties": {
-                  "member_path": {
-                    "$ref": "#/$defs/memberPath"
-                  },
-                  "target_path": {
-                    "$ref": "#/$defs/memberPath"
-                  },
-                  "is_directory": {
-                    "type": "boolean"
-                  },
-                  "source_size": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "source_modified_at": {
-                    "$ref": "#/$defs/timestamp"
-                  },
-                  "target_size": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "target_modified_at": {
-                    "$ref": "#/$defs/timestamp"
-                  }
-                }
-              }
+            "source": {
+              "$ref": "#/$defs/liveExtractionConflictItem"
+            },
+            "target": {
+              "$ref": "#/$defs/liveExtractionConflictItem"
             }
           }
         },
@@ -390,6 +390,9 @@
           "additionalProperties": false,
           "required": [
             "kind",
+            "source_session_id",
+            "delivery_sequence",
+            "decision_revision",
             "member_path",
             "target_path",
             "message",
@@ -399,6 +402,19 @@
           "properties": {
             "kind": {
               "const": "member_error"
+            },
+            "source_session_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "delivery_sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "decision_revision": {
+              "type": "integer",
+              "minimum": 1
             },
             "member_path": {
               "$ref": "#/$defs/memberPath"
@@ -860,6 +876,40 @@
       }
     },
     "liveExtractionPendingDecision": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/liveExtractionCollisionPendingDecision"
+        },
+        {
+          "$ref": "#/$defs/liveExtractionMemberErrorPendingDecision"
+        }
+      ]
+    },
+    "liveExtractionConflictItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "size",
+        "modified_at"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "size": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "modified_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "liveExtractionCollisionPendingDecision": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -869,8 +919,8 @@
         "delivery_sequence",
         "is_directory",
         "allowed_actions",
-        "target_path",
-        "message"
+        "source",
+        "target"
       ],
       "properties": {
         "revision": {
@@ -878,10 +928,7 @@
           "minimum": 1
         },
         "kind": {
-          "enum": [
-            "collision",
-            "member_error"
-          ]
+          "const": "collision"
         },
         "member_path": {
           "$ref": "#/$defs/memberPath"
@@ -902,7 +949,53 @@
               "replace",
               "replace_all",
               "replace_older",
-              "rename",
+              "rename"
+            ]
+          }
+        },
+        "source": {
+          "$ref": "#/$defs/liveExtractionConflictItem"
+        },
+        "target": {
+          "$ref": "#/$defs/liveExtractionConflictItem"
+        }
+      }
+    },
+    "liveExtractionMemberErrorPendingDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "kind",
+        "member_path",
+        "delivery_sequence",
+        "is_directory",
+        "allowed_actions",
+        "target_path",
+        "message"
+      ],
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "const": "member_error"
+        },
+        "member_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "delivery_sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "is_directory": {
+          "type": "boolean"
+        },
+        "allowed_actions": {
+          "type": "array",
+          "items": {
+            "enum": [
               "retry",
               "ignore"
             ]

@@ -822,7 +822,31 @@ pub enum LocalArchiveTargetOutput {
         directories_created: u64,
     },
     Skip,
-    AwaitCollision,
+    AwaitCollision {
+        target: LocalArchiveConflictTarget,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalArchiveConflictTarget {
+    pub size: Option<u64>,
+    pub modified_at: Option<DateTime<Utc>>,
+}
+
+impl LocalArchiveConflictTarget {
+    fn from_metadata(metadata: &fs::Metadata) -> Self {
+        Self {
+            size: metadata.file_type().is_file().then_some(metadata.len()),
+            modified_at: metadata.modified().ok().map(DateTime::<Utc>::from),
+        }
+    }
+
+    pub(crate) fn unavailable() -> Self {
+        Self {
+            size: None,
+            modified_at: None,
+        }
+    }
 }
 
 /// One native local target-open attempt before content output begins.
@@ -1847,7 +1871,11 @@ where
     let parent = destination_path.parent().ok_or(LocalArchiveError::TargetOutsideRoot)?;
     let directories_created = match ensure_extraction_directory(drive_root, destination_root, parent)? {
         LocalArchiveDirectoryOutput::Ready { directories_created } => directories_created,
-        LocalArchiveDirectoryOutput::AwaitCollision => return Ok(LocalArchiveTargetOutput::AwaitCollision),
+        LocalArchiveDirectoryOutput::AwaitCollision => {
+            return Ok(LocalArchiveTargetOutput::AwaitCollision {
+                target: LocalArchiveConflictTarget::unavailable(),
+            })
+        }
     };
     let mut replaced = false;
     for attempt in 0..=1 {
@@ -1859,18 +1887,31 @@ where
         let disposition = resolve_local_archive_target_write(policy, source_modified_at, target_metadata.as_ref());
         match disposition {
             LocalArchiveTargetWriteDisposition::Skip => return Ok(LocalArchiveTargetOutput::Skip),
-            LocalArchiveTargetWriteDisposition::AwaitCollision => return Ok(LocalArchiveTargetOutput::AwaitCollision),
+            LocalArchiveTargetWriteDisposition::AwaitCollision => {
+                return Ok(LocalArchiveTargetOutput::AwaitCollision {
+                    target: target_metadata
+                        .as_ref()
+                        .map(LocalArchiveConflictTarget::from_metadata)
+                        .unwrap_or_else(LocalArchiveConflictTarget::unavailable),
+                })
+            }
             LocalArchiveTargetWriteDisposition::ReplaceExisting => {
                 let metadata = target_metadata.expect("replace requires an observed target");
                 if !metadata.file_type().is_file() {
-                    return Ok(LocalArchiveTargetOutput::AwaitCollision);
+                    return Ok(LocalArchiveTargetOutput::AwaitCollision {
+                        target: LocalArchiveConflictTarget::from_metadata(&metadata),
+                    });
                 }
                 revalidate_target_parent(drive_root, destination_path)?;
                 match fs::remove_file(destination_path) {
                     Ok(()) => replaced = true,
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound && attempt == 0 => continue,
                     Err(error) => match fs::symlink_metadata(destination_path) {
-                        Ok(metadata) if !metadata.file_type().is_file() => return Ok(LocalArchiveTargetOutput::AwaitCollision),
+                        Ok(metadata) if !metadata.file_type().is_file() => {
+                            return Ok(LocalArchiveTargetOutput::AwaitCollision {
+                                target: LocalArchiveConflictTarget::from_metadata(&metadata),
+                            })
+                        }
                         _ => return Err(LocalArchiveError::Io(error)),
                     },
                 }
@@ -1887,22 +1928,22 @@ where
             }
             LocalArchiveTargetWriteAttempt::TargetExistsBeforeContent if attempt == 0 => {}
             LocalArchiveTargetWriteAttempt::TargetExistsBeforeContent => {
-                match fs::symlink_metadata(destination_path) {
-                    Ok(_) => {}
-                    Err(observe_error) if observe_error.kind() == std::io::ErrorKind::NotFound => {}
+                let target = match fs::symlink_metadata(destination_path) {
+                    Ok(metadata) => LocalArchiveConflictTarget::from_metadata(&metadata),
+                    Err(observe_error) if observe_error.kind() == std::io::ErrorKind::NotFound => LocalArchiveConflictTarget::unavailable(),
                     Err(observe_error) => return Err(LocalArchiveError::Io(observe_error)),
-                }
-                return Ok(LocalArchiveTargetOutput::AwaitCollision);
+                };
+                return Ok(LocalArchiveTargetOutput::AwaitCollision { target });
             }
             LocalArchiveTargetWriteAttempt::Failure(error) => return Err(error),
         }
     }
-    match fs::symlink_metadata(destination_path) {
-        Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+    let target = match fs::symlink_metadata(destination_path) {
+        Ok(metadata) => LocalArchiveConflictTarget::from_metadata(&metadata),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => LocalArchiveConflictTarget::unavailable(),
         Err(error) => return Err(LocalArchiveError::Io(error)),
-    }
-    Ok(LocalArchiveTargetOutput::AwaitCollision)
+    };
+    Ok(LocalArchiveTargetOutput::AwaitCollision { target })
 }
 
 /// Reopen the known partial target of a failed member without broad overwrite permission.
@@ -3687,7 +3728,7 @@ mod tests {
                 "create_new" => matches!(output, LocalArchiveTargetOutput::Ready { replaced: false, .. }),
                 "replace_existing" => matches!(output, LocalArchiveTargetOutput::Ready { replaced: true, .. }),
                 "skip" => matches!(output, LocalArchiveTargetOutput::Skip),
-                "await_collision" => matches!(output, LocalArchiveTargetOutput::AwaitCollision),
+                "await_collision" => matches!(output, LocalArchiveTargetOutput::AwaitCollision { .. }),
                 _ => panic!("{} has an invalid expected disposition", scenario.name),
             };
             assert!(expected, "{}", scenario.name);
@@ -3740,7 +3781,7 @@ mod tests {
             Some(source_modified_at),
         )
         .expect("non-file target should remain a collision");
-        assert!(matches!(collision, LocalArchiveTargetOutput::AwaitCollision));
+        assert!(matches!(collision, LocalArchiveTargetOutput::AwaitCollision { .. }));
     }
 
     #[test]
@@ -3803,7 +3844,7 @@ mod tests {
             },
         )
         .expect("second late collision should pause");
-        assert!(matches!(repeated_result, LocalArchiveTargetOutput::AwaitCollision));
+        assert!(matches!(repeated_result, LocalArchiveTargetOutput::AwaitCollision { .. }));
         assert_eq!(repeated_opens, 2);
     }
 

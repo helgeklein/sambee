@@ -100,7 +100,11 @@ function localRelayExtractionOutcome(status: LocalArchiveRelayExtractionStatus):
   return {
     status: "awaiting-decision",
     conflicts: [
-      { memberPath: pending.member_path, targetPath: pending.target_path ?? pending.member_path, isDirectory: pending.is_directory },
+      {
+        source: { path: pending.source.path, size: pending.source.size, modifiedAt: pending.source.modified_at },
+        target: { path: pending.target.path, size: pending.target.size, modifiedAt: pending.target.modified_at },
+        isDirectory: pending.is_directory,
+      },
     ],
     allowedActions: pending.allowed_actions as ArchiveExtractionConflictAction[],
   };
@@ -217,11 +221,21 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
       }
       return {
         status: "awaiting-decision",
-        conflicts: pendingDecision.conflicts.map((conflict) => ({
-          memberPath: conflict.member_path,
-          targetPath: [destinationPath, conflict.target_path].filter(Boolean).join("/"),
-          isDirectory: conflict.is_directory,
-        })),
+        conflicts: [
+          {
+            source: {
+              path: pendingDecision.source.path,
+              size: pendingDecision.source.size,
+              modifiedAt: pendingDecision.source.modified_at,
+            },
+            target: {
+              path: [destinationPath, pendingDecision.target.path].filter(Boolean).join("/"),
+              size: pendingDecision.target.size,
+              modifiedAt: pendingDecision.target.modified_at,
+            },
+            isDirectory: pendingDecision.is_directory,
+          },
+        ],
         allowedActions: pendingDecision.allowed_actions,
       };
     }

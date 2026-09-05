@@ -2545,6 +2545,8 @@ struct ArchiveRelayDestinationResult {
     directories_created: u64,
     extracted_bytes: u64,
     replaced: bool,
+    target_size: Option<u64>,
+    target_modified_at: Option<DateTime<Utc>>,
 }
 
 impl ArchiveRelayDestinationResult {
@@ -2555,6 +2557,8 @@ impl ArchiveRelayDestinationResult {
             directories_created,
             extracted_bytes: 0,
             replaced: false,
+            target_size: None,
+            target_modified_at: None,
         }
     }
 
@@ -2565,6 +2569,8 @@ impl ArchiveRelayDestinationResult {
             directories_created,
             extracted_bytes,
             replaced,
+            target_size: None,
+            target_modified_at: None,
         }
     }
 
@@ -2575,6 +2581,8 @@ impl ArchiveRelayDestinationResult {
             directories_created: 0,
             extracted_bytes: 0,
             replaced: false,
+            target_size: None,
+            target_modified_at: None,
         }
     }
 }
@@ -2631,6 +2639,10 @@ struct LiveArchiveDestinationWriteResult<'a> {
     replaced: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     target_path: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_modified_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Deserialize)]
@@ -2745,6 +2757,8 @@ impl ArchiveExtractionRelay {
             directories_created: result.directories_created,
             replaced: result.replaced,
             target_path: Some(&result.target_path),
+            target_size: result.target_size,
+            target_modified_at: result.target_modified_at,
         };
         let response = self.transport.post("live/result").json(&payload).send().await.map_err(|error| {
             ApiError::Internal(log_request_error(
@@ -3192,7 +3206,12 @@ fn extract_live_local_archive(
             let directories_created = match ensure_local_extraction_directory(drive_root, destination_path, &target_path)? {
                 LocalArchiveDirectoryOutput::Ready { directories_created } => directories_created,
                 LocalArchiveDirectoryOutput::AwaitCollision => {
-                    return pause_live_local_collision(source, &member, target_path_text);
+                    return pause_live_local_collision(
+                        source,
+                        &member,
+                        target_path_text,
+                        super::archive::LocalArchiveConflictTarget::unavailable(),
+                    );
                 }
             };
             let mut source = source.blocking_lock();
@@ -3227,7 +3246,7 @@ fn extract_live_local_archive(
                         }
                         let mut source = source.blocking_lock();
                         source.pause_for_member_error(member.delivery_sequence)?;
-                        source.set_pending_decision_details(Some(target_path_text.clone()), Some(error.to_string()))?;
+                        source.set_pending_decision_details(Some(target_path_text.clone()), Some(error.to_string()), None, None)?;
                         return Ok(DirectLiveExtractionRun::AwaitingCollision {
                             result: source.aggregate(),
                         });
@@ -3254,8 +3273,8 @@ fn extract_live_local_archive(
                         renamed: false,
                     }
                 }
-                LocalArchiveTargetOutput::AwaitCollision => {
-                    return pause_live_local_collision(source, &member, target_path_text);
+                LocalArchiveTargetOutput::AwaitCollision { target } => {
+                    return pause_live_local_collision(source, &member, target_path_text, target);
                 }
             }
         };
@@ -3271,10 +3290,11 @@ fn pause_live_local_collision(
     source: &AsyncMutex<super::archive_sessions::LiveLocalArchiveSourceSession>,
     member: &super::archive_sessions::LiveLocalArchiveSourceMember,
     target_path: String,
+    target: super::archive::LocalArchiveConflictTarget,
 ) -> Result<DirectLiveExtractionRun, LocalArchiveError> {
     let mut source = source.blocking_lock();
     source.pause_for_decision(member.delivery_sequence)?;
-    source.set_pending_decision_details(Some(target_path), None)?;
+    source.set_pending_decision_details(Some(target_path), None, target.size, target.modified_at)?;
     Ok(DirectLiveExtractionRun::AwaitingCollision {
         result: source.aggregate(),
     })
@@ -3975,20 +3995,40 @@ pub async fn browse_get_v2_relay_extraction_status(
         let current = source
             .current()
             .ok_or_else(|| ArchiveV2Error::from(ApiError::conflict_message("Archive source member is unavailable")))?;
-        serde_json::json!({
-            "revision": source.pending_decision_revision(),
-            "kind": if source.pending_member_error() { "member_error" } else { "collision" },
-            "member_path": current.entry.path,
-            "target_path": source.pending_decision_target_path(),
-            "message": source.pending_decision_message(),
-            "delivery_sequence": current.delivery_sequence,
-            "is_directory": current.entry.is_directory,
-            "allowed_actions": if source.pending_member_error() {
-                serde_json::json!(["retry", "ignore"])
-            } else {
-                serde_json::json!(["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"])
-            },
-        })
+        if source.pending_member_error() {
+            serde_json::json!({
+                "revision": source.pending_decision_revision(),
+                "kind": "member_error",
+                "member_path": current.entry.path,
+                "target_path": source.pending_decision_target_path(),
+                "message": source.pending_decision_message(),
+                "delivery_sequence": current.delivery_sequence,
+                "is_directory": current.entry.is_directory,
+                "allowed_actions": ["retry", "ignore"],
+            })
+        } else {
+            let target_path = source
+                .pending_decision_target_path()
+                .ok_or_else(|| ArchiveV2Error::from(ApiError::conflict_message("Archive collision target is unavailable")))?;
+            serde_json::json!({
+                "revision": source.pending_decision_revision(),
+                "kind": "collision",
+                "member_path": current.entry.path,
+                "delivery_sequence": current.delivery_sequence,
+                "is_directory": current.entry.is_directory,
+                "allowed_actions": ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
+                "source": {
+                    "path": current.entry.path,
+                    "size": current.entry.uncompressed_size,
+                    "modified_at": current.entry.modified_at,
+                },
+                "target": {
+                    "path": target_path,
+                    "size": source.pending_decision_target_size(),
+                    "modified_at": source.pending_decision_target_modified_at(),
+                },
+            })
+        }
     } else {
         serde_json::Value::Null
     };
@@ -4119,7 +4159,7 @@ async fn extract_local_archive_to_smb_destination_live(
                         .map_err(map_local_archive_error)?;
                 }
                 source
-                    .set_pending_decision_details(result.target_path.clone(), result.message.clone())
+                    .set_pending_decision_details(result.target_path.clone(), result.message.clone(), None, None)
                     .map_err(map_local_archive_error)?;
                 let aggregate = source.aggregate();
                 return live_local_source_pending_response(aggregate);
@@ -4261,6 +4301,8 @@ async fn extract_smb_archive_to_local_live(
                                 directories_created: 0,
                                 extracted_bytes: 0,
                                 replaced: false,
+                                target_size: None,
+                                target_modified_at: None,
                             },
                         )
                         .await?;
@@ -4297,7 +4339,7 @@ async fn extract_smb_archive_to_local_live(
                     .await?;
                 continue;
             }
-            LocalArchiveTargetOutput::AwaitCollision => {
+            LocalArchiveTargetOutput::AwaitCollision { target } => {
                 let status = relay
                     .complete_live_remote_source_member(
                         &member,
@@ -4307,6 +4349,8 @@ async fn extract_smb_archive_to_local_live(
                             directories_created: 0,
                             extracted_bytes: 0,
                             replaced: false,
+                            target_size: target.size,
+                            target_modified_at: target.modified_at,
                         },
                     )
                     .await?;
@@ -5434,16 +5478,13 @@ fn archive_execution_response(execution: ArchiveSessionStatus) -> ArchiveExecuti
                 partial_output: error.partial_output,
                 allowed_actions: vec!["retry".to_string(), "ignore".to_string()],
             },
-            None => ArchiveExecutionPendingDecision::ExistingFiles {
-                kind: "existing_files",
+            None => ArchiveExecutionPendingDecision::Collision {
+                kind: "collision",
                 source_session_id: pending.source_session_id,
                 delivery_sequence: pending.delivery_sequence,
                 decision_revision: pending.decision_revision,
-                conflicts: vec![super::models::ArchiveExecutionConflict {
-                    member_path: pending.member_path.clone(),
-                    target_path: pending.target_path.unwrap_or(pending.member_path),
-                    is_directory: pending.is_directory,
-                }],
+                member_path: pending.member_path.clone(),
+                is_directory: pending.is_directory,
                 allowed_actions: vec![
                     "skip".to_string(),
                     "skip_all".to_string(),
@@ -5452,6 +5493,16 @@ fn archive_execution_response(execution: ArchiveSessionStatus) -> ArchiveExecuti
                     "replace_older".to_string(),
                     "rename".to_string(),
                 ],
+                source: super::models::ArchiveExecutionConflictItem {
+                    path: pending.member_path.clone(),
+                    size: Some(pending.source_size),
+                    modified_at: pending.source_modified_at,
+                },
+                target: super::models::ArchiveExecutionConflictItem {
+                    path: pending.target_path.unwrap_or(pending.member_path),
+                    size: pending.target_size,
+                    modified_at: pending.target_modified_at,
+                },
             },
         }),
     };
@@ -7917,7 +7968,11 @@ mod tests {
                 delivery_sequence: 7,
                 decision_revision: 3,
                 member_path: "source.txt".to_string(),
+                source_size: 0,
+                source_modified_at: None,
                 target_path: None,
+                target_size: None,
+                target_modified_at: None,
                 is_directory: false,
                 member_error: Some(LocalArchiveExtractionMemberError {
                     member_path: "source.txt".to_string(),
@@ -7965,7 +8020,11 @@ mod tests {
                 delivery_sequence: 7,
                 decision_revision: 3,
                 member_path: "source".to_string(),
+                source_size: 0,
+                source_modified_at: None,
                 target_path: Some("renamed".to_string()),
+                target_size: None,
+                target_modified_at: None,
                 is_directory: true,
                 member_error: None,
             }),
@@ -7975,16 +8034,23 @@ mod tests {
         assert_eq!(
             serialized["pendingDecision"],
             serde_json::json!({
-                "kind": "existing_files",
+                "kind": "collision",
                 "source_session_id": "source-session-id",
                 "delivery_sequence": 7,
                 "decision_revision": 3,
+                "member_path": "source",
+                "is_directory": true,
                 "allowed_actions": ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
-                "conflicts": [{
-                    "member_path": "source",
-                    "target_path": "renamed",
-                    "is_directory": true,
-                }],
+                "source": {
+                    "path": "source",
+                    "size": 0,
+                    "modified_at": null,
+                },
+                "target": {
+                    "path": "renamed",
+                    "size": null,
+                    "modified_at": null,
+                },
             })
         );
     }

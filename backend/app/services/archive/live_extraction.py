@@ -58,6 +58,8 @@ class DestinationWriteResult:
     replaced: bool = False
     target_path: str | None = None
     message: str | None = None
+    target_size: int | None = None
+    target_modified_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +71,10 @@ class LiveSourcePendingDecision:
     member_path: str
     target_path: str | None
     message: str | None
+    source_size: int | None = None
+    source_modified_at: datetime | None = None
+    target_size: int | None = None
+    target_modified_at: datetime | None = None
 
 
 @dataclass
@@ -315,7 +321,16 @@ class LiveSourceSession:
                 decision_kind: Literal["collision", "member_error"] = (
                     "collision" if result.status == "awaiting_collision" else "member_error"
                 )
-                self._await_decision(decision_kind, current.entry.path, result.target_path, result.message)
+                self._await_decision(
+                    decision_kind,
+                    current.entry.path,
+                    result.target_path,
+                    result.message,
+                    source_size=current.entry.uncompressed_size,
+                    source_modified_at=current.entry.modified_at,
+                    target_size=result.target_size,
+                    target_modified_at=result.target_modified_at,
+                )
                 return
             pre_stream_skip = result.status in {"skipped", "ignored"} and not current.entry.is_directory
             if self.phase != LiveSourceSessionPhase.AWAITING_RESULT and not (
@@ -486,15 +501,26 @@ class LiveSourceSession:
         member_path: str,
         target_path: str | None,
         message: str | None,
+        *,
+        source_size: int | None = None,
+        source_modified_at: datetime | None = None,
+        target_size: int | None = None,
+        target_modified_at: datetime | None = None,
     ) -> None:
         if message is not None and (not message or len(message) > 500):
             raise LiveSourceSessionError("Archive decision message is invalid")
+        if kind == "collision" and target_path is None:
+            raise LiveSourceSessionError("Archive collision target is unavailable")
         self._pending_decision = LiveSourcePendingDecision(
             self._next_decision_revision,
             kind,
             member_path,
             target_path,
             message,
+            source_size,
+            source_modified_at,
+            target_size,
+            target_modified_at,
         )
         self._next_decision_revision += 1
         self.phase = LiveSourceSessionPhase.AWAITING_DECISION

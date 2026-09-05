@@ -325,7 +325,13 @@ async def test_live_source_rejects_stale_collision_decision_revisions() -> None:
 
     assert member is not None
     await source_session.apply_destination_write_result(
-        DestinationWriteResult(member.source_session_id, member.delivery_sequence, member.path, "awaiting_collision")
+        DestinationWriteResult(
+            member.source_session_id,
+            member.delivery_sequence,
+            member.path,
+            "awaiting_collision",
+            target_path="output/first.txt",
+        )
     )
     decision = await source_session.pending_decision()
     assert decision is not None

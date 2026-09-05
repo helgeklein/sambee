@@ -167,10 +167,21 @@ async def test_live_source_session_allows_a_directory_collision_skip() -> None:
     assert member is not None and member.is_directory
     await session.mark_directory_delivery_ready(member.source_session_id, member.delivery_sequence)
     await session.apply_destination_write_result(
-        DestinationWriteResult(member.source_session_id, member.delivery_sequence, member.path, "awaiting_collision")
+        DestinationWriteResult(
+            member.source_session_id,
+            member.delivery_sequence,
+            member.path,
+            "awaiting_collision",
+            target_path="output/directory",
+        )
     )
     decision = await session.pending_decision()
     assert decision is not None
+    assert decision.source_size == 0
+    assert decision.source_modified_at is not None
+    assert decision.target_path == "output/directory"
+    assert decision.target_size is None
+    assert decision.target_modified_at is None
 
     result = await session.resolve_decision(
         member.source_session_id,
@@ -210,7 +221,13 @@ async def test_live_source_session_allows_regular_member_collision_before_stream
     assert member is not None and not member.is_directory
 
     await session.apply_destination_write_result(
-        DestinationWriteResult(member.source_session_id, member.delivery_sequence, member.path, "awaiting_collision")
+        DestinationWriteResult(
+            member.source_session_id,
+            member.delivery_sequence,
+            member.path,
+            "awaiting_collision",
+            target_path="output/entry.txt",
+        )
     )
 
     assert session.phase == LiveSourceSessionPhase.AWAITING_DECISION

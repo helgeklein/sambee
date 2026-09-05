@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from app.api.archive_operations import (
+    ArchiveExtractionDirectoryCollision,
     ScopedCompanionRelay,
     _live_extraction_sessions,
     resume_live_companion_archive_destination,
@@ -169,6 +170,50 @@ def test_live_local_source_no_write_result_consumes_regular_member_body(disposit
         update_phase.assert_called_once()
     else:
         update_phase.assert_not_called()
+
+
+def test_live_local_source_directory_collision_preserves_target_snapshot() -> None:
+    operation = SimpleNamespace(
+        id=uuid.uuid4(),
+        destination_path="output",
+        collision_policy=None,
+        phase=None,
+    )
+    relay = SimpleNamespace(session=MagicMock(), streaming=MagicMock(return_value=(MagicMock(), operation)))
+    payload = ArchiveCompanionLiveDestinationWriteRequest(
+        source_session_id="source-session",
+        delivery_sequence=1,
+        member_path="blocked",
+        is_directory=True,
+    )
+    target_modified_at = datetime(2025, 1, 2, tzinfo=timezone.utc)
+    target = FileInfo(
+        name="blocked",
+        path="output/blocked",
+        type=FileType.FILE,
+        size=17,
+        modified_at=target_modified_at,
+    )
+    destination_backend = AsyncMock()
+    destination_backend.connect.return_value = None
+    destination_backend.disconnect.return_value = None
+
+    with (
+        patch("app.api.archive_operations._mixed_extraction_destination_connection", return_value=MagicMock()),
+        patch("app.api.archive_operations.build_smb_backend", return_value=destination_backend),
+        patch(
+            "app.api.archive_operations._ensure_mixed_archive_parent_directories",
+            new=AsyncMock(side_effect=ArchiveExtractionDirectoryCollision("output/blocked", target)),
+        ),
+        patch("app.api.archive_operations.update_operation_phase") as update_phase,
+    ):
+        result = asyncio.run(write_live_companion_archive_destination_member(StreamingRequest([]), payload, relay))
+
+    assert result.status == "awaiting_collision"
+    assert result.target_path == "output/blocked"
+    assert result.target_size == 17
+    assert result.target_modified_at == target_modified_at
+    update_phase.assert_called_once()
 
 
 @pytest.mark.parametrize("action", ["retry", "ignore"])
