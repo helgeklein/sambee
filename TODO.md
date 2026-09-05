@@ -1,17 +1,15 @@
 # TODO
 
-## Zip Archive Implementation
+## Zip Archives
 
-- More reviews:
-   - Archive architecture from the point of view of an implementor of:
-      - additional archive format
-      - additional file based virtual format like iso
-      - additional backend like SFTP
+- Individual member extraction:
+   - We already support previewing individual members
+   - Add support for selecting and extracting members via file list's existing UI for non-virtual directories (e.g., space to select, F5 to copy)
+   - Member-level extraction probably only makes sense in dual-pane view
 
 ## Bugs
 
 - Image viewer: while swiping through images in a directory (not an archive), rendering the last image (in either direction) times out.
-- Text and Markdown editors: there are still text selection highlighting issues.
 
 ## Settings
 

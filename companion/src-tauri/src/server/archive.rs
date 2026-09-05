@@ -259,8 +259,13 @@ impl LocalArchiveInspectionSource {
         Self { archive_path }
     }
 
-    fn inspection_page(&self, cursor: Option<&str>, page_size: usize) -> Result<LocalArchiveDirectoryPage, LocalArchiveReadError> {
-        LocalArchiveReader::open_pinned(&self.archive_path)?.inspection_page(cursor, page_size)
+    fn inspection_page(
+        &self,
+        virtual_path: &str,
+        cursor: Option<&str>,
+        page_size: usize,
+    ) -> Result<LocalArchiveDirectoryPage, LocalArchiveReadError> {
+        LocalArchiveReader::open_pinned(&self.archive_path)?.directory_page(virtual_path, cursor, page_size)
     }
 
     fn member_entry(&self, member_path: &str) -> Result<LocalArchiveReadEntry, LocalArchiveReadError> {
@@ -280,22 +285,12 @@ fn find_local_archive_member(reader: &mut LocalArchiveReader, member_path: &str)
     if is_directory || normalized_path.is_empty() || !is_safe_virtual_path(member_path, &normalized_path) {
         return Err(LocalArchiveReadError::InvalidMemberPath);
     }
-    while let Some(entry) = reader.next_entry()? {
-        if !entry.is_safe {
-            return Err(LocalArchiveReadError::UnsafeEntryPath);
+    let projection = reader.effective_projection()?;
+    if let Some(entry) = projection.member_by_path.get(&normalized_path) {
+        if entry.encrypted || !matches!(entry.compression_method, 0 | 8 | 12) {
+            return Err(LocalArchiveReadError::UnavailableMember);
         }
-        if !entry.has_supported_file_type {
-            return Err(LocalArchiveReadError::UnsupportedArchiveMember);
-        }
-        if entry.path == normalized_path {
-            if entry.is_directory {
-                return Err(LocalArchiveReadError::MemberNotFound);
-            }
-            if entry.encrypted || !matches!(entry.compression_method, 0 | 8 | 12) {
-                return Err(LocalArchiveReadError::UnavailableMember);
-            }
-            return Ok(entry);
-        }
+        return Ok(entry.clone());
     }
     Err(LocalArchiveReadError::MemberNotFound)
 }
@@ -306,6 +301,7 @@ pub struct ArchiveDirectoryListingPresentation {
     archive_path: String,
     archive_size: u64,
     archive_modified_at: Option<DateTime<Utc>>,
+    virtual_path: String,
     cursor: Option<String>,
     page_size: usize,
 }
@@ -315,7 +311,7 @@ impl ArchiveDirectoryListingPresentation {
         archive_path: String,
         archive_size: u64,
         archive_modified_at: Option<DateTime<Utc>>,
-        _virtual_path: String,
+        virtual_path: String,
         cursor: Option<String>,
         page_size: usize,
     ) -> Self {
@@ -323,6 +319,7 @@ impl ArchiveDirectoryListingPresentation {
             archive_path,
             archive_size,
             archive_modified_at,
+            virtual_path,
             cursor,
             page_size,
         }
@@ -335,7 +332,7 @@ impl ArchiveDirectoryListingPresentation {
                 size: self.archive_size,
                 modified_at: self.archive_modified_at,
             },
-            path: String::new(),
+            path: page.path,
             items: page
                 .entries
                 .into_iter()
@@ -459,10 +456,10 @@ impl ArchiveInspectionCoordinator {
     pub fn directory_listing(&self) -> Result<ArchiveDirectoryListing, LocalArchiveReadError> {
         match self.plan.presentation() {
             ArchiveInspectionPresentation::DirectoryListing(presentation) => {
-                let page = self
-                    .plan
-                    .source
-                    .inspection_page(presentation.cursor.as_deref(), presentation.page_size)?;
+                let page =
+                    self.plan
+                        .source
+                        .inspection_page(&presentation.virtual_path, presentation.cursor.as_deref(), presentation.page_size)?;
                 Ok(presentation.present(page))
             }
             ArchiveInspectionPresentation::MemberRead(_) => Err(LocalArchiveReadError::PresentationMismatch),
@@ -503,8 +500,18 @@ pub struct LocalArchiveDirectoryEntry {
 /// A bounded virtual-directory page from a local ZIP archive.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalArchiveDirectoryPage {
+    pub path: String,
     pub entries: Vec<LocalArchiveDirectoryEntry>,
     pub next_cursor: Option<String>,
+}
+
+/// Selected source entries and inferred virtual directories for one local reader.
+#[derive(Debug, Clone)]
+pub(crate) struct EffectiveLocalArchiveProjection {
+    pub entries: Vec<LocalArchiveReadEntry>,
+    member_by_path: HashMap<String, LocalArchiveReadEntry>,
+    directories: HashSet<String>,
+    pub skipped_entries: usize,
 }
 
 /// A source item mapped to one portable archive entry.
@@ -945,10 +952,6 @@ pub enum LocalArchiveReadError {
     InvalidMemberPath,
     #[error("archive member was not found")]
     MemberNotFound,
-    #[error("archive entry path is unsafe")]
-    UnsafeEntryPath,
-    #[error("archive contains a symbolic link or unsupported special member")]
-    UnsupportedArchiveMember,
     #[error("archive member uses an unavailable codec or blocked feature")]
     UnavailableMember,
     #[error("ZIP local header is invalid or does not match the central directory")]
@@ -988,19 +991,20 @@ fn u64_le(data: &[u8], offset: usize) -> u64 {
     ])
 }
 
-fn encode_inspection_cursor(position: u64, remaining_entries: u64) -> String {
-    let mut bytes = [0_u8; 16];
-    bytes[..8].copy_from_slice(&position.to_le_bytes());
-    bytes[8..].copy_from_slice(&remaining_entries.to_le_bytes());
-    hex::encode(bytes)
+fn encode_directory_cursor(path: &str, offset: usize) -> String {
+    format!("{}:{offset}", hex::encode(path))
 }
 
-fn decode_inspection_cursor(value: &str) -> Result<(u64, u64), LocalArchiveReadError> {
-    let bytes = hex::decode(value).map_err(|_| LocalArchiveReadError::InvalidCursor)?;
-    if bytes.len() != 16 {
+fn decode_directory_cursor(value: &str, path: &str) -> Result<usize, LocalArchiveReadError> {
+    let Some((encoded_path, encoded_offset)) = value.split_once(':') else {
+        return Err(LocalArchiveReadError::InvalidCursor);
+    };
+    let decoded_path = String::from_utf8(hex::decode(encoded_path).map_err(|_| LocalArchiveReadError::InvalidCursor)?)
+        .map_err(|_| LocalArchiveReadError::InvalidCursor)?;
+    if decoded_path != path {
         return Err(LocalArchiveReadError::InvalidCursor);
     }
-    Ok((u64_le(&bytes, 0), u64_le(&bytes, 8)))
+    encoded_offset.parse().map_err(|_| LocalArchiveReadError::InvalidCursor)
 }
 
 fn read_exact_at(file: &mut FsFile, archive_size: u64, offset: u64, length: usize) -> Result<Vec<u8>, LocalArchiveReadError> {
@@ -1038,11 +1042,9 @@ pub struct LocalArchiveReader {
     archive_size: u64,
     #[cfg(unix)]
     archive_metadata: PinnedArchiveMetadata,
-    directory_start: u64,
     directory_end: u64,
     position: u64,
     remaining_entries: u64,
-    total_entries: u64,
 }
 
 #[cfg(unix)]
@@ -1125,74 +1127,145 @@ impl LocalArchiveReader {
             archive_size,
             #[cfg(unix)]
             archive_metadata,
-            directory_start: position,
             directory_end,
             position,
             remaining_entries,
-            total_entries: remaining_entries,
         })
     }
 
-    /// Return one bounded central-directory page without retaining prior records.
-    pub fn inspection_page(&mut self, cursor: Option<&str>, page_size: usize) -> Result<LocalArchiveDirectoryPage, LocalArchiveReadError> {
+    pub(crate) fn effective_projection(&mut self) -> Result<EffectiveLocalArchiveProjection, LocalArchiveReadError> {
+        let mut raw_entries = Vec::new();
+        while let Some(entry) = self.next_entry()? {
+            raw_entries.push(entry);
+        }
+
+        let mut member_indexes = HashMap::new();
+        let mut directory_indexes = HashMap::new();
+        for (index, entry) in raw_entries.iter().enumerate() {
+            if !entry.is_safe || !entry.has_supported_file_type {
+                continue;
+            }
+            if entry.is_directory {
+                directory_indexes.insert(entry.path.clone(), index);
+            } else {
+                member_indexes.insert(entry.path.clone(), index);
+            }
+        }
+        let mut directories: HashSet<String> = directory_indexes
+            .keys()
+            .filter(|path| !member_indexes.contains_key(*path))
+            .cloned()
+            .collect();
+        let selected_indexes: HashSet<usize> = member_indexes
+            .values()
+            .chain(
+                directory_indexes
+                    .iter()
+                    .filter_map(|(path, index)| (!member_indexes.contains_key(path)).then_some(index)),
+            )
+            .copied()
+            .collect();
+        let entries: Vec<_> = raw_entries
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| selected_indexes.contains(index))
+            .map(|(_, entry)| entry.clone())
+            .collect();
+        let member_by_path: HashMap<String, LocalArchiveReadEntry> = member_indexes
+            .into_iter()
+            .map(|(path, index)| (path, raw_entries[index].clone()))
+            .collect();
+        for entry in &entries {
+            let segments: Vec<_> = entry.path.split('/').collect();
+            for index in 1..segments.len() {
+                directories.insert(segments[..index].join("/"));
+            }
+        }
+        directories.retain(|path| !member_by_path.contains_key(path));
+        Ok(EffectiveLocalArchiveProjection {
+            skipped_entries: raw_entries.len() - entries.len(),
+            entries,
+            member_by_path,
+            directories,
+        })
+    }
+
+    pub fn directory_page(
+        &mut self,
+        virtual_path: &str,
+        cursor: Option<&str>,
+        page_size: usize,
+    ) -> Result<LocalArchiveDirectoryPage, LocalArchiveReadError> {
         if !(1..=500).contains(&page_size) {
             return Err(LocalArchiveReadError::InvalidCursor);
         }
-        self.set_inspection_cursor(cursor)?;
-        let mut entries = Vec::with_capacity(page_size);
-        while entries.len() < page_size {
-            let Some(entry) = self.next_entry()? else {
-                return Ok(LocalArchiveDirectoryPage {
-                    entries,
-                    next_cursor: None,
-                });
-            };
-            if !entry.is_safe {
-                return Err(LocalArchiveReadError::UnsafeEntryPath);
-            }
-            if !entry.has_supported_file_type {
-                return Err(LocalArchiveReadError::UnsupportedArchiveMember);
-            }
-            entries.push(LocalArchiveDirectoryEntry {
-                name: entry.path.rsplit('/').next().unwrap_or_default().to_string(),
-                path: entry.path,
-                is_directory: entry.is_directory,
-                compressed_size: (!entry.is_directory).then_some(entry.compressed_size),
-                uncompressed_size: (!entry.is_directory).then_some(entry.uncompressed_size),
-                compression_method: (!entry.is_directory).then_some(entry.compression_method),
-                crc32: (!entry.is_directory).then_some(entry.crc32),
-                modified_at: entry.modified_at,
-                encrypted: entry.encrypted,
-                is_available: !entry.is_directory
-                    && !entry.encrypted
-                    && matches!(entry.compression_method, 0 | 8 | 12)
-                    && entry.uncompressed_size <= ARCHIVE_INLINE_PREVIEW_MAX_BYTES,
-            });
+        let (path, _) = normalize_virtual_path(virtual_path);
+        if !virtual_path.is_empty() && (path.is_empty() || !is_safe_virtual_path(virtual_path, &path)) {
+            return Err(LocalArchiveReadError::InvalidMemberPath);
         }
-        Ok(LocalArchiveDirectoryPage {
-            entries,
-            next_cursor: (self.remaining_entries > 0).then(|| encode_inspection_cursor(self.position, self.remaining_entries)),
-        })
-    }
-
-    fn set_inspection_cursor(&mut self, cursor: Option<&str>) -> Result<(), LocalArchiveReadError> {
-        let Some(cursor) = cursor else {
-            return Ok(());
+        let projection = self.effective_projection()?;
+        if projection.member_by_path.contains_key(&path) {
+            return Err(LocalArchiveReadError::InvalidMemberPath);
+        }
+        if !path.is_empty() && !projection.directories.contains(&path) {
+            return Err(LocalArchiveReadError::MemberNotFound);
+        }
+        let offset = match cursor {
+            Some(cursor) => decode_directory_cursor(cursor, &path)?,
+            None => 0,
         };
-        if self.position != self.directory_start || self.remaining_entries != self.total_entries {
+        let prefix = if path.is_empty() { String::new() } else { format!("{path}/") };
+        let mut children = HashMap::new();
+        for entry in &projection.entries {
+            let Some(remainder) = entry.path.strip_prefix(&prefix) else {
+                continue;
+            };
+            if !remainder.is_empty() && !remainder.contains('/') {
+                children.insert(entry.path.clone(), local_directory_entry(entry));
+            }
+        }
+        for directory_path in &projection.directories {
+            let Some(remainder) = directory_path.strip_prefix(&prefix) else {
+                continue;
+            };
+            if remainder.is_empty() || remainder.contains('/') || children.contains_key(directory_path) {
+                continue;
+            }
+            let Some(representative) = projection
+                .entries
+                .iter()
+                .find(|entry| entry.path.starts_with(&format!("{directory_path}/")))
+            else {
+                continue;
+            };
+            children.insert(
+                directory_path.clone(),
+                LocalArchiveDirectoryEntry {
+                    name: remainder.to_string(),
+                    path: directory_path.clone(),
+                    is_directory: true,
+                    compressed_size: None,
+                    uncompressed_size: None,
+                    compression_method: None,
+                    crc32: None,
+                    modified_at: representative.modified_at,
+                    encrypted: false,
+                    is_available: false,
+                },
+            );
+        }
+        let mut entries: Vec<_> = children.into_values().collect();
+        entries.sort_by(|left, right| left.path.cmp(&right.path));
+        if offset > entries.len() {
             return Err(LocalArchiveReadError::InvalidCursor);
         }
-        let (position, remaining_entries) = decode_inspection_cursor(cursor)?;
-        if position < self.directory_start
-            || position > self.directory_end
-            || remaining_entries > self.total_entries
-            || (remaining_entries == 0 && position != self.directory_end)
-        {
-            return Err(LocalArchiveReadError::InvalidCursor);
-        }
-        self.position = position;
-        self.remaining_entries = remaining_entries;
-        Ok(())
+        let next_offset = offset + page_size.min(entries.len() - offset);
+        let has_more = next_offset < entries.len();
+        Ok(LocalArchiveDirectoryPage {
+            path: path.clone(),
+            entries: entries.into_iter().skip(offset).take(page_size).collect(),
+            next_cursor: has_more.then(|| encode_directory_cursor(&path, next_offset)),
+        })
     }
 
     /// Return exactly one central-directory entry, preserving archive record order.
@@ -1397,6 +1470,24 @@ fn is_safe_virtual_path(path: &str, normalized_path: &str) -> bool {
         .clone()
         .all(|segment| !segment.is_empty() && !matches!(segment, "." | "..") && !segment.contains(':'))
         && normalized_path == trimmed
+}
+
+fn local_directory_entry(entry: &LocalArchiveReadEntry) -> LocalArchiveDirectoryEntry {
+    LocalArchiveDirectoryEntry {
+        name: entry.path.rsplit('/').next().unwrap_or_default().to_string(),
+        path: entry.path.clone(),
+        is_directory: entry.is_directory,
+        compressed_size: (!entry.is_directory).then_some(entry.compressed_size),
+        uncompressed_size: (!entry.is_directory).then_some(entry.uncompressed_size),
+        compression_method: (!entry.is_directory).then_some(entry.compression_method),
+        crc32: (!entry.is_directory).then_some(entry.crc32),
+        modified_at: entry.modified_at,
+        encrypted: entry.encrypted,
+        is_available: !entry.is_directory
+            && !entry.encrypted
+            && matches!(entry.compression_method, 0 | 8 | 12)
+            && entry.uncompressed_size <= ARCHIVE_INLINE_PREVIEW_MAX_BYTES,
+    }
 }
 
 fn has_supported_file_type(version_made_by: u16, external_attributes: u32) -> bool {
@@ -3289,7 +3380,7 @@ mod tests {
     }
 
     #[test]
-    fn lists_archive_records_in_bounded_record_order_pages() {
+    fn lists_projected_archive_root_and_nested_directory() {
         let directory = tempdir().unwrap();
         let source_root = directory.path().join("source");
         fs::create_dir_all(source_root.join("nested/empty")).unwrap();
@@ -3314,29 +3405,35 @@ mod tests {
             .unwrap(),
         );
         let first_page = inspection.directory_listing().unwrap();
-        let expected_entries = read_local_archive_entries(&target).unwrap();
         assert_eq!(first_page.items.len(), 1);
-        assert_eq!(first_page.items[0].path, expected_entries[0].path);
-        assert!(first_page.next_cursor.is_some());
+        assert_eq!(first_page.items[0].file_type, FileType::Directory);
+        assert!(first_page.next_cursor.is_none());
 
-        let second_page = ArchiveInspectionCoordinator::from_plan(
+        let nested_page = ArchiveInspectionCoordinator::from_plan(
             ArchiveInspectionPlan::from_local_source(
                 LocalArchiveInspectionSource::from_archive_path(target.clone()),
                 ArchiveInspectionPresentation::DirectoryListing(ArchiveDirectoryListingPresentation::new(
                     "archive.zip".to_string(),
                     0,
                     None,
-                    String::new(),
-                    first_page.next_cursor,
-                    1,
+                    first_page.items[0].path.clone(),
+                    None,
+                    10,
                 )),
             )
             .unwrap(),
         )
         .directory_listing()
         .unwrap();
-        assert_eq!(second_page.items.len(), 1);
-        assert_eq!(second_page.items[0].path, expected_entries[1].path);
+        assert_eq!(nested_page.path, first_page.items[0].path);
+        assert_eq!(
+            nested_page
+                .items
+                .iter()
+                .map(|item| (item.name.as_str(), &item.file_type))
+                .collect::<Vec<_>>(),
+            vec![("alpha.txt", &FileType::File), ("nested", &FileType::Directory)]
+        );
     }
 
     #[test]

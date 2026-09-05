@@ -366,7 +366,7 @@ class TestListArchiveDirectory:
 
         assert response.status_code == 200
         result = response.json()
-        assert [(item["name"], item["type"]) for item in result["items"]] == [("readme.txt", "file")]
+        assert [(item["name"], item["type"]) for item in result["items"]] == [("docs", "directory")]
         assert result["next_cursor"] is not None
         assert archive_reader.closed is True
         assert len(archive_reader.reads) == 2
@@ -395,8 +395,12 @@ class TestListArchiveDirectory:
             params={"archive_path": "backup.zip", "virtual_path": "docs"},
         )
 
-        assert response.status_code == 422
-        assert "does not support virtual directory paths" in response.json()["detail"]
+        assert response.status_code == 200
+        result = response.json()
+        assert result["path"] == "docs"
+        assert [(item["name"], item["path"], item["type"]) for item in result["items"]] == [
+            ("readme.txt", "docs/readme.txt", "file"),
+        ]
 
     def test_rejects_invalid_archive_listing_cursor_through_inspection_resolver(
         self,
