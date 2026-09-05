@@ -1104,10 +1104,9 @@ export const EN_TRANSLATIONS = {
     },
     overwriteConflict: {
       title: "Resolve existing target",
-      alreadyExists: "A target with this name already exists in <directory>{{targetDirectory}}</directory>:",
-      labelSourcePath: "Source path",
+      alreadyExists: "A target with this name already exists:",
+      labelPath: "Path",
       labelTargetName: "Target name",
-      labelTargetDirectory: "Target directory",
       labelExisting: "Target",
       labelIncoming: "Source",
       labelSize: "Size",

@@ -19,12 +19,11 @@
  * the current multi-file operation.
  */
 
+import ArrowUpwardOutlinedIcon from "@mui/icons-material/ArrowUpwardOutlined";
 import { Alert, Box, Button, Checkbox, FormControl, FormControlLabel, FormLabel, Radio, RadioGroup, Typography } from "@mui/material";
 import type React from "react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Trans } from "react-i18next";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ConflictInfo } from "../../types";
-import { FileType } from "../../types";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
 import { formatLocalizedDateTime, formatLocalizedNumber } from "../../utils/localeFormatting";
 import { abbreviatePath } from "../../utils/pathDisplay";
@@ -70,9 +69,8 @@ export interface OverwriteConflictDialogProps {
   onCancel: () => void;
 }
 
-const CONFLICT_METADATA_GRID_COLUMNS = { xs: "1fr", md: "minmax(5.5rem, 8rem) minmax(0, 1fr) minmax(0, 1fr)" };
-const CONFLICT_METADATA_COLUMN_GAP = 0.75;
-const CONFLICT_METADATA_SECTION_MARGIN_BOTTOM = 5;
+const DETAIL_ROW_COLUMNS = "minmax(4.5rem, 6rem) minmax(0, 1fr)";
+const CONFLICT_METADATA_SECTION_MARGIN_BOTTOM = 3;
 
 // ============================================================================
 // Helpers
@@ -227,6 +225,7 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
   const sourcePath = ownerSourcePath ?? conflict?.incoming_file.path ?? "";
   const existingTargetName = conflict?.existing_file.name ?? "";
   const targetDirectory = ownerTargetDirectoryPath ?? getParentDirectory(conflict?.existing_file.path ?? "");
+  const sourceDirectory = getParentDirectory(sourcePath);
   const conflictIdentity = `${conflict?.incoming_file.path ?? ""}\u0000${conflict?.existing_file.path ?? ""}`;
   const allowedActionsIdentity = allowedActions.join("\u0000");
   const dialogStateIdentity = `${conflictIdentity}\u0000${allowedActionsIdentity}`;
@@ -245,11 +244,7 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
   const displayedError = error ?? (hasAvailableResolution ? null : S.ERROR_NO_RESOLUTION_AVAILABLE);
   const description = (
     <Typography variant="body2" sx={{ color: "text.secondary" }}>
-      <Trans
-        i18nKey="fileBrowser.overwriteConflict.alreadyExists"
-        values={{ targetDirectory }}
-        components={{ directory: <AbbreviatedInlinePath path={targetDirectory} testId="overwrite-conflict-target-directory" /> }}
-      />
+      {S.ALREADY_EXISTS}
     </Typography>
   );
 
@@ -343,23 +338,16 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
   const fallbackEnterHandler = useMemo(() => dialogEnterKeyHandler(handleContinue), [handleContinue]);
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => fallbackEnterHandler(event), [fallbackEnterHandler]);
 
-  const hasFileMetadata = conflict?.incoming_file.type === FileType.FILE && conflict.existing_file.type === FileType.FILE;
-  const metadataRows = hasFileMetadata
-    ? [
-        ...(conflict.incoming_file.size != null || conflict.existing_file.size != null
-          ? [{ label: S.LABEL_SIZE, source: formatBytes(conflict.incoming_file.size), target: formatBytes(conflict.existing_file.size) }]
-          : []),
-        ...(conflict.incoming_file.modified_at || conflict.existing_file.modified_at
-          ? [
-              {
-                label: S.LABEL_MODIFIED,
-                source: formatDate(conflict.incoming_file.modified_at),
-                target: formatDate(conflict.existing_file.modified_at),
-              },
-            ]
-          : []),
-      ]
-    : [];
+  const targetDetails = [
+    { label: S.LABEL_PATH, value: targetDirectory, testId: "overwrite-conflict-target-path" },
+    { label: S.LABEL_MODIFIED, value: formatDate(conflict?.existing_file.modified_at) },
+    { label: S.LABEL_SIZE, value: formatBytes(conflict?.existing_file.size) },
+  ];
+  const sourceDetails = [
+    { label: S.LABEL_PATH, value: sourceDirectory, testId: "overwrite-conflict-source-path" },
+    { label: S.LABEL_MODIFIED, value: formatDate(conflict?.incoming_file.modified_at) },
+    { label: S.LABEL_SIZE, value: formatBytes(conflict?.incoming_file.size) },
+  ];
 
   return (
     <ResponsiveFormDialog
@@ -406,85 +394,52 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
           sx={{ mb: 2 }}
         />
         <Box component="section" aria-label={S.METADATA_LABEL} sx={{ mb: CONFLICT_METADATA_SECTION_MARGIN_BOTTOM }}>
-          <Box component="dl" sx={{ display: "grid", gap: 1, m: 0 }}>
-            {metadataRows.length > 0 && (
-              <>
+          {[
+            { label: S.LABEL_EXISTING, details: targetDetails, testId: "overwrite-conflict-target-details" },
+            { label: S.LABEL_INCOMING, details: sourceDetails, testId: "overwrite-conflict-source-details" },
+          ].map(({ label, details, testId }, index) => (
+            <Fragment key={label}>
+              {index > 0 ? (
                 <Box
                   aria-hidden="true"
-                  data-testid="overwrite-conflict-desktop-comparison-headers"
-                  sx={{
-                    display: { xs: "none", md: "grid" },
-                    gridTemplateColumns: CONFLICT_METADATA_GRID_COLUMNS.md,
-                    columnGap: CONFLICT_METADATA_COLUMN_GAP,
-                  }}
+                  data-testid="overwrite-conflict-direction"
+                  sx={{ color: "text.secondary", display: "flex", justifyContent: "center", my: 0.5 }}
                 >
-                  <Box />
-                  <Typography variant="caption" color="text.secondary">
-                    {S.LABEL_INCOMING}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {S.LABEL_EXISTING}
-                  </Typography>
+                  <ArrowUpwardOutlinedIcon fontSize="small" />
                 </Box>
-                {metadataRows.map((row) => (
-                  <Box
-                    component="div"
-                    key={row.label}
-                    sx={{
-                      display: "grid",
-                      gridTemplateColumns: CONFLICT_METADATA_GRID_COLUMNS,
-                      columnGap: CONFLICT_METADATA_COLUMN_GAP,
-                      rowGap: 1,
-                    }}
-                  >
-                    <Typography component="dt" variant="caption" color="text.secondary">
-                      {row.label}
-                    </Typography>
-                    <Box component="dd" aria-label={`${row.label}: ${S.LABEL_INCOMING}`} sx={{ m: 0 }}>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: { xs: "block", md: "none" } }}>
-                        {S.LABEL_INCOMING}
-                      </Typography>
-                      <Typography variant="body2">{row.source}</Typography>
-                    </Box>
-                    <Box component="dd" aria-label={`${row.label}: ${S.LABEL_EXISTING}`} sx={{ m: 0 }}>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: { xs: "block", md: "none" } }}>
-                        {S.LABEL_EXISTING}
-                      </Typography>
-                      <Typography variant="body2">{row.target}</Typography>
-                    </Box>
-                  </Box>
-                ))}
-              </>
-            )}
-            {sourcePath ? (
-              <Box
-                component="div"
-                sx={{
-                  display: "grid",
-                  gridTemplateColumns: CONFLICT_METADATA_GRID_COLUMNS,
-                  columnGap: CONFLICT_METADATA_COLUMN_GAP,
-                  rowGap: 1,
-                }}
-              >
-                <Typography component="dt" variant="caption" color="text.secondary" sx={{ alignSelf: "center" }}>
-                  {S.LABEL_SOURCE_PATH}
+              ) : null}
+              <Box data-testid={testId}>
+                <Typography component="h3" variant="subtitle2" sx={{ mb: 0.25 }}>
+                  {label}
                 </Typography>
-                <Box component="dd" data-testid="overwrite-conflict-source-path" sx={{ gridColumn: { md: "2 / -1" }, m: 0, minWidth: 0 }}>
-                  <AbbreviatedInlinePath
-                    path={sourcePath}
-                    testId="overwrite-conflict-source-path-value"
-                    blockLayout
-                    removeHorizontalMargin
-                  />
+                <Box component="dl" sx={{ display: "grid", gap: 0.25, m: 0 }}>
+                  {details.map((detail) => (
+                    <Box component="div" key={detail.label} sx={{ display: "grid", gridTemplateColumns: DETAIL_ROW_COLUMNS, columnGap: 1 }}>
+                      <Typography component="dt" variant="caption" color="text.secondary">
+                        {detail.label}
+                      </Typography>
+                      <Box component="dd" data-testid={detail.testId} sx={{ m: 0, minWidth: 0 }}>
+                        {detail.testId ? (
+                          <AbbreviatedInlinePath path={detail.value} testId={`${detail.testId}-value`} blockLayout removeHorizontalMargin />
+                        ) : (
+                          <Typography variant="body2">{detail.value}</Typography>
+                        )}
+                      </Box>
+                    </Box>
+                  ))}
                 </Box>
               </Box>
-            ) : null}
-          </Box>
+            </Fragment>
+          ))}
         </Box>
 
         <FormControl component="fieldset" fullWidth disabled={isSubmittingOrPending} ref={resolutionGroupRef} key={dialogStateIdentity}>
           <FormLabel component="legend">{S.RESOLUTION_LABEL}</FormLabel>
-          <RadioGroup value={resolution} onChange={handleResolutionChange}>
+          <RadioGroup
+            value={resolution}
+            onChange={handleResolutionChange}
+            sx={{ columnGap: 2, display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" } }}
+          >
             {allowedActions.includes("skip") && <FormControlLabel value="skip" control={<Radio size="small" />} label={S.BUTTON_SKIP} />}
             {allowedActions.includes("overwrite") && (
               <FormControlLabel value="overwrite" control={<Radio size="small" />} label={S.BUTTON_OVERWRITE} />

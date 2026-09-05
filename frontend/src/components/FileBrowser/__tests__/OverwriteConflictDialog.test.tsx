@@ -35,26 +35,26 @@ describe("OverwriteConflictDialog", () => {
     onCancel: vi.fn(),
   };
 
-  it("shows the target directory in the description and source path in metadata", () => {
+  it("shows concise stacked target and source details", () => {
     render(<OverwriteConflictDialog {...defaultProps} />);
 
     expect(screen.getByRole("heading", { name: S.TITLE })).toBeInTheDocument();
+    expect(screen.getByText(S.ALREADY_EXISTS)).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: S.LABEL_TARGET_NAME })).toHaveValue("report.txt");
-    expect(screen.queryByRole("textbox", { name: S.LABEL_SOURCE_PATH })).not.toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: S.LABEL_TARGET_DIRECTORY })).not.toBeInTheDocument();
-    expect(screen.getByTestId("overwrite-conflict-target-directory")).toHaveTextContent("target");
-    expect(screen.getByTestId("overwrite-conflict-target-directory").tagName).toBe("CODE");
-    expect(screen.getByTestId("overwrite-conflict-target-directory")).toHaveStyle({ whiteSpace: "nowrap" });
+    const targetDetails = screen.getByTestId("overwrite-conflict-target-details");
+    const sourceDetails = screen.getByTestId("overwrite-conflict-source-details");
+    expect(within(targetDetails).getByRole("heading", { name: S.LABEL_EXISTING })).toBeInTheDocument();
+    expect(within(sourceDetails).getByRole("heading", { name: S.LABEL_INCOMING })).toBeInTheDocument();
+    expect(screen.getByTestId("overwrite-conflict-target-path")).toHaveTextContent("target");
     const sourcePath = screen.getByTestId("overwrite-conflict-source-path");
-    expect(sourcePath).toHaveTextContent("source/report.txt");
-    expect(within(sourcePath).getByText("source/report.txt").tagName).toBe("CODE");
+    expect(sourcePath).toHaveTextContent("source");
+    expect(within(sourcePath).getByText("source").tagName).toBe("CODE");
     const metadata = screen.getByRole("region", { name: S.METADATA_LABEL });
-    const modified = within(metadata).getByText(S.LABEL_MODIFIED);
-    const sourcePathLabel = within(metadata).getByText(S.LABEL_SOURCE_PATH);
-    expect(modified.compareDocumentPosition(sourcePathLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    const comparisonHeaders = screen.getByTestId("overwrite-conflict-desktop-comparison-headers");
-    expect(within(comparisonHeaders).getByText(S.LABEL_INCOMING)).toBeInTheDocument();
-    expect(within(comparisonHeaders).getByText(S.LABEL_EXISTING)).toBeInTheDocument();
+    expect(within(metadata).getAllByText(S.LABEL_PATH)).toHaveLength(2);
+    expect(within(metadata).getAllByText(S.LABEL_MODIFIED)).toHaveLength(2);
+    expect(within(metadata).getAllByText(S.LABEL_SIZE)).toHaveLength(2);
+    expect(screen.getByTestId("overwrite-conflict-direction").querySelector("svg")).toBeInTheDocument();
+    expect(targetDetails.compareDocumentPosition(sourceDetails) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByTestId("responsive-form-dialog-desktop-actions")).toBeInTheDocument();
   });
 
@@ -67,8 +67,8 @@ describe("OverwriteConflictDialog", () => {
       />
     );
 
-    expect(screen.getByTestId("overwrite-conflict-target-directory")).toHaveTextContent("Target connection:/destination");
-    expect(screen.getByTestId("overwrite-conflict-source-path")).toHaveTextContent("Source connection:/archive.zip/source/report.txt");
+    expect(screen.getByTestId("overwrite-conflict-target-path")).toHaveTextContent("Target connection:/destination");
+    expect(screen.getByTestId("overwrite-conflict-source-path")).toHaveTextContent("Source connection:/archive.zip/source");
   });
 
   it("preserves long target and path values without creating additional fields", () => {
@@ -84,11 +84,11 @@ describe("OverwriteConflictDialog", () => {
 
     const targetInput = screen.getByRole("textbox", { name: S.LABEL_TARGET_NAME }) as HTMLInputElement;
     const sourcePath = screen.getByTestId("overwrite-conflict-source-path");
-    const targetDirectoryCode = screen.getByTestId("overwrite-conflict-target-directory");
+    const targetDirectoryCode = screen.getByTestId("overwrite-conflict-target-path-value");
 
     expect(targetInput).toHaveValue(targetName);
-    expect(sourcePath).toHaveTextContent(`source/${sourceName}`);
-    expect(within(sourcePath).getByText(`source/${sourceName}`)).toHaveStyle({ overflow: "hidden", whiteSpace: "nowrap" });
+    expect(sourcePath).toHaveTextContent("source");
+    expect(within(sourcePath).getByText("source")).toHaveStyle({ overflow: "hidden", whiteSpace: "nowrap" });
     expect(targetDirectoryCode).toHaveTextContent(targetDirectory);
     expect(targetDirectoryCode).toHaveStyle({ whiteSpace: "nowrap" });
     expect(targetInput).toHaveAttribute("readonly");
@@ -96,19 +96,10 @@ describe("OverwriteConflictDialog", () => {
     expect(targetInput.selectionEnd).toBe(targetInput.value.length);
   });
 
-  it("aligns the source path with the source metadata column", () => {
+  it("uses a compact grid for desktop resolution choices", () => {
     render(<OverwriteConflictDialog {...defaultProps} />);
 
-    const sourcePath = within(screen.getByTestId("overwrite-conflict-source-path")).getByText("source/report.txt");
-    expect(sourcePath).toHaveStyle({ marginLeft: "0px" });
-    expect(screen.getByText(S.LABEL_SOURCE_PATH)).toHaveStyle({ alignSelf: "center" });
-  });
-
-  it("keeps the description path on the surrounding text baseline", () => {
-    render(<OverwriteConflictDialog {...defaultProps} />);
-
-    const targetDirectory = screen.getByTestId("overwrite-conflict-target-directory");
-    expect(targetDirectory).toHaveStyle({ whiteSpace: "nowrap" });
+    expect(screen.getByRole("radiogroup")).toHaveStyle({ display: "grid" });
   });
 
   it("focuses Skip and submits the selected bulk resolution", async () => {
@@ -271,16 +262,16 @@ describe("OverwriteConflictDialog", () => {
     expect(screen.queryByRole("radio", { name: S.BUTTON_OVERWRITE })).not.toBeInTheDocument();
   });
 
-  it("omits file metadata for directory conflicts", () => {
+  it("shows unavailable metadata placeholders for directory conflicts", () => {
     const directoryConflict: ConflictInfo = {
       incoming_file: { ...conflict.incoming_file, type: FileType.DIRECTORY, size: undefined, modified_at: undefined },
       existing_file: { ...conflict.existing_file, type: FileType.DIRECTORY, size: undefined, modified_at: undefined },
     };
     render(<OverwriteConflictDialog {...defaultProps} conflict={directoryConflict} allowedActions={["skip", "rename"]} />);
 
-    expect(screen.queryByText(S.LABEL_SIZE)).not.toBeInTheDocument();
-    expect(screen.queryByText(S.LABEL_MODIFIED)).not.toBeInTheDocument();
-    expect(screen.queryByTestId("overwrite-conflict-desktop-comparison-headers")).not.toBeInTheDocument();
+    expect(screen.getAllByText(S.LABEL_SIZE)).toHaveLength(2);
+    expect(screen.getAllByText(S.LABEL_MODIFIED)).toHaveLength(2);
+    expect(screen.getAllByText("—")).toHaveLength(4);
   });
 
   it("focuses and selects Target name when Rename is the only available action", async () => {
