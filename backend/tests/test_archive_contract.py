@@ -155,6 +155,7 @@ def test_v2_direct_local_execution_specimen_conforms_to_the_shared_schema() -> N
         {key: value for key, value in collision.items() if key != "source"},
         {**collision, "source": {"path": "notes.txt", "size": 42}},
         {**collision, "target_path": "output/notes.txt"},
+        {**collision, "target": {"path": "/output/notes.txt", "size": None, "modified_at": None}},
         {**collision, "allowed_actions": ["retry"]},
     ):
         with pytest.raises(AssertionError):

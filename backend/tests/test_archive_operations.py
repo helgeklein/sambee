@@ -1338,7 +1338,16 @@ def test_direct_extraction_retains_live_source_through_collision_resolution(
     assert paused.json()["pending_decision_json"] is None
     live_status = status_response.json()
     assert live_status["phase"] == "awaiting_decision"
-    assert live_status["pending_decision"]["member_path"] == "first.txt"
+    pending_decision = live_status["pending_decision"]
+    assert pending_decision["member_path"] == "first.txt"
+    assert pending_decision["source"]["path"] == "first.txt"
+    assert pending_decision["source"]["size"] == len(b"replacement")
+    assert isinstance(pending_decision["source"]["modified_at"], str)
+    assert pending_decision["target"] == {
+        "path": "output/first.txt",
+        "size": len(b"existing"),
+        "modified_at": None,
+    }
 
     resolved = client.post(
         f"/api/archive/v2/operations/{prepared['id']}/extraction/decision",
@@ -1347,7 +1356,7 @@ def test_direct_extraction_retains_live_source_through_collision_resolution(
             "action": "replace",
             "source_session_id": live_status["source_session_id"],
             "delivery_sequence": 1,
-            "decision_revision": live_status["pending_decision"]["revision"],
+            "decision_revision": pending_decision["revision"],
         },
     )
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):

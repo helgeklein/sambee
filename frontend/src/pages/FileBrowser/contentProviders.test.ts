@@ -606,7 +606,7 @@ describe("content providers", () => {
       } as never)
       .mockResolvedValueOnce(extractionAggregate(1, 1, 5) as never);
     vi.mocked(api.getArchiveLiveExtractionStatus).mockResolvedValueOnce(
-      liveExtractionStatus(liveCollision("readme.txt", "output/readme.txt")) as never
+      liveExtractionStatus(liveCollision("readme.txt", "readme.txt")) as never
     );
     vi.mocked(api.decideArchiveExtraction).mockResolvedValueOnce({ phase: "streaming" } as never);
 
@@ -615,7 +615,10 @@ describe("content providers", () => {
       destination: physicalLocation("local-drive:c", "output"),
     });
 
-    await expect(execution.result).resolves.toMatchObject({ status: "awaiting-decision" });
+    await expect(execution.result).resolves.toMatchObject({
+      status: "awaiting-decision",
+      conflicts: [archiveConflict("readme.txt", "output/readme.txt")],
+    });
     await expect(execution.decide("skip_all")).resolves.toMatchObject({ status: "completed", summary: { filesExtracted: 1 } });
     expect(vi.mocked(api.extractSmbArchiveToLocal).mock.calls.slice(-2)).toEqual([
       ["local-drive:c", "output", "extract-1"],

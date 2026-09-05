@@ -859,7 +859,7 @@ enum LocalArchiveTargetWriteAttempt {
 /// The local directory controller result used by direct and relay extraction.
 pub enum LocalArchiveDirectoryOutput {
     Ready { directories_created: u64 },
-    AwaitCollision,
+    AwaitCollision { target: LocalArchiveConflictTarget },
 }
 
 pub type LocalArchiveTargetSnapshot = TargetSnapshot;
@@ -1750,7 +1750,11 @@ fn ensure_extraction_directory(
         for attempt in 0..=1 {
             match fs::symlink_metadata(&current) {
                 Ok(metadata) if metadata.file_type().is_dir() => break,
-                Ok(_) => return Ok(LocalArchiveDirectoryOutput::AwaitCollision),
+                Ok(metadata) => {
+                    return Ok(LocalArchiveDirectoryOutput::AwaitCollision {
+                        target: LocalArchiveConflictTarget::from_metadata(&metadata),
+                    })
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     revalidate_target_parent(drive_root, &current)?;
                     match fs::create_dir(&current) {
@@ -1760,7 +1764,11 @@ fn ensure_extraction_directory(
                         }
                         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => match fs::symlink_metadata(&current) {
                             Ok(metadata) if metadata.file_type().is_dir() => break,
-                            Ok(_) => return Ok(LocalArchiveDirectoryOutput::AwaitCollision),
+                            Ok(metadata) => {
+                                return Ok(LocalArchiveDirectoryOutput::AwaitCollision {
+                                    target: LocalArchiveConflictTarget::from_metadata(&metadata),
+                                })
+                            }
                             Err(observe_error) if observe_error.kind() == std::io::ErrorKind::NotFound && attempt == 0 => {
                                 continue;
                             }
@@ -1871,11 +1879,7 @@ where
     let parent = destination_path.parent().ok_or(LocalArchiveError::TargetOutsideRoot)?;
     let directories_created = match ensure_extraction_directory(drive_root, destination_root, parent)? {
         LocalArchiveDirectoryOutput::Ready { directories_created } => directories_created,
-        LocalArchiveDirectoryOutput::AwaitCollision => {
-            return Ok(LocalArchiveTargetOutput::AwaitCollision {
-                target: LocalArchiveConflictTarget::unavailable(),
-            })
-        }
+        LocalArchiveDirectoryOutput::AwaitCollision { target } => return Ok(LocalArchiveTargetOutput::AwaitCollision { target }),
     };
     let mut replaced = false;
     for attempt in 0..=1 {
@@ -3859,7 +3863,12 @@ mod tests {
         let result = ensure_extraction_directory(root, &destination, &destination.join("blocked/child"))
             .expect("directory observation should succeed");
 
-        assert!(matches!(result, LocalArchiveDirectoryOutput::AwaitCollision));
+        assert!(matches!(
+            result,
+            LocalArchiveDirectoryOutput::AwaitCollision {
+                target: LocalArchiveConflictTarget { size: Some(4), .. }
+            }
+        ));
     }
 
     #[test]

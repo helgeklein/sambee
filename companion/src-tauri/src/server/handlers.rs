@@ -3200,18 +3200,13 @@ fn extract_live_local_archive(
             let source = source.blocking_lock();
             (source.current_target_path()?, source.current_target_policy())
         };
-        let target_path = destination_path.join(relative_target_path);
+        let target_path = destination_path.join(&relative_target_path);
         let target_path_text = target_path.to_string_lossy().to_string();
         let result = if member.entry.is_directory {
             let directories_created = match ensure_local_extraction_directory(drive_root, destination_path, &target_path)? {
                 LocalArchiveDirectoryOutput::Ready { directories_created } => directories_created,
-                LocalArchiveDirectoryOutput::AwaitCollision => {
-                    return pause_live_local_collision(
-                        source,
-                        &member,
-                        target_path_text,
-                        super::archive::LocalArchiveConflictTarget::unavailable(),
-                    );
+                LocalArchiveDirectoryOutput::AwaitCollision { target } => {
+                    return pause_live_local_collision(source, &member, relative_target_path, target);
                 }
             };
             let mut source = source.blocking_lock();
@@ -3246,7 +3241,7 @@ fn extract_live_local_archive(
                         }
                         let mut source = source.blocking_lock();
                         source.pause_for_member_error(member.delivery_sequence)?;
-                        source.set_pending_decision_details(Some(target_path_text.clone()), Some(error.to_string()), None, None)?;
+                        source.set_pending_decision_details(Some(relative_target_path.clone()), Some(error.to_string()), None, None)?;
                         return Ok(DirectLiveExtractionRun::AwaitingCollision {
                             result: source.aggregate(),
                         });
@@ -3274,7 +3269,7 @@ fn extract_live_local_archive(
                     }
                 }
                 LocalArchiveTargetOutput::AwaitCollision { target } => {
-                    return pause_live_local_collision(source, &member, target_path_text, target);
+                    return pause_live_local_collision(source, &member, relative_target_path, target);
                 }
             }
         };
@@ -4291,18 +4286,18 @@ async fn extract_smb_archive_to_local_live(
             .map_err(map_local_archive_error)?;
             let directories_created = match output {
                 LocalArchiveDirectoryOutput::Ready { directories_created } => directories_created,
-                LocalArchiveDirectoryOutput::AwaitCollision => {
+                LocalArchiveDirectoryOutput::AwaitCollision { target } => {
                     let status = relay
                         .complete_live_remote_source_member(
                             &member,
                             ArchiveRelayDestinationResult {
                                 status: ArchiveRelayDestinationStatus::AwaitingCollision,
-                                target_path: target_path_text,
+                                target_path: relative_target_path.to_string(),
                                 directories_created: 0,
                                 extracted_bytes: 0,
                                 replaced: false,
-                                target_size: None,
-                                target_modified_at: None,
+                                target_size: target.size,
+                                target_modified_at: target.modified_at,
                             },
                         )
                         .await?;
@@ -4345,7 +4340,7 @@ async fn extract_smb_archive_to_local_live(
                         &member,
                         ArchiveRelayDestinationResult {
                             status: ArchiveRelayDestinationStatus::AwaitingCollision,
-                            target_path: target_path_text,
+                            target_path: relative_target_path.to_string(),
                             directories_created: 0,
                             extracted_bytes: 0,
                             replaced: false,

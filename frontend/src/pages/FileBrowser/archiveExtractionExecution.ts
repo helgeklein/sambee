@@ -78,7 +78,7 @@ function companionExtractionOutcome(result: {
   return { status: "completed", filesSkipped: summary.filesSkipped, summary };
 }
 
-function localRelayExtractionOutcome(status: LocalArchiveRelayExtractionStatus): ArchiveExtractionOutcome {
+function localRelayExtractionOutcome(status: LocalArchiveRelayExtractionStatus, destinationPathPrefix?: string): ArchiveExtractionOutcome {
   const pending = status.pending_decision;
   if (status.phase !== "awaiting_decision" || !pending || !Number.isSafeInteger(pending.revision) || pending.revision < 1) {
     throw new Error("Local archive relay decision is unavailable");
@@ -102,7 +102,11 @@ function localRelayExtractionOutcome(status: LocalArchiveRelayExtractionStatus):
     conflicts: [
       {
         source: { path: pending.source.path, size: pending.source.size, modifiedAt: pending.source.modified_at },
-        target: { path: pending.target.path, size: pending.target.size, modifiedAt: pending.target.modified_at },
+        target: {
+          path: destinationPathPrefix ? [destinationPathPrefix, pending.target.path].filter(Boolean).join("/") : pending.target.path,
+          size: pending.target.size,
+          modifiedAt: pending.target.modified_at,
+        },
         isDirectory: pending.is_directory,
       },
     ],
@@ -110,8 +114,8 @@ function localRelayExtractionOutcome(status: LocalArchiveRelayExtractionStatus):
   };
 }
 
-function liveExtractionOutcome(status: ArchiveLiveExtractionStatus): ArchiveExtractionOutcome {
-  return localRelayExtractionOutcome(status);
+function liveExtractionOutcome(status: ArchiveLiveExtractionStatus, destinationPathPrefix?: string): ArchiveExtractionOutcome {
+  return localRelayExtractionOutcome(status, destinationPathPrefix);
 }
 
 function toExtractionOutcome(operation: ArchiveOperation): ArchiveExtractionOutcome {
@@ -316,7 +320,7 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
         decisionRevision: pending.revision,
         memberPath: pending.member_path,
       };
-      return finishServerOutcome(liveExtractionOutcome(liveStatus));
+      return finishServerOutcome(liveExtractionOutcome(liveStatus, destinationPath));
     }
     return finishServerOutcome(companionExtractionOutcome(companionResult));
   };
