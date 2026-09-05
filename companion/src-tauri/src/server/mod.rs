@@ -211,6 +211,10 @@ fn build_router(state: Arc<AppState>) -> Router {
 
 fn transfer_routes() -> Router {
     Router::new()
+        .route(
+            "/api/browse/{drive}/transfer-attempts/{attempt_id}/cancel",
+            axum::routing::post(handlers::browse_cancel_transfer_attempt),
+        )
         .route("/api/browse/{drive}/copy", axum::routing::post(handlers::browse_copy))
         .route("/api/browse/{drive}/move", axum::routing::post(handlers::browse_move))
         .route(

@@ -3321,6 +3321,7 @@ const Browser: React.FC = () => {
         transferProgress={copyMoveTransferProgress}
         error={copyMoveError}
         warning={copyMoveWarning}
+        isTerminal={!copyMoveProcessing && Boolean(copyMoveError || copyMoveWarning)}
       />
       {/* Overwrite Conflict Dialog (shown per-file during copy/move) */}
       <OverwriteResolutionDialog

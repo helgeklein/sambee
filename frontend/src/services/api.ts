@@ -80,6 +80,7 @@ export interface DirectorySearchOptions {
 
 export interface CrossBackendTransferOptions {
   signal?: AbortSignal;
+  transferAttemptId?: string;
   onProgress?: (bytesTransferred: number, totalBytes: number | null) => void;
 }
 
@@ -1423,8 +1424,8 @@ class ApiService {
    * Copy a file or directory to a new location.
    *
    * When ``destConnectionId`` is provided and differs from ``connectionId``,
-   * a same-owner cross-connection copy is performed. Cross-provider transfers
-   * are unavailable.
+   * a same-owner cross-connection copy is performed. Different provider kinds
+   * are streamed through the active browser relay.
    */
   async copyItem(
     connectionId: string,
@@ -1433,13 +1434,14 @@ class ApiService {
     idempotencyKey: string,
     destConnectionId?: string,
     targetResolutionPolicy: TargetResolutionPolicy = "ask",
-    options: Pick<CrossBackendTransferOptions, "signal"> = {}
+    options: Pick<CrossBackendTransferOptions, "signal" | "transferAttemptId"> = {}
   ): Promise<ContentTransferResult> {
     if (destConnectionId && this.isCrossBackendTransfer(connectionId, destConnectionId)) {
       return this.transferAcrossBackends("copy", connectionId, sourcePath, destConnectionId, destPath, targetResolutionPolicy, options);
     }
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const transferAttemptId = options.transferAttemptId ?? crypto.randomUUID();
     return this.postTransfer(
       client,
       `/browse/${segment}/copy`,
@@ -1449,8 +1451,10 @@ class ApiService {
         dest_connection_id: destConnectionId,
         target_resolution_policy: targetResolutionPolicy,
         idempotency_key: idempotencyKey,
+        transfer_attempt_id: transferAttemptId,
       },
-      { ...extraConfig, signal: options.signal }
+      { ...extraConfig, signal: options.signal },
+      () => this.cancelTransferAttempt(client, segment, transferAttemptId, extraConfig)
     );
   }
 
@@ -1462,13 +1466,14 @@ class ApiService {
     idempotencyKey: string,
     destConnectionId?: string,
     targetResolutionPolicy: TargetResolutionPolicy = "ask",
-    options: Pick<CrossBackendTransferOptions, "signal"> = {}
+    options: Pick<CrossBackendTransferOptions, "signal" | "transferAttemptId"> = {}
   ): Promise<ContentTransferResult> {
     if (destConnectionId && this.isCrossBackendTransfer(connectionId, destConnectionId)) {
       return this.transferAcrossBackends("move", connectionId, sourcePath, destConnectionId, destPath, targetResolutionPolicy, options);
     }
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const transferAttemptId = options.transferAttemptId ?? crypto.randomUUID();
     return this.postTransfer(
       client,
       `/browse/${segment}/move`,
@@ -1478,8 +1483,10 @@ class ApiService {
         dest_connection_id: destConnectionId,
         target_resolution_policy: targetResolutionPolicy,
         idempotency_key: idempotencyKey,
+        transfer_attempt_id: transferAttemptId,
       },
-      { ...extraConfig, signal: options.signal }
+      { ...extraConfig, signal: options.signal },
+      () => this.cancelTransferAttempt(client, segment, transferAttemptId, extraConfig)
     );
   }
 
@@ -1607,8 +1614,16 @@ class ApiService {
     client: AxiosInstance,
     path: string,
     payload: Record<string, unknown>,
-    config: AxiosRequestConfig
+    config: AxiosRequestConfig,
+    onCancel?: () => Promise<void>
   ): Promise<ContentTransferResult> {
+    const abortHandler = () => {
+      void onCancel?.();
+    };
+    config.signal?.addEventListener("abort", abortHandler, { once: true });
+    if (config.signal?.aborted) {
+      abortHandler();
+    }
     try {
       return this.normalizeTransferResult((await client.post<ContentTransferResult>(path, payload, config)).data);
     } catch (firstError) {
@@ -1616,6 +1631,21 @@ class ApiService {
         throw firstError;
       }
       return { status: "outcome_unknown", replaced: false, effects: { source: "unknown", destination: "unknown" } };
+    } finally {
+      config.signal?.removeEventListener("abort", abortHandler);
+    }
+  }
+
+  private async cancelTransferAttempt(
+    client: AxiosInstance,
+    segment: string,
+    transferAttemptId: string,
+    extraConfig: AxiosRequestConfig
+  ): Promise<void> {
+    try {
+      await client.post(`/browse/${segment}/transfer-attempts/${encodeURIComponent(transferAttemptId)}/cancel`, {}, extraConfig);
+    } catch {
+      // The active request may already have completed or the provider may be unreachable.
     }
   }
 

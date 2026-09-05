@@ -46,6 +46,15 @@ class DirectoryTransferError(OSError):
         self.destination_mutated = destination_mutated
 
 
+class TransferCancelled(RuntimeError):
+    """Raised when an active copy or move is cancelled before publication."""
+
+
+def _raise_if_cancelled(cancellation: Callable[[], bool] | None) -> None:
+    if cancellation is not None and cancellation():
+        raise TransferCancelled("Transfer cancelled before destination publication")
+
+
 async def cross_connection_copy(
     source: StorageBackend,
     dest: StorageBackend,
@@ -53,6 +62,7 @@ async def cross_connection_copy(
     dest_path: str,
     on_progress: ProgressCallback | None = None,
     before_destination_commit: Callable[[], Awaitable[None]] | None = None,
+    cancellation: Callable[[], bool] | None = None,
     *,
     overwrite: bool = False,
     target_resolution_policy: TargetResolutionPolicy | None = None,
@@ -86,6 +96,7 @@ async def cross_connection_copy(
         OSError: On any I/O failure during the transfer.
     """
 
+    _raise_if_cancelled(cancellation)
     info = await source.get_file_info(source_path)
 
     if info.type == FileType.DIRECTORY:
@@ -98,7 +109,10 @@ async def cross_connection_copy(
                 if target_resolution_policy == TargetResolutionPolicy.SKIP:
                     return None, info
                 raise TargetCollisionError(source=info, target=await dest.get_file_info(dest_path))
-        return await _copy_directory_staged(source, dest, source_path, dest_path, on_progress, overwrite=overwrite), info
+        return (
+            await _copy_directory_staged(source, dest, source_path, dest_path, on_progress, cancellation=cancellation, overwrite=overwrite),
+            info,
+        )
 
     source_snapshot = RegularFileSourceSnapshot.from_file_info(info)
     if target_resolution_policy is not None:
@@ -114,6 +128,7 @@ async def cross_connection_copy(
                 dest_path,
                 on_progress,
                 before_destination_commit=before_destination_commit,
+                cancellation=cancellation,
                 source_info=info,
                 source_snapshot=source_snapshot,
                 overwrite=False,
@@ -135,6 +150,7 @@ async def cross_connection_copy(
             dest_path,
             on_progress,
             before_destination_commit=before_destination_commit,
+            cancellation=cancellation,
             source_info=info,
             source_snapshot=source_snapshot,
             overwrite=overwrite,
@@ -153,6 +169,7 @@ async def copy_regular_file_to_missing_target(
     dest_path: str,
     source_info: FileInfo,
     on_progress: ProgressCallback | None = None,
+    cancellation: Callable[[], bool] | None = None,
 ) -> int:
     """Copy one already-observed regular source through a staged missing-target commit."""
 
@@ -163,6 +180,7 @@ async def copy_regular_file_to_missing_target(
         source_path,
         dest_path,
         on_progress,
+        cancellation=cancellation,
         source_info=source_info,
         source_snapshot=source_snapshot,
     )
@@ -179,6 +197,7 @@ async def cross_connection_move(
     dest_path: str,
     on_progress: ProgressCallback | None = None,
     before_destination_commit: Callable[[], Awaitable[None]] | None = None,
+    cancellation: Callable[[], bool] | None = None,
     *,
     overwrite: bool = False,
     target_resolution_policy: TargetResolutionPolicy | None = None,
@@ -208,6 +227,7 @@ async def cross_connection_move(
         OSError: On transfer failure.
     """
 
+    _raise_if_cancelled(cancellation)
     source_info = await source.get_file_info(source_path)
     if source_info.type == FileType.DIRECTORY:
         bytes_written, _ = await cross_connection_copy(
@@ -216,11 +236,13 @@ async def cross_connection_move(
             source_path,
             dest_path,
             on_progress,
+            cancellation=cancellation,
             overwrite=overwrite,
             target_resolution_policy=target_resolution_policy,
         )
         if bytes_written is None:
             return None, source_info
+        _raise_if_cancelled(cancellation)
         try:
             await source.delete_item(source_path)
         except Exception as error:
@@ -239,6 +261,7 @@ async def cross_connection_move(
             source_path,
             dest_path,
             on_progress,
+            cancellation=cancellation,
             overwrite=overwrite,
             target_resolution_policy=target_resolution_policy,
         )
@@ -261,6 +284,7 @@ async def cross_connection_move(
                     dest_path,
                     on_progress,
                     before_destination_commit=before_destination_commit,
+                    cancellation=cancellation,
                     source_info=source_info,
                     source_snapshot=source_snapshot,
                     source_reader=source_reader,
@@ -283,11 +307,13 @@ async def cross_connection_move(
                 dest_path,
                 on_progress,
                 before_destination_commit=before_destination_commit,
+                cancellation=cancellation,
                 source_info=source_info,
                 source_snapshot=source_snapshot,
                 source_reader=source_reader,
                 overwrite=overwrite,
             )
+        _raise_if_cancelled(cancellation)
         try:
             await source_reader.commit_delete()
         except Exception as error:
@@ -312,6 +338,7 @@ async def _copy_file(
     on_progress: ProgressCallback | None,
     *,
     before_destination_commit: Callable[[], Awaitable[None]] | None = None,
+    cancellation: Callable[[], bool] | None = None,
     source_info: FileInfo | None = None,
     source_snapshot: RegularFileSourceSnapshot | None = None,
     source_reader: MoveSourceReader | None = None,
@@ -346,6 +373,7 @@ async def _copy_file(
             on_progress(transferred, total_size)
 
     async def verify_source_before_commit() -> None:
+        _raise_if_cancelled(cancellation)
         if source_snapshot is None:
             return
         try:
@@ -363,9 +391,15 @@ async def _copy_file(
         stream: AsyncIterator[bytes] = source.read_file(source_path)
     else:
         stream = _read_retained_move_source(source_reader, total_size)
+
+    async def cancellable_stream() -> AsyncIterator[bytes]:
+        async for chunk in stream:
+            _raise_if_cancelled(cancellation)
+            yield chunk
+
     bytes_written = await dest.stage_and_commit_new_file_from_stream(
         dest_path,
-        stream,
+        cancellable_stream(),
         before_commit=verify_source_before_commit,
         on_progress=_progress_with_total,
         source_mtime=source_mtime,
@@ -397,6 +431,7 @@ async def _copy_directory(
     dest_path: str,
     on_progress: ProgressCallback | None,
     *,
+    cancellation: Callable[[], bool] | None = None,
     overwrite: bool = False,
     root: bool = True,
 ) -> int:
@@ -404,6 +439,7 @@ async def _copy_directory(
 
     root_created = False
     try:
+        _raise_if_cancelled(cancellation)
         # The root is the only directory collision considered by directory
         # policy. Descendant collisions are transfer failures, never merges.
         if overwrite:
@@ -417,6 +453,7 @@ async def _copy_directory(
         total_bytes = 0
 
         for item in listing.items:
+            _raise_if_cancelled(cancellation)
             child_source = f"{source_path}/{item.name}" if source_path else item.name
             child_dest = f"{dest_path}/{item.name}" if dest_path else item.name
 
@@ -427,6 +464,7 @@ async def _copy_directory(
                     child_source,
                     child_dest,
                     on_progress,
+                    cancellation=cancellation,
                     overwrite=False,
                     root=False,
                 )
@@ -437,6 +475,7 @@ async def _copy_directory(
                     child_source,
                     child_dest,
                     on_progress,
+                    cancellation=cancellation,
                     overwrite=False,
                 )
     except FileExistsError as error:
@@ -446,7 +485,7 @@ async def _copy_directory(
             f"Directory child target already exists while copying '{source_path}'",
             destination_mutated=True,
         ) from error
-    except DirectoryTransferError:
+    except (DirectoryTransferError, TransferCancelled):
         raise
     except Exception as error:
         raise DirectoryTransferError(
@@ -474,18 +513,28 @@ async def _copy_directory_staged(
     dest_path: str,
     on_progress: ProgressCallback | None,
     *,
+    cancellation: Callable[[], bool] | None = None,
     overwrite: bool,
 ) -> int:
     """Copy a directory through a private sibling stage before publishing it."""
 
     if overwrite:
-        return await _copy_directory(source, dest, source_path, dest_path, on_progress, overwrite=True)
+        return await _copy_directory(source, dest, source_path, dest_path, on_progress, cancellation=cancellation, overwrite=True)
 
     parent_path, separator, target_name = dest_path.rpartition("/")
     stage_name = f".{target_name}.sambee-stage-{uuid4().hex}"
     stage_path = f"{parent_path}/{stage_name}" if separator else stage_name
     try:
-        total_bytes = await _copy_directory(source, dest, source_path, stage_path, on_progress, overwrite=False)
+        total_bytes = await _copy_directory(
+            source,
+            dest,
+            source_path,
+            stage_path,
+            on_progress,
+            cancellation=cancellation,
+            overwrite=False,
+        )
+        _raise_if_cancelled(cancellation)
         await dest.rename_item(stage_path, target_name)
         return total_bytes
     except Exception as error:
@@ -498,6 +547,8 @@ async def _copy_directory_staged(
                 f"Directory copy failed and its private stage could not be removed: {stage_path}",
                 destination_mutated=True,
             ) from cleanup_error
+        if isinstance(error, TransferCancelled):
+            raise
         if isinstance(error, DirectoryTransferError):
             raise DirectoryTransferError(str(error), destination_mutated=False) from error
         raise

@@ -80,6 +80,7 @@ from app.services.content_transfer import (
 )
 from app.services.cross_connection import (
     DirectoryTransferError,
+    TransferCancelled,
     copy_regular_file_to_missing_target,
     cross_connection_copy,
     cross_connection_move,
@@ -142,12 +143,40 @@ class _InFlightTransferOutcome:
 _transfer_receipts: dict[tuple[str, str], _TransferReceipt] = {}
 _transfer_in_flight: dict[tuple[str, str], tuple[str, asyncio.Future[_InFlightTransferOutcome]]] = {}
 _transfer_receipt_lock = asyncio.Lock()
+_transfer_cancellations: dict[tuple[str, str], asyncio.Event] = {}
+_transfer_cancellation_lock = asyncio.Lock()
 
 
 def _transfer_fingerprint(body: CopyMoveRequest) -> str:
     """Build a stable request fingerprint for idempotency-key reuse checks."""
 
-    return json.dumps(body.model_dump(exclude={"idempotency_key"}), sort_keys=True, default=str, separators=(",", ":"))
+    return json.dumps(
+        body.model_dump(exclude={"idempotency_key", "transfer_attempt_id"}),
+        sort_keys=True,
+        default=str,
+        separators=(",", ":"),
+    )
+
+
+async def _register_transfer_cancellation(current_user: User, body: CopyMoveRequest) -> asyncio.Event | None:
+    if body.transfer_attempt_id is None:
+        return None
+    key = (current_user.username, str(body.transfer_attempt_id))
+    async with _transfer_cancellation_lock:
+        cancellation = _transfer_cancellations.get(key)
+        if cancellation is None:
+            cancellation = asyncio.Event()
+            _transfer_cancellations[key] = cancellation
+        return cancellation
+
+
+async def _unregister_transfer_cancellation(current_user: User, body: CopyMoveRequest, cancellation: asyncio.Event | None) -> None:
+    if body.transfer_attempt_id is None or cancellation is None:
+        return
+    key = (current_user.username, str(body.transfer_attempt_id))
+    async with _transfer_cancellation_lock:
+        if _transfer_cancellations.get(key) is cancellation:
+            del _transfer_cancellations[key]
 
 
 async def _find_transfer_receipt(current_user: User, body: CopyMoveRequest) -> ContentTransferResult | None:
@@ -2199,6 +2228,21 @@ def _get_connection_or_404(session: Session, current_user: User, connection_id: 
 #
 # copy_item
 #
+@router.post("/{connection_id}/transfer-attempts/{attempt_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_transfer_attempt(
+    connection_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+) -> None:
+    """Request cooperative cancellation of an active, non-durable transfer."""
+
+    key = (current_user.username, str(attempt_id))
+    async with _transfer_cancellation_lock:
+        cancellation = _transfer_cancellations.get(key)
+        if cancellation is not None:
+            cancellation.set()
+
+
 @router.post("/{connection_id}/copy", response_model=ContentTransferResult)
 async def copy_item(
     connection_id: uuid.UUID,
@@ -2231,6 +2275,7 @@ async def copy_item(
     cached_result = await _find_transfer_receipt(current_user, body)
     if cached_result is not None:
         return cached_result
+    cancellation = await _register_transfer_cancellation(current_user, body)
 
     try:
         if is_cross_connection:
@@ -2248,6 +2293,7 @@ async def copy_item(
                 str(body.dest_connection_id),
                 overwrite=False,
                 target_resolution_policy=policy,
+                cancellation=cancellation.is_set if cancellation is not None else None,
             )
         else:
             require_connection_write_access(current_user, connection, action="copy_destination", path=dest)
@@ -2257,14 +2303,22 @@ async def copy_item(
 
                 async def copy_direct(source_info: FileInfo) -> object:
                     if source_info.type != FileType.FILE:
-                        await backend.copy_item(source, dest, overwrite=False)
-                        return None
+                        bytes_written, _ = await cross_connection_copy(
+                            backend,
+                            backend,
+                            source,
+                            dest,
+                            target_resolution_policy=None,
+                            cancellation=cancellation.is_set if cancellation is not None else None,
+                        )
+                        return bytes_written
                     return await copy_regular_file_to_missing_target(
                         backend,
                         backend,
                         source,
                         dest,
                         source_info,
+                        cancellation=cancellation.is_set if cancellation is not None else None,
                     )
 
                 disposition = await _resolve_direct_regular_file_transfer(
@@ -2296,6 +2350,12 @@ async def copy_item(
         logger.info(f"Copied item: connection_id={connection_id}, '{source}' -> '{dest}', user={current_user.username}")
         return await _record_transfer_receipt(current_user, body, result)
 
+    except TransferCancelled:
+        return await _record_transfer_receipt(
+            current_user,
+            body,
+            ContentTransferResult(status="cancelled", effects=ContentTransferEffects(source="unchanged", destination="unchanged")),
+        )
     except TargetCollisionError as exc:
         conflict = await _conflict_response(
             connection,
@@ -2381,6 +2441,7 @@ async def copy_item(
         )
     finally:
         await _record_unknown_transfer_outcome(current_user, body)
+        await _unregister_transfer_cancellation(current_user, body, cancellation)
 
 
 # ============================================================================
@@ -2408,6 +2469,7 @@ async def move_item(
     cached_result = await _find_transfer_receipt(current_user, body)
     if cached_result is not None:
         return cached_result
+    cancellation = await _register_transfer_cancellation(current_user, body)
 
     try:
         if is_cross_connection:
@@ -2421,6 +2483,7 @@ async def move_item(
                 dest,
                 str(body.dest_connection_id),
                 target_resolution_policy=TargetResolutionPolicy(body.normalized_target_resolution_policy),
+                cancellation=cancellation.is_set if cancellation is not None else None,
             )
             return await _record_transfer_receipt(current_user, body, copied)
 
@@ -2431,6 +2494,8 @@ async def move_item(
             policy = TargetResolutionPolicy(body.normalized_target_resolution_policy)
 
             async def move_direct(source_info: FileInfo) -> object:
+                if cancellation is not None and cancellation.is_set():
+                    raise TransferCancelled("Transfer cancelled before source move")
                 await backend.move_item(source, dest, overwrite=False)
                 return None
 
@@ -2462,6 +2527,12 @@ async def move_item(
             _add_to_directory_cache(str(connection_id), dest)
             logger.info(f"Moved item: connection_id={connection_id}, '{source}' -> '{dest}', user={current_user.username}")
         return await _record_transfer_receipt(current_user, body, result)
+    except TransferCancelled:
+        return await _record_transfer_receipt(
+            current_user,
+            body,
+            ContentTransferResult(status="cancelled", effects=ContentTransferEffects(source="unchanged", destination="unchanged")),
+        )
     except FileNotFoundError:
         missing_source = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Source not found: {source}")
         await _record_transfer_http_error(current_user, body, missing_source)
@@ -2504,6 +2575,7 @@ async def move_item(
         )
     finally:
         await _record_unknown_transfer_outcome(current_user, body)
+        await _unregister_transfer_cancellation(current_user, body, cancellation)
 
 
 # ============================================================================
@@ -2520,6 +2592,7 @@ async def _cross_connection_copy(
     *,
     overwrite: bool = False,
     target_resolution_policy: TargetResolutionPolicy | None = None,
+    cancellation: Callable[[], bool] | None = None,
 ) -> ContentTransferResult:
     """Perform a cross-connection copy with WebSocket progress reporting.
 
@@ -2579,6 +2652,7 @@ async def _cross_connection_copy(
             on_progress=on_progress,
             overwrite=overwrite,
             target_resolution_policy=target_resolution_policy,
+            cancellation=cancellation,
         )
         if bytes_written is None:
             return ContentTransferResult(
@@ -2626,6 +2700,7 @@ async def _cross_connection_move(
     dst_conn_id: str,
     *,
     target_resolution_policy: TargetResolutionPolicy | None = None,
+    cancellation: Callable[[], bool] | None = None,
 ) -> ContentTransferResult:
     """Move across SMB connections using a retained source handle when available."""
 
@@ -2641,6 +2716,7 @@ async def _cross_connection_move(
                 source_path,
                 dest_path,
                 target_resolution_policy=target_resolution_policy,
+                cancellation=cancellation,
             )
         except SourceDeleteError as error:
             if not error.destination_mutated:

@@ -13,7 +13,7 @@ from app.services.content_transfer import (
     resolve_regular_file_transfer,
     resolve_target_mutation_attempt,
 )
-from app.services.cross_connection import DirectoryTransferError, cross_connection_copy, cross_connection_move
+from app.services.cross_connection import DirectoryTransferError, TransferCancelled, cross_connection_copy, cross_connection_move
 from app.services.target_resolution import TargetResolutionDisposition, TargetResolutionPolicy
 
 
@@ -272,6 +272,37 @@ async def test_explicit_policy_copy_commits_a_missing_target_once() -> None:
     assert source_info.path == "source.txt"
     assert target.files == {"target.txt": b"content"}
     assert target.write_count == 1
+
+
+@pytest.mark.asyncio
+async def test_cancellation_before_staged_file_commit_leaves_target_unchanged() -> None:
+    now = datetime.now(timezone.utc)
+    cancellation_requested = False
+
+    class CancellationAwareTarget(MemoryTransferBackend):
+        async def stage_and_commit_new_file_from_stream(self, path: str, stream, *, before_commit, **_kwargs: object) -> int:
+            nonlocal cancellation_requested
+            staged_content = b"".join([chunk async for chunk in stream])
+            cancellation_requested = True
+            await before_commit()
+            self.files[path] = staged_content
+            return len(staged_content)
+
+    source = MemoryTransferBackend({"source.txt": b"content"}, now)
+    target = CancellationAwareTarget({}, now)
+
+    with pytest.raises(TransferCancelled, match="Transfer cancelled"):
+        await cross_connection_copy(
+            source,
+            target,
+            "source.txt",
+            "target.txt",
+            target_resolution_policy=TargetResolutionPolicy.ASK,
+            cancellation=lambda: cancellation_requested,
+        )
+
+    assert source.files == {"source.txt": b"content"}
+    assert target.files == {}
 
 
 @pytest.mark.asyncio

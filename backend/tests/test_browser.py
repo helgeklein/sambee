@@ -2758,15 +2758,27 @@ class TestCopyItem:
             FileNotFoundError("target does not exist"),
         ]
 
-        response = client.post(
-            f"/api/browse/{test_connection.id}/copy",
-            headers=auth_headers_admin,
-            json={"idempotency_key": str(uuid.uuid4()), "source_path": "photos", "dest_path": "photos-backup"},
-        )
+        with patch(
+            "app.api.browser.cross_connection_copy",
+            AsyncMock(return_value=(0, FileInfo(name="photos", path="photos", type=FileType.DIRECTORY))),
+        ) as staged_copy:
+            response = client.post(
+                f"/api/browse/{test_connection.id}/copy",
+                headers=auth_headers_admin,
+                json={"idempotency_key": str(uuid.uuid4()), "source_path": "photos", "dest_path": "photos-backup"},
+            )
 
         assert response.status_code == 200
         assert response.json()["status"] == "completed"
-        mock_instance.copy_item.assert_called_once_with("photos", "photos-backup", overwrite=False)
+        staged_copy.assert_awaited_once_with(
+            mock_instance,
+            mock_instance,
+            "photos",
+            "photos-backup",
+            target_resolution_policy=None,
+            cancellation=None,
+        )
+        mock_instance.copy_item.assert_not_called()
 
     def test_copy_replays_a_factual_result_for_the_same_idempotency_key(
         self,

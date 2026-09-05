@@ -229,6 +229,44 @@ describe("API Service", () => {
     );
   });
 
+  it("cancels an active same-provider transfer attempt when aborted", async () => {
+    let resolveCopyResponse: (response: AxiosResponse) => void;
+    const copyResponse = new Promise<AxiosResponse>((resolve) => {
+      resolveCopyResponse = resolve;
+    });
+    mockAxiosInstance.post.mockReturnValueOnce(copyResponse).mockResolvedValueOnce({
+      data: { status: "cancelled", replaced: false, effects: { source: "unchanged", destination: "unchanged" } },
+    } as AxiosResponse);
+    const abortController = new AbortController();
+
+    const transfer = apiService.copyItem(
+      "connection",
+      "source.txt",
+      "destination.txt",
+      "00000000-0000-4000-8000-000000000008",
+      undefined,
+      "ask",
+      { signal: abortController.signal, transferAttemptId: "attempt-123" }
+    );
+
+    await vi.waitFor(() => expect(mockAxiosInstance.post).toHaveBeenCalledTimes(1));
+    abortController.abort();
+
+    await vi.waitFor(() =>
+      expect(mockAxiosInstance.post).toHaveBeenNthCalledWith(
+        2,
+        "/browse/connection/transfer-attempts/attempt-123/cancel",
+        {},
+        expect.not.objectContaining({ signal: abortController.signal })
+      )
+    );
+
+    resolveCopyResponse!({
+      data: { status: "cancelled", replaced: false, effects: { source: "unchanged", destination: "unchanged" } },
+    } as AxiosResponse);
+    await expect(transfer).resolves.toMatchObject({ status: "cancelled" });
+  });
+
   it("routes a cross-connection SMB copy through the active backend transfer path", async () => {
     mockAxiosInstance.post.mockResolvedValue({
       data: { status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } },

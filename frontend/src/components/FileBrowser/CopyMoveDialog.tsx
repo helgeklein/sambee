@@ -63,6 +63,8 @@ export interface CopyMoveDialogProps {
   error?: string | null;
   /** Warning message for a completed copy whose source could not be removed. */
   warning?: string | null;
+  /** Whether the dialog is displaying a completed batch summary. */
+  isTerminal?: boolean;
 }
 
 // ============================================================================
@@ -104,6 +106,7 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   transferProgress,
   error,
   warning,
+  isTerminal = false,
 }) => {
   // Editable file name — only used for single-item operations
   const isSingleItem = files.length === 1;
@@ -246,16 +249,18 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
 
   const actions = (
     <>
-      <Button onClick={onCancel}>{S.BUTTON_CANCEL}</Button>
-      <Button
-        ref={confirmButtonRef}
-        onClick={handleConfirm}
-        disabled={!canConfirm}
-        variant="contained"
-        startIcon={isProcessing ? <CircularProgress size={16} color="inherit" /> : undefined}
-      >
-        {confirmLabel}
-      </Button>
+      <Button onClick={onCancel}>{isTerminal ? "Close" : S.BUTTON_CANCEL}</Button>
+      {!isTerminal ? (
+        <Button
+          ref={confirmButtonRef}
+          onClick={handleConfirm}
+          disabled={!canConfirm}
+          variant="contained"
+          startIcon={isProcessing ? <CircularProgress size={16} color="inherit" /> : undefined}
+        >
+          {confirmLabel}
+        </Button>
+      ) : null}
     </>
   );
 
