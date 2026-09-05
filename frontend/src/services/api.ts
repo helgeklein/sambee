@@ -1435,23 +1435,118 @@ class ApiService {
     );
   }
 
-  /**
-   * Return the stabilized unavailable result for all Move requests.
-   */
+  /** Move a file or directory through its owning provider. */
   async moveItem(
-    _connectionId: string,
-    _sourcePath: string,
-    _destPath: string,
-    _idempotencyKey: string,
-    _destConnectionId?: string,
-    _targetResolutionPolicy: TargetResolutionPolicy = "ask"
+    connectionId: string,
+    sourcePath: string,
+    destPath: string,
+    idempotencyKey: string,
+    destConnectionId?: string,
+    targetResolutionPolicy: TargetResolutionPolicy = "ask"
   ): Promise<ContentTransferResult> {
-    return {
-      status: "failed",
-      replaced: false,
-      effects: { source: "unchanged", destination: "unchanged" },
-      error: { code: "unavailable", reason: "unsupported" },
-    };
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    return this.postTransfer(
+      client,
+      `/browse/${segment}/move`,
+      {
+        source_path: sourcePath,
+        dest_path: destPath,
+        dest_connection_id: destConnectionId,
+        target_resolution_policy: targetResolutionPolicy,
+        idempotency_key: idempotencyKey,
+      },
+      extraConfig
+    );
+  }
+
+  /**
+   * Relay one regular file between different provider origins without reading
+   * its bytes into browser memory. The destination endpoint owns staging and
+   * exclusive publication; this coordinator owns no filesystem capability.
+   */
+  async transferAcrossBackends(
+    kind: "copy" | "move",
+    sourceConnectionId: string,
+    sourcePath: string,
+    destinationConnectionId: string,
+    destinationPath: string,
+    targetResolutionPolicy: TargetResolutionPolicy = "ask"
+  ): Promise<ContentTransferResult> {
+    if (targetResolutionPolicy !== "ask") {
+      return {
+        status: "failed",
+        replaced: false,
+        effects: { source: "unchanged", destination: "unchanged" },
+        error: { code: "unavailable", reason: "unsupported" },
+      };
+    }
+    const sourceInfo = await this.getFileInfo(sourceConnectionId, sourcePath);
+    if (sourceInfo.type === "directory") {
+      return this.transferDirectoryAcrossBackends(
+        kind,
+        sourceConnectionId,
+        sourcePath,
+        destinationConnectionId,
+        destinationPath,
+        targetResolutionPolicy
+      );
+    }
+    if (sourceInfo.type !== "file") {
+      return {
+        status: "failed",
+        replaced: false,
+        effects: { source: "unchanged", destination: "unchanged" },
+        error: { code: "unavailable", reason: "unsupported" },
+      };
+    }
+
+    const sourceResponse = await this.fetchRawFileStream(sourceConnectionId, sourcePath);
+    if (!sourceResponse.body) {
+      return {
+        status: "outcome_unknown",
+        replaced: false,
+        effects: { source: "unknown", destination: "unknown" },
+      };
+    }
+    const destinationUrl = `${getBaseUrl(destinationConnectionId)}/browse/${getBrowseSegment(destinationConnectionId)}/transfer-stream?path=${encodeURIComponent(destinationPath)}`;
+    const destinationHeaders = await this.getTransferFetchHeaders(destinationConnectionId);
+    let destinationResponse: Response;
+    try {
+      destinationResponse = await fetch(destinationUrl, {
+        method: "POST",
+        headers: { ...destinationHeaders, "Content-Type": "application/octet-stream" },
+        body: sourceResponse.body,
+        duplex: "half",
+      } as RequestInit & { duplex: "half" });
+    } catch {
+      return { status: "outcome_unknown", replaced: false, effects: { source: "unknown", destination: "unknown" } };
+    }
+    if (!destinationResponse.ok) {
+      const detail = await destinationResponse.text().catch(() => destinationResponse.statusText);
+      return {
+        status: "failed",
+        replaced: false,
+        effects: { source: "unchanged", destination: "unchanged" },
+        error:
+          destinationResponse.status === 409
+            ? { code: "conflict", detail }
+            : { code: "transport", detail: `Transfer destination failed (${destinationResponse.status}): ${detail}` },
+      };
+    }
+    const result = this.normalizeTransferResult((await destinationResponse.json()) as ContentTransferResult);
+    if (kind === "move" && result.status === "completed") {
+      return {
+        status: "completed_with_source_retained",
+        replaced: result.replaced,
+        effects: { source: "unchanged", destination: "mutated" },
+        error: {
+          code: "source_delete_failed",
+          detail: "Destination was created but the source was retained because guarded cross-provider deletion is unavailable.",
+        },
+      };
+    }
+    return result;
   }
 
   // ── Transfer routing helpers ────────────────────────────────────────────
@@ -1484,28 +1579,130 @@ class ApiService {
     return isLocalDrive(sourceConnectionId) !== isLocalDrive(destConnectionId);
   }
 
+  private async getTransferFetchHeaders(connectionId: string): Promise<Record<string, string>> {
+    if (isLocalDrive(connectionId)) {
+      return this.buildCompanionHeaders();
+    }
+    const token = authSession.getAccessToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
+  private async fetchRawFileStream(connectionId: string, path: string, options: { signal?: AbortSignal } = {}): Promise<Response> {
+    const url = `${getBaseUrl(connectionId)}/viewer/${getBrowseSegment(connectionId)}/download?path=${encodeURIComponent(path)}`;
+    const response = await fetch(url, { headers: await this.getTransferFetchHeaders(connectionId), signal: options.signal });
+    if (!response.ok) {
+      throw new Error(`Download failed (${response.status}): ${response.statusText}`);
+    }
+    return response;
+  }
+
+  private async transferDirectoryAcrossBackends(
+    kind: "copy" | "move",
+    sourceConnectionId: string,
+    sourcePath: string,
+    destinationConnectionId: string,
+    destinationPath: string,
+    targetResolutionPolicy: TargetResolutionPolicy
+  ): Promise<ContentTransferResult> {
+    if (targetResolutionPolicy !== "ask") {
+      return {
+        status: "failed",
+        replaced: false,
+        effects: { source: "unchanged", destination: "unchanged" },
+        error: { code: "unavailable", reason: "unsupported" },
+      };
+    }
+    const separator = destinationPath.lastIndexOf("/");
+    const destinationParent = separator < 0 ? "" : destinationPath.slice(0, separator);
+    const targetName = separator < 0 ? destinationPath : destinationPath.slice(separator + 1);
+    if (!targetName) {
+      return {
+        status: "failed",
+        replaced: false,
+        effects: { source: "unchanged", destination: "unchanged" },
+        error: { code: "validation", reason: "invalid-name" },
+      };
+    }
+    const stagePath = [destinationParent, `.${targetName}.sambee-stage-${crypto.randomUUID()}`].filter(Boolean).join("/");
+    let stageCreated = false;
+    let committed = false;
+    try {
+      await this.createItem(destinationConnectionId, destinationParent, stagePath.split("/").pop() ?? "", "directory");
+      stageCreated = true;
+      await this.copyDirectoryContentsAcrossBackends(sourceConnectionId, sourcePath, destinationConnectionId, stagePath);
+      await this.renameItem(destinationConnectionId, stagePath, targetName);
+      committed = true;
+      if (kind === "move") {
+        return {
+          status: "completed_with_source_retained",
+          replaced: false,
+          effects: { source: "unchanged", destination: "mutated" },
+          error: {
+            code: "source_delete_failed",
+            detail: "Destination was created but the source was retained because guarded cross-provider deletion is unavailable.",
+          },
+        };
+      }
+      return { status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } };
+    } catch (error) {
+      if (!committed && stageCreated) {
+        try {
+          await this.deleteItem(destinationConnectionId, stagePath);
+        } catch {
+          return { status: "outcome_unknown", replaced: false, effects: { source: "unknown", destination: "unknown" } };
+        }
+      }
+      if (axios.isAxiosError(error) && error.response?.status === 409) {
+        return {
+          status: "failed",
+          replaced: false,
+          effects: { source: "unchanged", destination: "unchanged" },
+          error: { code: "conflict", detail: "Destination already exists" },
+        };
+      }
+      return {
+        status: "failed",
+        replaced: false,
+        effects: { source: "unchanged", destination: "unchanged" },
+        error: { code: "transport", detail: error instanceof Error ? error.message : "Directory transfer failed" },
+      };
+    }
+  }
+
+  private async copyDirectoryContentsAcrossBackends(
+    sourceConnectionId: string,
+    sourcePath: string,
+    destinationConnectionId: string,
+    destinationPath: string
+  ): Promise<void> {
+    const listing = await this.listDirectory(sourceConnectionId, sourcePath);
+    for (const item of listing.items) {
+      const childSourcePath = [sourcePath, item.name].filter(Boolean).join("/");
+      const childDestinationPath = [destinationPath, item.name].filter(Boolean).join("/");
+      if (item.type === "directory") {
+        await this.createItem(destinationConnectionId, destinationPath, item.name, "directory");
+        await this.copyDirectoryContentsAcrossBackends(sourceConnectionId, childSourcePath, destinationConnectionId, childDestinationPath);
+        continue;
+      }
+      const result = await this.transferAcrossBackends(
+        "copy",
+        sourceConnectionId,
+        childSourcePath,
+        destinationConnectionId,
+        childDestinationPath
+      );
+      if (result.status !== "completed") {
+        throw new Error(result.status === "failed" ? result.error.code : `Directory child transfer ${result.status}`);
+      }
+    }
+  }
+
   /**
    * Download a file's raw bytes from any backend (companion or server).
    * Returns the data as a `Blob`.
    */
   async getOriginalFileBlob(connectionId: string, path: string, options: { signal?: AbortSignal } = {}): Promise<Blob> {
-    const baseUrl = getBaseUrl(connectionId);
-    const segment = getBrowseSegment(connectionId);
-    const url = `${baseUrl}/viewer/${segment}/download?path=${encodeURIComponent(path)}`;
-
-    const headers: Record<string, string> = {};
-    if (isLocalDrive(connectionId)) {
-      Object.assign(headers, await this.buildCompanionHeaders());
-    } else {
-      const token = authSession.getAccessToken();
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-    }
-
-    const response = await fetch(url, { headers, signal: options.signal });
-    if (!response.ok) {
-      throw new Error(`Download failed (${response.status}): ${response.statusText}`);
-    }
-
+    const response = await this.fetchRawFileStream(connectionId, path, options);
     return response.blob();
   }
 

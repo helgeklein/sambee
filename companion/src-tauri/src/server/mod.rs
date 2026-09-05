@@ -213,6 +213,10 @@ fn transfer_routes() -> Router {
     Router::new()
         .route("/api/browse/{drive}/copy", axum::routing::post(handlers::browse_copy))
         .route("/api/browse/{drive}/move", axum::routing::post(handlers::browse_move))
+        .route(
+            "/api/browse/{drive}/transfer-stream",
+            axum::routing::post(handlers::browse_stream_transfer),
+        )
 }
 
 #[cfg(test)]
@@ -223,18 +227,18 @@ mod tests {
     use super::transfer_routes;
 
     #[tokio::test]
-    async fn phase_10_stabilization_smb_source_route_is_absent() {
+    async fn transfer_stream_route_is_registered() {
         let response = transfer_routes()
             .oneshot(
                 Request::builder()
-                    .method("POST")
-                    .uri("/api/browse/test-drive/transfer/smb-source/file")
+                    .method("GET")
+                    .uri("/api/browse/test-drive/transfer-stream?path=target.txt")
                     .body(Body::empty())
                     .expect("request should be valid"),
             )
             .await
             .expect("router should handle the request");
 
-        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), axum::http::StatusCode::METHOD_NOT_ALLOWED);
     }
 }

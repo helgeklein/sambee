@@ -22,7 +22,7 @@ To copy or move files and directories:
 - Press <kbd>F6</kbd> to move instead of copying.
 
 {{< admonition type="note" >}}
-Copying or moving files between different SMB connections, different local drives, and even between SMB connections and local drives is fully supported.
+Copying files and directories between different SMB connections, different local drives, and SMB connections and local drives is supported. For a move across those boundaries, Sambee creates the destination but retains the source when it cannot safely verify and delete that source. Check both panes before deleting a retained source yourself.
 {{< /admonition >}}
 
 ## Requirements

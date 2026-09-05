@@ -20,6 +20,7 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::Response;
 use axum::Json;
 use chrono::{DateTime, Utc};
+use http_body_util::BodyExt;
 use log::{info, warn};
 use reqwest::{Client, Response as ReqwestResponse};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -1531,12 +1532,130 @@ async fn execute_browse_copy(drive: &str, body: &CopyMoveRequest) -> Result<Cont
     Ok(completed_transfer_result("unchanged", "mutated"))
 }
 
-/// `POST /api/browse/{drive}/move` — return the stabilized unavailable result.
+/// `POST /api/browse/{drive}/move` — move an item within its local drive.
 pub async fn browse_move(Path(drive): Path<String>, Json(body): Json<CopyMoveRequest>) -> Result<Json<ContentTransferResult>, ApiError> {
-    uuid::Uuid::parse_str(&body.idempotency_key).map_err(|_| ApiError::BadRequest("idempotency_key must be a UUID".to_string()))?;
+    match reserve_transfer_receipt("move", &drive, &body)? {
+        TransferReceiptLookup::Owner => {}
+        TransferReceiptLookup::Cached(outcome) => return replay_transfer_outcome(outcome),
+        TransferReceiptLookup::Wait(receiver) => {
+            let outcome = receiver
+                .await
+                .map_err(|_| ApiError::Internal("Transfer owner ended before publishing a result".to_string()))?;
+            return replay_transfer_outcome(outcome);
+        }
+    }
+    let _reservation = TransferReceiptReservation::for_request("move", &drive, &body);
+    match execute_browse_move(&drive, &body).await {
+        Ok(result) => Ok(finalize_transfer_result("move", &drive, &body, result)),
+        Err(error) => {
+            complete_transfer_receipt("move", &drive, &body, TransferReceiptOutcome::Error(transfer_receipt_error(&error)));
+            Err(error)
+        }
+    }
+}
+
+async fn execute_browse_move(drive: &str, body: &CopyMoveRequest) -> Result<ContentTransferResult, ApiError> {
+    let base_path = drives::resolve_drive_path(drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let (dest_drive, dest_base) = resolve_dest_drive(drive, &body.dest_connection_id)?;
+    if base_path != dest_base {
+        return Ok(unavailable_transfer_result());
+    }
+
     validate_copy_move_paths(&body.source_path, &body.dest_path)?;
-    let _ = drive;
-    Ok(Json(unavailable_transfer_result()))
+    let source = resolve_safe_path(&base_path, drive, &body.source_path)?;
+    let dest = resolve_safe_path_for_new(&dest_base, &dest_drive, &body.dest_path)?;
+    if dest.exists() {
+        if copy_move_target_policy(body)? == TargetResolutionPolicy::Skip {
+            return Ok(skipped_transfer_result());
+        }
+        return Err(build_conflict_error(&source, &dest, &body.source_path, &body.dest_path).await);
+    }
+    if let Some(parent) = dest.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|error| map_io_error(error, parent))?;
+    }
+    tokio::fs::rename(&source, &dest)
+        .await
+        .map_err(|error| map_io_error(error, &source))?;
+    log::info!("Moved: {} -> {}", source.display(), dest.display());
+    Ok(completed_transfer_result("mutated", "mutated"))
+}
+
+#[derive(Deserialize)]
+pub struct StreamTransferQuery {
+    path: String,
+}
+
+/// `POST /api/browse/{drive}/transfer-stream` — publish a streamed new file.
+///
+/// This endpoint owns only destination mutation. It writes request bytes to a
+/// private sibling stage and publishes through exclusive creation, leaving an
+/// existing target and an interrupted relay untouched.
+pub async fn browse_stream_transfer(
+    Path(drive): Path<String>,
+    Query(query): Query<StreamTransferQuery>,
+    body: Body,
+) -> Result<Json<ContentTransferResult>, ApiError> {
+    let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let destination = resolve_safe_path_for_new(&base_path, &drive, &query.path)?;
+    let name = destination
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| ApiError::BadRequest("Transfer destination is invalid".to_string()))?;
+    validate_name(name)?;
+
+    match stage_local_request_body(&destination, body).await {
+        Ok(bytes_written) => {
+            log::info!(
+                "Published cross-provider transfer destination: {} ({} bytes)",
+                destination.display(),
+                bytes_written
+            );
+            Ok(Json(completed_transfer_result("unchanged", "mutated")))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            Err(ApiError::conflict_message(format!("Destination already exists: {}", query.path)))
+        }
+        Err(error) => Err(map_io_error(error, &destination)),
+    }
+}
+
+async fn stage_local_request_body(destination: &FsPath, mut body: Body) -> Result<u64, std::io::Error> {
+    let parent = destination
+        .parent()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Transfer target has no parent"))?;
+    let target_name = destination
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Transfer target name is not valid UTF-8"))?;
+    tokio::fs::create_dir_all(parent).await?;
+    let stage = parent.join(format!(".{target_name}.sambee-stage-{}", uuid::Uuid::new_v4()));
+
+    let result = async {
+        let mut output = OpenOptions::new().write(true).create_new(true).open(&stage).await?;
+        let mut bytes_written = 0;
+        while let Some(frame) = body.frame().await {
+            let frame = frame.map_err(|error| std::io::Error::other(format!("Transfer request body failed: {error}")))?;
+            if let Ok(data) = frame.into_data() {
+                output.write_all(&data).await?;
+                bytes_written += data.len() as u64;
+            }
+        }
+        output.flush().await?;
+        output.sync_data().await?;
+        drop(output);
+        tokio::fs::hard_link(&stage, destination).await?;
+        Ok(bytes_written)
+    }
+    .await;
+
+    if let Err(cleanup_error) = tokio::fs::remove_file(&stage).await {
+        if cleanup_error.kind() != std::io::ErrorKind::NotFound {
+            warn!("Failed to discard local transfer stage '{}': {cleanup_error}", stage.display());
+        }
+    }
+    result
 }
 
 // ─── Direct Open ─────────────────────────────────────────────────────────────
@@ -5821,7 +5940,7 @@ mod tests {
         ArchiveContractVersion, ArchiveCreationResponse, FileType, LinkKind, LinkTargetState, LinkTargetType, PublicPairingStatus,
     };
     use crate::server::pairing::PairingState;
-    use axum::body::to_bytes;
+    use axum::body::{to_bytes, Body};
     use axum::extract::{Path, Query, State};
     use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
     use axum::response::IntoResponse;
@@ -5916,7 +6035,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn phase_10_stabilization_move_route_unavailable() {
+    async fn move_route_validates_the_source_drive() {
         let response = super::browse_move(
             Path("missing-drive".to_string()),
             axum::Json(CopyMoveRequest {
@@ -5928,32 +6047,24 @@ mod tests {
                 idempotency_key: uuid::Uuid::new_v4().to_string(),
             }),
         )
-        .await
-        .expect("valid Move request should return unavailable");
+        .await;
 
-        assert_eq!(response.0.status, "failed");
-        assert_eq!(response.0.error.expect("unavailable error expected").code, "unavailable");
+        assert!(matches!(response, Err(ApiError::NotFound(_))));
     }
 
     #[tokio::test]
-    async fn phase_10_stabilization_mixed_transfer_does_no_io() {
-        let response = super::browse_move(
-            Path("missing-drive".to_string()),
-            axum::Json(CopyMoveRequest {
-                source_path: "source.txt".to_string(),
-                dest_path: "target.txt".to_string(),
-                dest_connection_id: Some("local-drive:other".to_string()),
-                target_resolution_policy: Some("ask".to_string()),
-                overwrite: None,
-                idempotency_key: uuid::Uuid::new_v4().to_string(),
-            }),
-        )
-        .await
-        .expect("Move must return before drive or source I/O");
+    async fn local_streamed_destination_publishes_only_after_complete_body() {
+        let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
+        let target = directory.path().join("target.txt");
 
-        assert_eq!(response.0.status, "failed");
-        assert_eq!(response.0.effects.source, "unchanged");
-        assert_eq!(response.0.effects.destination, "unchanged");
+        let bytes_written = super::stage_local_request_body(&target, Body::from("streamed content"))
+            .await
+            .expect("streamed destination should publish");
+
+        assert_eq!(bytes_written, 16);
+        assert_eq!(tokio::fs::read(&target).await.expect("target should exist"), b"streamed content");
+        let entries = std::fs::read_dir(directory.path()).expect("directory should be readable").count();
+        assert_eq!(entries, 1);
     }
 
     #[tokio::test]

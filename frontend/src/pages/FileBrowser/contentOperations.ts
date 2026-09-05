@@ -1,4 +1,4 @@
-import { isLocalDrive } from "../../services/backendRouter";
+import api from "../../services/api";
 import type { BrowserHistoryService } from "../../services/browserHistoryService";
 import { logger } from "../../services/logger";
 import { publishRecentFilesChanged } from "../../services/recentFilesSync";
@@ -244,15 +244,6 @@ export function getTransferAvailability(
   if (!isPhysicalItem(request.source)) {
     return unavailable("unsupported-source");
   }
-  if (request.kind === "move") {
-    return unavailable("unsupported-destination");
-  }
-  if (
-    isPhysicalLocation(request.destination) &&
-    isLocalDrive(request.source.location.connectionId) !== isLocalDrive(request.destination.connectionId)
-  ) {
-    return unavailable("unsupported-destination");
-  }
   const destinationAvailability = canWriteLocation(request.destination, environment);
   if (!destinationAvailability.available) {
     return destinationAvailability;
@@ -288,14 +279,30 @@ export async function executeTransfer(request: TransferRequest, environment: Con
   const destination = environment.storageRegistry.resolveDirectory(request.destination);
   const idempotencyKey = crypto.randomUUID();
   const targetResolutionPolicy = request.targetResolutionPolicy ?? "ask";
+  const targetName = request.targetName ?? source.path.split("/").pop() ?? "";
+  const requiresStreamRelay =
+    source.target.kind !== destination.target.kind ||
+    (source.target.kind === "local" && destination.target.kind === "local" && source.target.driveId !== destination.target.driveId);
+  if (requiresStreamRelay) {
+    const targetPath = `${destination.path}/${targetName}`.replace(/^\//, "");
+    return api.transferAcrossBackends(
+      request.kind,
+      request.source.location.connectionId,
+      source.path,
+      request.destination.connectionId,
+      targetPath,
+      targetResolutionPolicy
+    );
+  }
   const backend = environment.storageRegistry.getBackend(source.target);
-  return backend.copyWithinBackend({
+  const transfer = {
     source,
     destination,
     targetName: request.targetName,
     targetResolutionPolicy,
     idempotencyKey,
-  });
+  };
+  return request.kind === "move" ? backend.moveWithinBackend(transfer) : backend.copyWithinBackend(transfer);
 }
 
 export function areSameContentLocations(left: ContentLocation, right: ContentLocation): boolean {

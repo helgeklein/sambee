@@ -109,13 +109,19 @@ async def test_unrecorded_transfer_reservation_returns_unknown_outcome() -> None
     assert (await waiting_result).status == "outcome_unknown"
 
 
-def test_move_is_unavailable_after_validation(
+def test_move_uses_native_same_connection_rename(
     client: TestClient,
     auth_headers_user: dict,
     test_connection: Connection,
 ):
-    """A valid Move request never reaches the SMB backend in this release."""
+    """A same-connection move uses the SMB native move primitive."""
     with patch("app.api.browser.SMBBackend") as mock_backend:
+        mock_instance = AsyncMock()
+        mock_instance.get_file_info.side_effect = [
+            FileInfo(name="file.txt", path="docs/file.txt", type=FileType.FILE, size=1),
+            FileNotFoundError("target does not exist"),
+        ]
+        mock_backend.return_value = mock_instance
         response = client.post(
             f"/api/browse/{test_connection.id}/move",
             headers=auth_headers_user,
@@ -128,11 +134,56 @@ def test_move_is_unavailable_after_validation(
 
     assert response.status_code == 200
     assert response.json() == {
-        "status": "failed",
-        "effects": {"source": "unchanged", "destination": "unchanged"},
+        "status": "completed",
+        "effects": {"source": "mutated", "destination": "mutated"},
         "replaced": False,
-        "error": {"code": "unavailable", "detail": "Transfers are unavailable in this release"},
+        "error": None,
     }
+    mock_instance.move_item.assert_awaited_once_with("docs/file.txt", "archive/file.txt", overwrite=False)
+
+
+def test_cross_provider_stream_destination_stages_before_publishing(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+):
+    """A cross-provider body is delegated to the private SMB staging primitive."""
+    with patch("app.api.browser.SMBBackend") as mock_backend:
+        mock_instance = AsyncMock()
+        mock_backend.return_value = mock_instance
+
+        async def stage_and_commit(path: str, stream, *, before_commit, **_kwargs: object) -> int:
+            assert path == "incoming/report.txt"
+            assert b"".join([chunk async for chunk in stream]) == b"report"
+            await before_commit()
+            return 6
+
+        mock_instance.stage_and_commit_new_file_from_stream.side_effect = stage_and_commit
+        response = client.post(
+            f"/api/browse/{test_connection.id}/transfer-stream?path=incoming/report.txt",
+            headers=auth_headers_user,
+            content=b"report",
+        )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"
+    assert response.json()["effects"] == {"source": "unchanged", "destination": "mutated"}
+    mock_instance.stage_and_commit_new_file_from_stream.assert_awaited_once()
+
+
+def test_cross_provider_stream_destination_rejects_empty_path_before_smb_work(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+):
+    with patch("app.api.browser.SMBBackend") as mock_backend:
+        response = client.post(
+            f"/api/browse/{test_connection.id}/transfer-stream?path=/",
+            headers=auth_headers_user,
+            content=b"report",
+        )
+
+    assert response.status_code == 400
     mock_backend.assert_not_called()
 
 
@@ -2680,17 +2731,12 @@ class TestCopyItem:
     ):
         """Test generic SMB error returns 500."""
         mock_class, mock_instance = mock_smb_backend
-        mock_instance.stage_and_commit_new_file_from_stream.side_effect = Exception("Connection lost")
+        mock_instance.move_item.side_effect = Exception("Connection lost")
         mock_instance.get_file_info.side_effect = [
             FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file"),
             FileNotFoundError("target does not exist"),
             FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file"),
         ]
-
-        async def read_file(_path: str):
-            yield b"x"
-
-        mock_instance.read_file = read_file
 
         response = client.post(
             f"/api/browse/{test_connection.id}/copy",
@@ -2895,7 +2941,6 @@ class TestCopyItem:
 
 
 @pytest.mark.integration
-@pytest.mark.skip(reason="Move execution is unavailable; covered by test_move_is_unavailable_after_validation")
 class TestMoveItem:
     """Test move item endpoint."""
 
@@ -2906,27 +2951,10 @@ class TestMoveItem:
         test_connection: Connection,
         mock_smb_backend,
     ):
-        """A regular-file move commits a staged destination and retains its source."""
+        """A regular-file move uses the native same-connection rename."""
         mock_class, mock_instance = mock_smb_backend
         source_info = FileInfo(name="file.txt", path="docs/file.txt", type=FileType.FILE, size=1, stable_id="source-file")
-        mock_instance.get_file_info.side_effect = [
-            source_info,
-            FileNotFoundError("target does not exist"),
-            source_info,
-            source_info,
-            source_info,
-        ]
-
-        async def read_file(_path: str):
-            yield b"x"
-
-        async def stage_and_commit(_path: str, stream, *, before_commit, **_kwargs: object) -> int:
-            _ = b"".join([chunk async for chunk in stream])
-            await before_commit()
-            return 1
-
-        mock_instance.read_file = read_file
-        mock_instance.stage_and_commit_new_file_from_stream = AsyncMock(side_effect=stage_and_commit)
+        mock_instance.get_file_info.side_effect = [source_info, FileNotFoundError("target does not exist")]
 
         response = client.post(
             f"/api/browse/{test_connection.id}/move",
@@ -2935,11 +2963,10 @@ class TestMoveItem:
         )
 
         assert response.status_code == 200
-        assert response.json()["status"] == "completed_with_source_retained"
-        assert response.json()["effects"] == {"source": "unchanged", "destination": "mutated"}
+        assert response.json()["status"] == "completed"
+        assert response.json()["effects"] == {"source": "mutated", "destination": "mutated"}
         mock_instance.connect.assert_called_once()
-        mock_instance.stage_and_commit_new_file_from_stream.assert_awaited_once()
-        mock_instance.move_item.assert_not_called()
+        mock_instance.move_item.assert_awaited_once_with("docs/file.txt", "archive/file.txt", overwrite=False)
         mock_instance.disconnect.assert_called_once()
 
     def test_move_directory_success(
@@ -2949,9 +2976,8 @@ class TestMoveItem:
         test_connection: Connection,
         mock_smb_backend,
     ):
-        """A directory move retains its source until guarded deletion is available."""
+        """A directory move uses the native same-connection rename."""
         mock_class, mock_instance = mock_smb_backend
-        mock_instance.copy_item.return_value = None
         mock_instance.get_file_info.side_effect = [
             FileInfo(name="old-folder", path="old-folder", type=FileType.DIRECTORY),
             FileNotFoundError("target does not exist"),
@@ -2964,10 +2990,9 @@ class TestMoveItem:
         )
 
         assert response.status_code == 200
-        assert response.json()["status"] == "completed_with_source_retained"
-        assert response.json()["effects"] == {"source": "unchanged", "destination": "mutated"}
-        mock_instance.copy_item.assert_called_once_with("old-folder", "new-folder", overwrite=False)
-        mock_instance.move_item.assert_not_called()
+        assert response.json()["status"] == "completed"
+        assert response.json()["effects"] == {"source": "mutated", "destination": "mutated"}
+        mock_instance.move_item.assert_awaited_once_with("old-folder", "new-folder", overwrite=False)
 
     def test_move_without_auth(self, client: TestClient, test_connection: Connection):
         """Test that moving requires authentication."""
@@ -3108,17 +3133,12 @@ class TestMoveItem:
     ):
         """Test generic SMB error returns 500."""
         mock_class, mock_instance = mock_smb_backend
-        mock_instance.stage_and_commit_new_file_from_stream.side_effect = Exception("Connection lost")
+        mock_instance.move_item.side_effect = Exception("Connection lost")
         mock_instance.get_file_info.side_effect = [
             FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file"),
             FileNotFoundError("target does not exist"),
             FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file"),
         ]
-
-        async def read_file(_path: str):
-            yield b"x"
-
-        mock_instance.read_file = read_file
 
         response = client.post(
             f"/api/browse/{test_connection.id}/move",
@@ -3136,17 +3156,12 @@ class TestMoveItem:
     ):
         """Timed out SMB moves should surface as 504 responses."""
         mock_class, mock_instance = mock_smb_backend
-        mock_instance.stage_and_commit_new_file_from_stream.side_effect = TimeoutError("SMB operation timed out while moving: a.txt")
+        mock_instance.move_item.side_effect = TimeoutError("SMB operation timed out while moving: a.txt")
         mock_instance.get_file_info.side_effect = [
             FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file"),
             FileNotFoundError("target does not exist"),
             FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file"),
         ]
-
-        async def read_file(_path: str):
-            yield b"x"
-
-        mock_instance.read_file = read_file
 
         response = client.post(
             f"/api/browse/{test_connection.id}/move",

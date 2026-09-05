@@ -1,13 +1,13 @@
 import asyncio
 import json
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
 from typing import NoReturn, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
@@ -1207,6 +1207,73 @@ async def upload_file(
         )
 
 
+@router.post("/{connection_id}/transfer-stream", response_model=ContentTransferResult)
+async def stream_transfer_to_new_item(
+    connection_id: uuid.UUID,
+    request: Request,
+    path: str = Query(..., description="New destination path on the share"),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ContentTransferResult:
+    """Publish a cross-provider regular file from a streamed request body.
+
+    The endpoint has destination authority only. It stages the complete body
+    privately and uses an exclusive final promotion, so an interrupted browser
+    relay cannot expose partial output or replace an existing target.
+    """
+
+    target_path = path.strip("/")
+    if not target_path:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Destination path must not be empty")
+    _validate_item_name(target_path.rsplit("/", 1)[-1])
+    set_user(current_user.username)
+    connection = _get_connection_or_404(session, current_user, connection_id)
+    require_connection_write_access(current_user, connection, action="transfer_destination", path=target_path)
+
+    async def request_stream() -> AsyncIterator[bytes]:
+        async for chunk in request.stream():
+            if chunk:
+                yield chunk
+
+    async def before_commit() -> None:
+        return None
+
+    backend = build_smb_backend(connection, backend_factory=SMBBackend)
+    try:
+        await backend.connect()
+        try:
+            bytes_written = await backend.stage_and_commit_new_file_from_stream(
+                target_path,
+                request_stream(),
+                before_commit=before_commit,
+            )
+        finally:
+            await disconnect_backend_safely(
+                backend,
+                logger=logger,
+                context=f"cross-provider destination stream: connection_id={connection_id}, path='{target_path}'",
+            )
+        _add_to_directory_cache(str(connection_id), target_path)
+        logger.info(
+            "Published cross-provider transfer destination: connection_id=%s, path='%s', bytes=%s, user=%s",
+            connection_id,
+            target_path,
+            bytes_written,
+            current_user.username,
+        )
+        return ContentTransferResult(
+            status="completed",
+            effects=ContentTransferEffects(source="unchanged", destination="mutated"),
+        )
+    except FileExistsError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Destination already exists: {target_path}") from None
+    except TimeoutError as error:
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="Transfer destination timed out") from error
+    except OSError as error:
+        logger.error("Failed to publish cross-provider destination '%s': %s", target_path, error, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Transfer destination failed: {error}") from error
+
+
 # ============================================================================
 # Delete file or empty directory
 # ============================================================================
@@ -1906,16 +1973,121 @@ async def move_item(
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> ContentTransferResult:
-    """Return the stabilized unavailable result for all Move requests."""
+    """Move an item within one SMB connection using its native rename primitive."""
 
     set_user(current_user.username)
 
-    _validate_copy_move_paths(body.source_path, body.dest_path)
-    return ContentTransferResult(
-        status="failed",
-        effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
-        error=ContentTransferError(code="unavailable", detail=TRANSFER_UNAVAILABLE_DETAIL),
-    )
+    source, dest = _validate_copy_move_paths(body.source_path, body.dest_path)
+    is_cross_connection = bool(body.dest_connection_id and str(body.dest_connection_id) != str(connection_id))
+    connection = _get_connection_or_404(session, current_user, connection_id)
+    cached_result = await _find_transfer_receipt(current_user, body)
+    if cached_result is not None:
+        return cached_result
+
+    try:
+        if is_cross_connection:
+            dest_connection = _get_connection_or_404(session, current_user, uuid.UUID(str(body.dest_connection_id)))
+            require_connection_write_access(current_user, connection, action="move_source", path=source)
+            require_connection_write_access(current_user, dest_connection, action="move_destination", path=dest)
+            copied = await _cross_connection_copy(
+                connection,
+                dest_connection,
+                source,
+                dest,
+                str(body.dest_connection_id),
+                target_resolution_policy=TargetResolutionPolicy(body.normalized_target_resolution_policy),
+            )
+            if copied.status == "completed":
+                copied = ContentTransferResult(
+                    status="completed_with_source_retained",
+                    effects=ContentTransferEffects(source="unchanged", destination="mutated"),
+                    error=ContentTransferError(
+                        code="source_delete_failed",
+                        detail=f"Destination was created but the source was retained because conditional deletion is unavailable: {source}",
+                    ),
+                )
+            return await _record_transfer_receipt(current_user, body, copied)
+
+        require_connection_write_access(current_user, connection, action="move", path=source)
+        backend = build_smb_backend(connection, backend_factory=SMBBackend)
+        await backend.connect()
+        try:
+            policy = TargetResolutionPolicy(body.normalized_target_resolution_policy)
+
+            async def move_direct(source_info: FileInfo) -> object:
+                await backend.move_item(source, dest, overwrite=False)
+                return None
+
+            disposition = await _resolve_direct_regular_file_transfer(
+                backend=backend,
+                source=source,
+                dest=dest,
+                policy=policy,
+                operation=move_direct,
+            )
+            if disposition == TargetResolutionDisposition.AWAIT_COLLISION:
+                raise FileExistsError(f"Destination already exists: {dest}")
+        finally:
+            await disconnect_backend_safely(
+                backend,
+                logger=logger,
+                context=f"move request: connection_id={connection_id}, source='{source}', dest='{dest}'",
+            )
+
+        result = ContentTransferResult(
+            status="skipped" if disposition == TargetResolutionDisposition.SKIP else "completed",
+            effects=ContentTransferEffects(
+                source="unchanged" if disposition == TargetResolutionDisposition.SKIP else "mutated",
+                destination="unchanged" if disposition == TargetResolutionDisposition.SKIP else "mutated",
+            ),
+        )
+        if disposition != TargetResolutionDisposition.SKIP:
+            _remove_from_directory_cache(str(connection_id), source)
+            _add_to_directory_cache(str(connection_id), dest)
+            logger.info(f"Moved item: connection_id={connection_id}, '{source}' -> '{dest}', user={current_user.username}")
+        return await _record_transfer_receipt(current_user, body, result)
+    except FileNotFoundError:
+        missing_source = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Source not found: {source}")
+        await _record_transfer_http_error(current_user, body, missing_source)
+        raise missing_source
+    except FileExistsError:
+        conflict = await _conflict_response(connection, body, connection_id, source, dest, current_user, session)
+        await _record_transfer_http_error(current_user, body, conflict)
+        raise conflict
+    except HTTPException as error:
+        await _record_transfer_http_error(current_user, body, error)
+        raise
+    except TimeoutError:
+        await _raise_recorded_transfer_http_error(
+            current_user,
+            body,
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Move timed out. The remote share did not respond in time.",
+        )
+    except OSError as error:
+        logger.error(
+            f"Failed to move item: connection_id={connection_id}, '{source}' -> '{dest}', error={type(error).__name__}: {error}",
+            exc_info=True,
+        )
+        await _raise_recorded_transfer_http_error(
+            current_user,
+            body,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to move item: {str(error)}",
+        )
+    except Exception as error:
+        logger.error(
+            f"Failed to move item: connection_id={connection_id}, '{source}' -> '{dest}', error={type(error).__name__}: {error}",
+            exc_info=True,
+        )
+        await _raise_recorded_transfer_http_error(
+            current_user,
+            body,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to move item: {str(error)}",
+        )
+    finally:
+        await _record_unknown_transfer_outcome(current_user, body)
 
 
 # ============================================================================

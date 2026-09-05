@@ -4103,6 +4103,7 @@ dependencies = [
  "flate2",
  "hex",
  "hmac",
+ "http-body-util",
  "keyring",
  "log",
  "mime_guess",
