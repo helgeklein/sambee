@@ -5,7 +5,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable
 from datetime import datetime
 from pathlib import PurePosixPath
-from typing import Awaitable, BinaryIO, TypeVar
+from typing import Any, Awaitable, BinaryIO, TypeVar, cast
 
 import smbclient
 from smbclient._os import FileAttributes
@@ -90,7 +90,8 @@ class _SMBMoveSourceReader(_SMBRandomAccessReader):
                 raise ValueError("SMB move source reader is closed")
 
             def _delete_opened_file() -> None:
-                raw = self._handle.raw
+                # smbclient exposes its protocol handle only through its private wrapper.
+                raw = cast(Any, self._handle).raw
                 request = SMB2SetInfoRequest()
                 request["info_type"] = InfoType.SMB2_0_INFO_FILE
                 request["file_info_class"] = FileInformationClass.FILE_DISPOSITION_INFORMATION

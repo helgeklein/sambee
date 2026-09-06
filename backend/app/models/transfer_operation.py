@@ -87,7 +87,8 @@ class TransferOperationRead(SQLModel):
     updated_at: datetime
     result_json: str | None = None
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
+    @property
     def result(self) -> ContentTransferResult | None:
         """Decode only a valid factual result from the durable receipt."""
 

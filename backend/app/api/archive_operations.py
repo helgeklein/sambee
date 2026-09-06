@@ -57,6 +57,7 @@ from app.models.archive_operation import (
     ArchiveExtractionDecision,
     ArchiveLiveExtractionCollisionPendingDecision,
     ArchiveLiveExtractionMemberErrorPendingDecision,
+    ArchiveLiveExtractionPendingDecision,
     ArchiveLiveExtractionStatus,
     ArchiveOperation,
     ArchiveOperationErrorCode,
@@ -2483,7 +2484,7 @@ async def _live_extraction_status(source_session: LiveSourceSession) -> ArchiveL
 
     decision = await source_session.pending_decision()
     current_member = await source_session.current_member()
-    pending_decision = None
+    pending_decision: ArchiveLiveExtractionPendingDecision | None = None
     if decision is not None:
         if current_member is None:
             raise LiveSourceSessionError("Live archive source decision is unavailable")
