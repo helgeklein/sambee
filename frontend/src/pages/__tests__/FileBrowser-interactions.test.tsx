@@ -904,7 +904,7 @@ describe("Browser Component - Interactions", () => {
       expect(screen.queryByRole("dialog", { name: /create/i })).not.toBeInTheDocument();
     });
 
-    it("opens archive extraction with Alt+F9 and lists it in keyboard help", async () => {
+    it("disables archive-wide extraction with Alt+F9 inside an archive and lists it in keyboard help", async () => {
       const user = userEvent.setup();
 
       vi.mocked(api.listDirectory).mockResolvedValue({
@@ -939,11 +939,7 @@ describe("Browser Component - Interactions", () => {
       await screen.findByRole("button", { name: /inside.txt/i });
 
       fireEvent.keyDown(document, { key: "F9", altKey: true });
-
-      const extractDialog = await screen.findByRole("dialog", { name: "Extract ZIP Archive" });
-      expect(within(extractDialog).getByLabelText("Destination directory")).toHaveValue("temp");
-
-      await user.click(within(extractDialog).getByRole("button", { name: "Cancel" }));
+      expect(screen.queryByRole("dialog", { name: "Extract from ZIP Archive" })).not.toBeInTheDocument();
       fireEvent.keyDown(document, { key: "F1" });
 
       const helpDialog = await screen.findByRole("dialog", { name: "File browser shortcuts" });
@@ -984,13 +980,13 @@ describe("Browser Component - Interactions", () => {
       const [listContainer] = await screen.findAllByTestId("file-list-container");
       listContainer.focus();
       fireEvent.keyDown(document, { key: "F9", altKey: true });
-      expect(screen.queryByRole("dialog", { name: "Extract ZIP Archive" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "Extract from ZIP Archive" })).not.toBeInTheDocument();
 
       fireEvent.keyDown(document, { key: "ArrowDown" });
       await waitFor(() => expect(screen.getAllByRole("button", { name: /file: temp\.zip/i })[0]).toHaveAttribute("data-selected", "true"));
       fireEvent.keyDown(document, { key: "F9", altKey: true });
 
-      const extractDialog = await screen.findByRole("dialog", { name: "Extract ZIP Archive" });
+      const extractDialog = await screen.findByRole("dialog", { name: "Extract from ZIP Archive" });
       expect(within(extractDialog).getByLabelText("Destination directory")).toHaveValue("Test Server 2:/");
       const locationBeforeTab = screen.getByTestId("router-location").textContent;
       fireEvent.keyDown(document, { key: "Tab" });
@@ -1016,7 +1012,7 @@ describe("Browser Component - Interactions", () => {
       expect(api.executeArchiveCreation).not.toHaveBeenCalled();
     });
 
-    it("blocks copy, move, and archive creation when the selected source is inside a ZIP archive", async () => {
+    it("extracts the selected ZIP member to the other pane with F5", async () => {
       const user = userEvent.setup();
       vi.mocked(api.listArchiveDirectory).mockResolvedValue({
         archive: { path: "archive.zip", size: 1 },
@@ -1025,20 +1021,33 @@ describe("Browser Component - Interactions", () => {
         total: 1,
         page_size: 100,
       });
+      vi.mocked(api.prepareArchiveOperation).mockResolvedValueOnce({ id: "extract-selected" } as never);
+      vi.mocked(api.executeArchiveExtraction).mockResolvedValueOnce({ phase: "completed", checkpoint_json: "{}" } as never);
       renderBrowser("/browse/smb/test-server-1/archive.zip?p2=smb/test-server-2");
 
-      const lists = await screen.findAllByTestId("virtual-list");
-      await user.click(lists[0]!);
+      const archiveMember = await screen.findByRole("button", { name: /file: inside\.txt/i });
+      const archiveList = archiveMember.closest('[data-testid="virtual-list"]');
+      expect(archiveList).toBeInstanceOf(HTMLElement);
+      await user.click(archiveList as HTMLElement);
+
+      fireEvent.keyDown(document, { key: "F9", altKey: true });
+      expect(screen.queryByRole("dialog", { name: "Extract from ZIP Archive" })).not.toBeInTheDocument();
       await user.keyboard(" ");
 
       fireEvent.keyDown(document, { key: "F5" });
-      fireEvent.keyDown(document, { key: "F6" });
-      fireEvent.keyDown(document, { key: "F5", altKey: true });
 
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      const extractDialog = await screen.findByRole("dialog", { name: "Extract from ZIP Archive" });
+      expect(within(extractDialog).getByTestId("archive-extract-prompt-name")).toHaveTextContent("inside.txt");
+      const destination = within(extractDialog).getByLabelText("Destination directory");
+      expect(destination).toHaveValue("Test Server 2:/");
+      expect(destination).toHaveAttribute("readonly");
+      await user.click(within(extractDialog).getByRole("button", { name: "Extract" }));
+
+      await waitFor(() => {
+        expect(api.prepareArchiveOperation).toHaveBeenCalledWith(expect.objectContaining({ selected_member_paths: ["inside.txt"] }));
+      });
       expect(api.copyItem).not.toHaveBeenCalled();
       expect(api.moveItem).not.toHaveBeenCalled();
-      expect(api.prepareArchiveOperation).not.toHaveBeenCalled();
       expect(api.executeArchiveCreation).not.toHaveBeenCalled();
     });
 

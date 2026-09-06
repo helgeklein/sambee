@@ -13,6 +13,7 @@ vi.mock("react-i18next", async (importOriginal) => ({
 
 const defaultProps = {
   archiveName: "project.zip",
+  extractionScope: { kind: "archive" } as const,
   initialDestinationName: "project",
   open: true,
   isExtracting: false,
@@ -40,6 +41,51 @@ function mockMobileMode(isMobile: boolean) {
 }
 
 describe("ArchiveExtractDialog", () => {
+  it("describes full archive extraction", () => {
+    render(<ArchiveExtractDialog {...defaultProps} />);
+
+    expect(screen.getByTestId("archive-extract-prompt-name")).toHaveTextContent("project.zip");
+    expect(screen.getByLabelText("fileBrowser.archive.destinationLabel")).toHaveValue("project");
+  });
+
+  it("describes a single selected member and shows its fixed destination in a read-only field", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    render(
+      <ArchiveExtractDialog
+        {...defaultProps}
+        extractionScope={{ kind: "members", memberPaths: ["docs/readme.txt"] }}
+        requiresDestinationName={false}
+        destinationLabel="Demo:/Test"
+        onConfirm={onConfirm}
+      />
+    );
+
+    expect(screen.getByTestId("archive-extract-prompt-name")).toHaveTextContent("readme.txt");
+    const destination = screen.getByLabelText("fileBrowser.archive.destinationLabel");
+    expect(destination).toHaveValue("Demo:/Test");
+    expect(destination).toHaveAttribute("readonly");
+    expect(screen.getByRole("heading", { name: "fileBrowser.archive.extractTitle" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "fileBrowser.archive.buttonExtract" })).toHaveFocus());
+    await user.keyboard("{Enter}");
+
+    expect(onConfirm).toHaveBeenCalledWith("");
+  });
+
+  it("describes multiple selected members and shows the fixed destination field", () => {
+    render(
+      <ArchiveExtractDialog
+        {...defaultProps}
+        extractionScope={{ kind: "members", memberPaths: ["docs/readme.txt", "images/logo.png"] }}
+        requiresDestinationName={false}
+        destinationLabel="Demo:/Test"
+      />
+    );
+
+    expect(screen.getByText("2 selected items will be extracted to:")).toBeInTheDocument();
+    expect(screen.getByLabelText("fileBrowser.archive.destinationLabel")).toHaveValue("Demo:/Test");
+  });
+
   it("prefills the provider-supplied destination name", () => {
     render(<ArchiveExtractDialog {...defaultProps} />);
 
