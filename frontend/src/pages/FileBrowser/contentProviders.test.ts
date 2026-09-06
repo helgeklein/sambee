@@ -294,6 +294,34 @@ describe("content providers", () => {
     });
   });
 
+  it("extracts a local ZIP to a different local drive through the Companion", async () => {
+    const localArchiveLocation = virtualLocation("zip", "local-drive:c", physicalLocation("local-drive:c", "archives/one.zip"), "");
+    vi.mocked(api.startLocalArchiveExtraction).mockResolvedValueOnce({
+      execution_id: "cross-drive-extract-1",
+      phase: "streaming",
+      revision: 1,
+      progress: localArchiveProgress(),
+      cancellation_requested: false,
+    });
+    vi.mocked(api.waitForLocalArchiveExecution).mockResolvedValueOnce({
+      execution_id: "cross-drive-extract-1",
+      phase: "completed",
+      revision: 2,
+      progress: localArchiveProgress(1, 0, 1, 5),
+      cancellation_requested: false,
+      aggregate_counters: extractionAggregate(1, 0, 5),
+    });
+
+    await expect(
+      startArchiveExtraction(createContentProviderRegistry(), {
+        source: localArchiveLocation,
+        destination: physicalLocation("local-drive:d", "output"),
+      }).result
+    ).resolves.toMatchObject({ status: "completed" });
+
+    expect(api.startLocalArchiveExtraction).toHaveBeenCalledWith("local-drive:c", "archives/one.zip", "output", undefined, "local-drive:d");
+  });
+
   it("starts archive extraction through the provider-neutral operation coordinator", async () => {
     vi.mocked(api.prepareArchiveOperation).mockResolvedValueOnce({ id: "extract-1" } as never);
     vi.mocked(api.executeArchiveExtraction).mockResolvedValueOnce({
@@ -506,7 +534,7 @@ describe("content providers", () => {
     });
     await execution.cancel();
 
-    await expect(execution.result).resolves.toEqual({ status: "interrupted" });
+    await expect(execution.result).resolves.toEqual({ status: "cancelled" });
     expect(api.cancelLocalArchiveExecutionWithRevisionRetry).toHaveBeenCalledWith("local-drive:c", "local-extract-1", 1);
   });
 
@@ -564,7 +592,7 @@ describe("content providers", () => {
     });
     await execution.cancel();
 
-    await expect(execution.result).resolves.toEqual({ status: "interrupted" });
+    await expect(execution.result).resolves.toEqual({ status: "cancelled" });
     expect(api.cancelLocalArchiveExecutionWithRevisionRetry).toHaveBeenCalledWith("local-drive:c", "local-extract-1", 1);
   });
 

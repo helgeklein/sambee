@@ -1053,9 +1053,36 @@ describe("Browser Component - Interactions", () => {
       await waitFor(() => {
         expect(api.prepareArchiveOperation).toHaveBeenCalledWith(expect.objectContaining({ selected_member_paths: ["inside.txt"] }));
       });
+      expect(await screen.findByText("Archive extraction completed.")).toBeInTheDocument();
       expect(api.copyItem).not.toHaveBeenCalled();
       expect(api.moveItem).not.toHaveBeenCalled();
       expect(api.executeArchiveCreation).not.toHaveBeenCalled();
+    });
+
+    it("reports a cancelled selected-member extraction", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+        archive: { path: "archive.zip", size: 1 },
+        path: "",
+        items: [{ name: "inside.txt", path: "inside.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 1,
+        page_size: 100,
+      });
+      vi.mocked(api.prepareArchiveOperation).mockResolvedValueOnce({ id: "extract-cancelled" } as never);
+      vi.mocked(api.executeArchiveExtraction).mockResolvedValueOnce({ phase: "cancelled", checkpoint_json: "{}" } as never);
+      renderBrowser("/browse/smb/test-server-1/archive.zip?p2=smb/test-server-2");
+
+      const archiveMember = await screen.findByRole("button", { name: /file: inside\.txt/i });
+      const archiveList = archiveMember.closest('[data-testid="virtual-list"]');
+      expect(archiveList).toBeInstanceOf(HTMLElement);
+      await user.click(archiveList as HTMLElement);
+      await user.keyboard(" ");
+      fireEvent.keyDown(document, { key: "F5" });
+
+      const extractDialog = await screen.findByRole("dialog", { name: "Extract from ZIP Archive" });
+      await user.click(within(extractDialog).getByRole("button", { name: "Extract" }));
+
+      expect(await screen.findByText("Archive extraction was cancelled.")).toBeInTheDocument();
     });
 
     it("opens the saved preferred Sambee viewer on Enter even when it is outside the default compatible subset", async () => {

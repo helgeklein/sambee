@@ -498,12 +498,12 @@ const Browser: React.FC = () => {
   >([]);
   const [isSubmittingArchiveExtractionDecision, setIsSubmittingArchiveExtractionDecision] = useState(false);
   const archiveExtractionExecutionRef = React.useRef<ArchiveExtractionExecution | null>(null);
-  const [archiveInterruptionNoticeOpen, setArchiveInterruptionNoticeOpen] = useState(false);
+  const [archiveExtractionNotice, setArchiveExtractionNotice] = useState<string | null>(null);
   const archiveWorkflowDialogOpen = archiveCreateContext !== null || archiveExtractionContext !== null;
 
   useEffect(() => {
     void recoverInterruptedArchiveOperation(browserContentServices.archiveOperations).then((interrupted) => {
-      if (interrupted) setArchiveInterruptionNoticeOpen(true);
+      if (interrupted) setArchiveExtractionNotice(t("fileBrowser.archive.interruptedAfterReload"));
     });
     void recoverInterruptedPhysicalTransfer();
 
@@ -529,7 +529,7 @@ const Browser: React.FC = () => {
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [browserContentServices.archiveOperations]);
+  }, [browserContentServices.archiveOperations, t]);
 
   // Overwrite conflict dialog state
   const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
@@ -2261,6 +2261,18 @@ const Browser: React.FC = () => {
         return;
       }
 
+      if (outcome.status === "completed") {
+        setArchiveExtractionNotice(
+          outcome.filesSkipped > 0
+            ? t("fileBrowser.archive.extractPartialSuccess", { count: outcome.filesSkipped })
+            : t("fileBrowser.archive.extractSuccess")
+        );
+      } else if (outcome.status === "cancelled") {
+        setArchiveExtractionNotice(t("fileBrowser.archive.extractCancelled"));
+      } else {
+        setArchiveExtractionNotice(t("fileBrowser.archive.extractInterrupted"));
+      }
+
       archiveExtractionExecutionRef.current = null;
       setArchiveExtractionConflicts(null);
       setArchiveExtractionAllowedActions([]);
@@ -2275,7 +2287,7 @@ const Browser: React.FC = () => {
       });
       setArchiveExtractionContext(null);
     },
-    [leftPane, rightPane]
+    [leftPane, rightPane, t]
   );
 
   const handleArchiveExtractionConfirm = useCallback(
@@ -3318,11 +3330,11 @@ const Browser: React.FC = () => {
         message={t("fileBrowser.chrome.alerts.companionLaunchHint")}
       />
       <Snackbar
-        open={archiveInterruptionNoticeOpen}
+        open={archiveExtractionNotice !== null}
         autoHideDuration={8000}
-        onClose={() => setArchiveInterruptionNoticeOpen(false)}
+        onClose={() => setArchiveExtractionNotice(null)}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-        message={t("fileBrowser.archive.interruptedAfterReload")}
+        message={archiveExtractionNotice}
       />
       {/* Copy / Move Dialog (dual-pane F5/F6) */}
       <CopyMoveDialog

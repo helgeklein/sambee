@@ -204,7 +204,7 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
       return { status: "completed", filesSkipped: summary.filesSkipped, summary };
     }
     if (status.phase === "cancelled") {
-      return { status: "interrupted" };
+      return { status: "cancelled" };
     }
     if (status.phase === "awaiting_user_decision") {
       const pendingDecision = status.pendingDecision;

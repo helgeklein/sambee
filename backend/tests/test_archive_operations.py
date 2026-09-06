@@ -1281,6 +1281,58 @@ def test_executes_same_connection_extraction(
     backend.open_random_access_reader.assert_not_awaited()
 
 
+def test_executes_distinct_connection_extraction(
+    client: TestClient,
+    auth_headers_user: dict,
+    multiple_connections: list[Connection],
+) -> None:
+    source_connection, destination_connection = multiple_connections[:2]
+    prepared = client.post(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        json={
+            "contract_version": "v2",
+            "kind": "extract",
+            "source_connection_id": str(source_connection.id),
+            "source_path": "input.zip",
+            "destination_connection_id": str(destination_connection.id),
+            "destination_path": "output",
+        },
+    ).json()
+    source_backend = AsyncMock()
+    destination_backend = AsyncMock()
+    for backend in (source_backend, destination_backend):
+        backend.connect.return_value = None
+        backend.disconnect.return_value = None
+    configure_direct_extraction_archive(source_backend, {"first.txt": b"contents"})
+    files: dict[str, bytes] = {}
+
+    async def destination_file_info(path: str) -> FileInfo:
+        if path in files:
+            return FileInfo(name=path.rsplit("/", 1)[-1], path=path, type=FileType.FILE, size=len(files[path]))
+        raise FileNotFoundError(path)
+
+    async def write_file_from_stream(path: str, stream, *, overwrite: bool = False, source_mtime=None) -> int:
+        del overwrite, source_mtime
+        files[path] = b"".join([chunk async for chunk in stream])
+        return len(files[path])
+
+    destination_backend.get_file_info.side_effect = destination_file_info
+    destination_backend.create_directory.return_value = None
+    destination_backend.write_file_from_stream.side_effect = write_file_from_stream
+
+    with patch("app.api.archive_operations.SMBBackend", side_effect=[source_backend, destination_backend]):
+        response = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["phase"] == "completed"
+    assert files == {"output/first.txt": b"contents"}
+    source_backend.open_archive_source_reader.assert_awaited_once_with("input.zip")
+    destination_backend.open_archive_source_reader.assert_not_awaited()
+    source_backend.connect.assert_awaited_once()
+    destination_backend.connect.assert_awaited_once()
+
+
 def test_direct_extraction_retains_live_source_through_collision_resolution(
     client: TestClient,
     auth_headers_user: dict,
