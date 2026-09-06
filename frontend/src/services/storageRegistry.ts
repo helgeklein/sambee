@@ -17,6 +17,7 @@ const UNAVAILABLE_CAPABILITIES: StorageBackendCapabilities = {
   writable: false,
   canList: false,
   canReadArchive: false,
+  preview: { imageConversion: false, imageResizing: false, pdfNormalization: false },
   canWriteFile: false,
   canResolveActivation: false,
   canOpenInNativeApp: false,

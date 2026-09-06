@@ -130,7 +130,6 @@ def convert_image_for_viewer(
 
         except PreprocessorError:
             file_type = extension.lstrip(".").upper()
-            logger.warning("Could not prepare %s for preview.", filename, exc_info=True)
             raise ValueError(f"Unable to preview this {file_type} file. The file may be invalid or corrupted.") from None
         except Exception:
             logger.exception("Unexpected error preparing %s for preview.", filename)

@@ -84,6 +84,27 @@ export interface CrossBackendTransferOptions {
   onProgress?: (bytesTransferred: number, totalBytes: number | null) => void;
 }
 
+type IncompleteContentTransferResult = Exclude<ContentTransferResult, { status: "completed" }>;
+
+function supportsStreamUploadRequestBodies(): boolean {
+  if (typeof Request === "undefined" || typeof ReadableStream === "undefined") return false;
+
+  let duplexAccessed = false;
+  try {
+    const request = new Request("https://sambee.invalid", {
+      method: "POST",
+      body: new ReadableStream(),
+      get duplex() {
+        duplexAccessed = true;
+        return "half";
+      },
+    } as RequestInit & { duplex: "half" });
+    return duplexAccessed && !request.headers.has("Content-Type");
+  } catch {
+    return false;
+  }
+}
+
 const CONNECTIONS_API_BASE = "/connections";
 const API_PATH_SUFFIX = "/api";
 const LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE = "Edit locks are not supported for local drives";
@@ -929,24 +950,25 @@ class ApiService {
     try {
       const segment = getBrowseSegment(connectionId);
       const { client, extraConfig } = await this.getClientConfig(connectionId);
-      const path = isLocalDrive(connectionId) ? `/viewer/${segment}/archive/v2/member` : "/archive/v2/inspection/member";
+      const localDrive = isLocalDrive(connectionId);
+      const path = localDrive ? `/viewer/${segment}/archive/v2/member` : "/archive/v2/inspection/member";
       const response = await client.get<Blob>(path, {
         ...extraConfig,
         params: {
-          ...(isLocalDrive(connectionId) ? {} : { connection_id: connectionId }),
+          ...(localDrive ? {} : { connection_id: connectionId }),
           contract_version: "v2",
           archive_path: archivePath,
           member_path: memberPath,
           download: options.download ?? false,
-          view_kind: options.request?.kind ?? "raw",
-          ...(options.request?.kind === "image"
+          ...(!localDrive ? { view_kind: options.request?.kind ?? "raw" } : {}),
+          ...(!localDrive && options.request?.kind === "image"
             ? {
                 viewport_width: getDevicePixelDimension(options.request.viewportWidth),
                 viewport_height: getDevicePixelDimension(options.request.viewportHeight),
                 no_resizing: options.request.noResizing ? 1 : undefined,
               }
             : {}),
-          ...(options.request?.kind === "pdf"
+          ...(!localDrive && options.request?.kind === "pdf"
             ? {
                 pdf_variant: options.request.variant,
                 screen_width: options.request.screenProfile?.width,
@@ -1524,6 +1546,14 @@ class ApiService {
         error: { code: "unavailable", reason: "unsupported" },
       };
     }
+    if (!Number.isSafeInteger(sourceInfo.size) || sourceInfo.size < 0) {
+      return {
+        status: "failed",
+        replaced: false,
+        effects: { source: "unchanged", destination: "unchanged" },
+        error: { code: "unavailable", reason: "source_size_unknown" },
+      };
+    }
 
     let sourceResponse: Response;
     try {
@@ -1541,7 +1571,8 @@ class ApiService {
         effects: { source: "unknown", destination: "unknown" },
       };
     }
-    const destinationUrl = `${getBaseUrl(destinationConnectionId)}/browse/${getBrowseSegment(destinationConnectionId)}/transfer-stream?path=${encodeURIComponent(destinationPath)}&target_resolution_policy=${encodeURIComponent(targetResolutionPolicy)}`;
+    const expectedSize = sourceInfo.size;
+    const destinationUrl = `${getBaseUrl(destinationConnectionId)}/browse/${getBrowseSegment(destinationConnectionId)}/transfer-stream?path=${encodeURIComponent(destinationPath)}&target_resolution_policy=${encodeURIComponent(targetResolutionPolicy)}&expected_size=${expectedSize}`;
     const destinationHeaders = await this.getTransferFetchHeaders(destinationConnectionId);
     let bytesTransferred = 0;
     const relayStream = options.onProgress
@@ -1555,12 +1586,47 @@ class ApiService {
           })
         )
       : sourceResponse.body;
+    let destinationBody: ReadableStream<Uint8Array> | Blob = relayStream;
+    if (!supportsStreamUploadRequestBodies()) {
+      let bufferedBody: Blob;
+      try {
+        bufferedBody = await new Response(relayStream).blob();
+      } catch (error) {
+        if (options.signal?.aborted) {
+          return { status: "cancelled", replaced: false, effects: { source: "unchanged", destination: "unchanged" } };
+        }
+        return {
+          status: "failed",
+          replaced: false,
+          effects: { source: "unchanged", destination: "unchanged" },
+          error: {
+            code: "transport",
+            detail: `Transfer source stream failed: ${error instanceof Error ? error.message : "unknown error"}`,
+          },
+        };
+      }
+      if (bufferedBody.size !== expectedSize) {
+        return {
+          status: "failed",
+          replaced: false,
+          effects: { source: "unchanged", destination: "unchanged" },
+          error: {
+            code: "transport",
+            detail: `Transfer source size mismatch: expected ${expectedSize} bytes but received ${bufferedBody.size} bytes`,
+          },
+        };
+      }
+      if (options.signal?.aborted) {
+        return { status: "cancelled", replaced: false, effects: { source: "unchanged", destination: "unchanged" } };
+      }
+      destinationBody = bufferedBody;
+    }
     let destinationResponse: Response;
     try {
       destinationResponse = await fetch(destinationUrl, {
         method: "POST",
         headers: { ...destinationHeaders, "Content-Type": "application/octet-stream" },
-        body: relayStream,
+        body: destinationBody,
         duplex: "half",
         signal: options.signal,
       } as RequestInit & { duplex: "half" });
@@ -1727,7 +1793,21 @@ class ApiService {
     try {
       await this.createItem(destinationConnectionId, destinationParent, stagePath.split("/").pop() ?? "", "directory");
       stageCreated = true;
-      await this.copyDirectoryContentsAcrossBackends(sourceConnectionId, sourcePath, destinationConnectionId, stagePath, options);
+      const childFailure = await this.copyDirectoryContentsAcrossBackends(
+        sourceConnectionId,
+        sourcePath,
+        destinationConnectionId,
+        stagePath,
+        options
+      );
+      if (childFailure) {
+        try {
+          await this.deleteItem(destinationConnectionId, stagePath);
+        } catch {
+          return { status: "outcome_unknown", replaced: false, effects: { source: "unknown", destination: "unknown" } };
+        }
+        return childFailure;
+      }
       await this.renameItem(destinationConnectionId, stagePath, targetName);
       committed = true;
       if (kind === "move") {
@@ -1781,9 +1861,9 @@ class ApiService {
     destinationConnectionId: string,
     destinationPath: string,
     options: CrossBackendTransferOptions
-  ): Promise<void> {
+  ): Promise<IncompleteContentTransferResult | null> {
     if (options.signal?.aborted) {
-      throw new DOMException("Directory transfer cancelled", "AbortError");
+      return { status: "cancelled", replaced: false, effects: { source: "unchanged", destination: "unchanged" } };
     }
     const listing = await this.listDirectory(sourceConnectionId, sourcePath, { signal: options.signal });
     for (const item of listing.items) {
@@ -1791,13 +1871,14 @@ class ApiService {
       const childDestinationPath = [destinationPath, item.name].filter(Boolean).join("/");
       if (item.type === "directory") {
         await this.createItem(destinationConnectionId, destinationPath, item.name, "directory");
-        await this.copyDirectoryContentsAcrossBackends(
+        const childFailure = await this.copyDirectoryContentsAcrossBackends(
           sourceConnectionId,
           childSourcePath,
           destinationConnectionId,
           childDestinationPath,
           options
         );
+        if (childFailure) return childFailure;
         continue;
       }
       const result = await this.transferAcrossBackends(
@@ -1810,9 +1891,10 @@ class ApiService {
         options
       );
       if (result.status !== "completed") {
-        throw new Error(result.status === "failed" ? result.error.code : `Directory child transfer ${result.status}`);
+        return result;
       }
     }
+    return null;
   }
 
   /**

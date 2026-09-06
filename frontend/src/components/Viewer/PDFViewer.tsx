@@ -20,6 +20,7 @@ import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Document, Page, pdfjs } from "react-pdf";
+import { PreviewUnavailableError } from "../../services/previewPolicy";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
@@ -331,9 +332,11 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({
           status: isApiError(err) ? err.response?.status : undefined,
         });
         setError(
-          pdfSourceVariant === "normalized"
-            ? "PDF compatibility processing could not make this file viewable. You can still download the original file."
-            : errorMessage
+          err instanceof PreviewUnavailableError
+            ? err.message
+            : pdfSourceVariant === "normalized"
+              ? "PDF compatibility processing could not make this file viewable. You can still download the original file."
+              : errorMessage
         );
         setPdfLoadPhase("error");
       }

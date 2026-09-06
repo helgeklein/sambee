@@ -162,7 +162,7 @@ def test_cross_provider_stream_destination_stages_before_publishing(
 
         mock_instance.stage_and_commit_new_file_from_stream.side_effect = stage_and_commit
         response = client.post(
-            f"/api/browse/{test_connection.id}/transfer-stream?path=incoming/report.txt",
+            f"/api/browse/{test_connection.id}/transfer-stream?path=incoming/report.txt&expected_size=6",
             headers=auth_headers_user,
             content=b"report",
         )
@@ -180,13 +180,67 @@ def test_cross_provider_stream_destination_rejects_empty_path_before_smb_work(
 ):
     with patch("app.api.browser.SMBBackend") as mock_backend:
         response = client.post(
-            f"/api/browse/{test_connection.id}/transfer-stream?path=/",
+            f"/api/browse/{test_connection.id}/transfer-stream?path=/&expected_size=6",
             headers=auth_headers_user,
             content=b"report",
         )
 
     assert response.status_code == 400
     mock_backend.assert_not_called()
+
+
+def test_cross_provider_stream_destination_requires_expected_size_before_smb_work(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+):
+    with patch("app.api.browser.SMBBackend") as mock_backend:
+        response = client.post(
+            f"/api/browse/{test_connection.id}/transfer-stream?path=incoming/report.txt",
+            headers=auth_headers_user,
+            content=b"report",
+        )
+
+    assert response.status_code == 422
+    mock_backend.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("expected_size", "content", "expected_detail"),
+    [
+        (6, b"short", "expected 6 bytes but received 5 bytes"),
+        (6, b"too long", "expected 6 bytes but received more"),
+    ],
+)
+def test_cross_provider_stream_destination_rejects_size_mismatch_before_commit(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+    expected_size: int,
+    content: bytes,
+    expected_detail: str,
+):
+    async def stage_and_commit(path: str, stream, *, before_commit, **_kwargs: object) -> int:
+        assert path == "incoming/report.txt"
+        async for _chunk in stream:
+            pass
+        await before_commit()
+        pytest.fail("Size-mismatched stream must not reach the SMB commit callback")
+
+    with patch("app.api.browser.SMBBackend") as mock_backend:
+        mock_instance = AsyncMock()
+        mock_backend.return_value = mock_instance
+        mock_instance.get_file_info.side_effect = FileNotFoundError
+        mock_instance.stage_and_commit_new_file_from_stream.side_effect = stage_and_commit
+        response = client.post(
+            f"/api/browse/{test_connection.id}/transfer-stream?path=incoming/report.txt&expected_size={expected_size}",
+            headers=auth_headers_user,
+            content=content,
+        )
+
+    assert response.status_code == 422
+    assert expected_detail in response.json()["detail"]
+    mock_instance.stage_and_commit_new_file_from_stream.assert_awaited_once()
 
 
 def test_durable_transfer_operation_replays_preparation_and_persists_execution_receipt(

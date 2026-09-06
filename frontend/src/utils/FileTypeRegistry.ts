@@ -68,6 +68,7 @@ interface FileTypeDefinition {
   extensions: string[]; // e.g., ['.jpg', '.jpeg']
   mimeTypes: string[]; // e.g., ['image/jpeg']
   category: FileCategory;
+  requiresServerConversion?: boolean;
   viewerComponent?: () => Promise<{ default: ViewerComponent }>;
   icon: IconIdentifier;
   color: string;
@@ -232,6 +233,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".tif", ".tiff"],
     mimeTypes: ["image/tiff", "image/x-tiff"],
     category: "image",
+    requiresServerConversion: true,
     viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#0077b6",
@@ -241,6 +243,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".heic", ".heif"],
     mimeTypes: ["image/heic", "image/heif"],
     category: "image",
+    requiresServerConversion: true,
     viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#0096c7",
@@ -250,6 +253,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".bmp", ".dib"],
     mimeTypes: ["image/bmp", "image/x-ms-bmp"],
     category: "image",
+    requiresServerConversion: true,
     viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#00b4d8",
@@ -259,6 +263,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".ico"],
     mimeTypes: ["image/x-icon", "image/vnd.microsoft.icon"],
     category: "image",
+    requiresServerConversion: true,
     viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#48cae4",
@@ -270,6 +275,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".psd", ".psb"],
     mimeTypes: ["image/vnd.adobe.photoshop", "image/x-photoshop"],
     category: "image",
+    requiresServerConversion: true,
     viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#31A8FF", // Adobe Photoshop blue
@@ -279,6 +285,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".eps"],
     mimeTypes: ["application/postscript", "image/x-eps"],
     category: "image",
+    requiresServerConversion: true,
     viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#FF9A00", // PostScript orange
@@ -288,6 +295,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".ai"],
     mimeTypes: ["application/postscript", "application/illustrator"],
     category: "image",
+    requiresServerConversion: true,
     viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#FF7C00", // Adobe Illustrator orange
@@ -297,6 +305,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".jp2", ".j2k", ".jpt", ".j2c", ".jpc"],
     mimeTypes: ["image/jp2", "image/jpx", "image/jpm"],
     category: "image",
+    requiresServerConversion: true,
     viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#8b5cf6",
@@ -306,6 +315,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".jxl"],
     mimeTypes: ["image/jxl"],
     category: "image",
+    requiresServerConversion: true,
     viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#a855f7",
@@ -315,6 +325,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".exr"],
     mimeTypes: ["image/x-exr"],
     category: "image",
+    requiresServerConversion: true,
     viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#ec4899",
@@ -324,6 +335,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".hdr"],
     mimeTypes: ["image/vnd.radiance"],
     category: "image",
+    requiresServerConversion: true,
     viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#f97316",
@@ -335,6 +347,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".fits", ".fit", ".fts"],
     mimeTypes: ["image/fits", "application/fits"],
     category: "image",
+    requiresServerConversion: true,
     viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#06b6d4",
@@ -344,6 +357,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".svs", ".ndpi", ".scn", ".mrxs", ".vms", ".vmu", ".bif"],
     mimeTypes: ["image/x-whole-slide"],
     category: "image",
+    requiresServerConversion: true,
     viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#14b8a6",
@@ -353,6 +367,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".img"],
     mimeTypes: ["image/x-img", "application/x-analyze"],
     category: "image",
+    requiresServerConversion: true,
     viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#0ea5e9",
@@ -362,6 +377,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".mat"],
     mimeTypes: ["application/x-matlab-data"],
     category: "image",
+    requiresServerConversion: true,
     viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#f59e0b",
@@ -820,6 +836,11 @@ export const getFileTypeByMime = (mimeType: string): FileTypeDefinition | null =
 export const isImageFile = (filename: string): boolean => {
   const fileType = getFileTypeByExtension(filename);
   return fileType?.category === "image";
+};
+
+/** Check whether browser display depends on backend image conversion. */
+export const requiresServerImageConversion = (filename: string): boolean => {
+  return getFileTypeByExtension(filename)?.requiresServerConversion === true;
 };
 
 /**

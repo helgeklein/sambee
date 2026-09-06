@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import api from "./api";
-import { SambeeSmbBackend } from "./storageBackends";
+import { PreviewUnavailableError } from "./previewPolicy";
+import { CompanionLocalBackend, SambeeSmbBackend } from "./storageBackends";
 
 vi.mock("./api", () => ({
   default: {
     acquireEditLock: vi.fn(),
     getArchiveMember: vi.fn(),
+    getImageBlob: vi.fn(),
+    getPdfBlob: vi.fn(),
     heartbeatEditLock: vi.fn(),
     releaseEditLock: vi.fn(),
     writeTextWithEditLock: vi.fn(),
@@ -106,5 +109,52 @@ describe("SambeeSmbBackend archive reads", () => {
     await expect(session.session.release()).resolves.toBeUndefined();
 
     expect(api.releaseEditLock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects local archive image conversions without calling the Companion", () => {
+    const target = { kind: "local" as const, driveId: "c" };
+    const source = {
+      target,
+      path: "archives/photos.zip",
+      resolvedTarget: { target, connection: null, capabilitySnapshot: {} as never },
+    };
+
+    expect(() => new CompanionLocalBackend().archive?.readMember(source, "images/photo.jxl", { kind: "image" })).toThrow(
+      PreviewUnavailableError
+    );
+    expect(api.getArchiveMember).not.toHaveBeenCalled();
+  });
+
+  it("allows local browser-native archive images as raw previews", async () => {
+    const target = { kind: "local" as const, driveId: "c" };
+    const source = {
+      target,
+      path: "archives/photos.zip",
+      resolvedTarget: { target, connection: null, capabilitySnapshot: {} as never },
+    };
+    const blob = new Blob(["png"]);
+    vi.mocked(api.getArchiveMember).mockResolvedValueOnce(blob);
+
+    await expect(new CompanionLocalBackend().archive?.readMember(source, "images/photo.png", { kind: "image" })).resolves.toBe(blob);
+    expect(api.getArchiveMember).toHaveBeenCalledWith("local-drive:c", "archives/photos.zip", "images/photo.png", {
+      download: undefined,
+      request: { kind: "image" },
+      signal: undefined,
+    });
+  });
+
+  it("rejects local archive PDF normalization without calling the Companion", () => {
+    const target = { kind: "local" as const, driveId: "c" };
+    const source = {
+      target,
+      path: "archives/reports.zip",
+      resolvedTarget: { target, connection: null, capabilitySnapshot: {} as never },
+    };
+    vi.mocked(api.getArchiveMember).mockClear();
+
+    expect(() => new CompanionLocalBackend().archive?.readMember(source, "report.pdf", { kind: "pdf", variant: "normalized" })).toThrow(
+      PreviewUnavailableError
+    );
+    expect(api.getArchiveMember).not.toHaveBeenCalled();
   });
 });

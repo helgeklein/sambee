@@ -55,6 +55,11 @@ export interface StorageBackendCapabilities {
   canEditText: boolean;
   canList: boolean;
   canReadArchive: boolean;
+  preview: {
+    imageConversion: boolean;
+    imageResizing: boolean;
+    pdfNormalization: boolean;
+  };
   canWriteFile: boolean;
   canResolveActivation: boolean;
   canOpenInNativeApp: boolean;
@@ -147,7 +152,7 @@ export type ContentTransferResult =
   | { status: "cancelled"; replaced: false; effects: StorageMutationEffects };
 
 export type StorageOperationError =
-  | { code: "unavailable"; reason: "read-only" | "unpaired" | "unsupported" | "missing-target" }
+  | { code: "unavailable"; reason: "read-only" | "unpaired" | "unsupported" | "missing-target" | "source_size_unknown" }
   | { code: "validation"; reason: "heterogeneous-source-target" | "invalid-name" }
   | { code: "stale-capability"; expectedRevision: number; actualRevision: number }
   | { code: "conflict"; detail: string }

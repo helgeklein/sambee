@@ -14,6 +14,7 @@ import axios from "axios";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isLocalAbortError } from "../services/backendAvailability";
 import { error as logError, logger, info as logInfo } from "../services/logger";
+import { PreviewUnavailableError } from "../services/previewPolicy";
 import { isApiError } from "../types";
 import { checkIsTransientError, getTransientErrorMessage } from "./useApiRetry";
 
@@ -763,7 +764,12 @@ export const useCachedImageGallery = ({
           );
         }
 
-        const errorMessage = isTransientFailure ? getTransientErrorMessage() : IMAGE_LOAD_FAILED_MESSAGE;
+        const errorMessage =
+          err instanceof PreviewUnavailableError
+            ? err.message
+            : isTransientFailure
+              ? getTransientErrorMessage()
+              : IMAGE_LOAD_FAILED_MESSAGE;
 
         // Use RAF to batch state updates and avoid layout thrashing
         requestAnimationFrame(() => {

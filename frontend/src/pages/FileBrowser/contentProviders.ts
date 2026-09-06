@@ -1,5 +1,7 @@
 import { createContext, useContext } from "react";
 import api from "../../services/api";
+import { isLocalDrive } from "../../services/backendRouter";
+import { assertLocalPreviewSupported } from "../../services/previewPolicy";
 import type {
   ResolvedStorageDirectoryLocation,
   StorageBackendRegistry,
@@ -265,6 +267,7 @@ const physicalContentProvider: ContentProvider = {
     if (item.kind !== "physical") {
       throw new Error("Physical provider requires a physical item");
     }
+    if (isLocalDrive(item.location.connectionId)) assertLocalPreviewSupported(item.path, request, options);
 
     if (options?.download || request.kind === "raw") {
       return api.getOriginalFileBlob(item.location.connectionId, item.path, { signal: options?.signal });
@@ -348,6 +351,7 @@ const zipContentProvider: VirtualContentProvider = {
     if (item.kind !== "virtual" || item.location.providerId !== "zip") {
       throw new Error("ZIP provider cannot read a different virtual content type");
     }
+    if (isLocalDrive(item.location.source.connectionId)) assertLocalPreviewSupported(item.path, request, options);
     return api.getArchiveMember(item.location.connectionId, item.location.source.path, item.path, {
       download: options?.download,
       request,
