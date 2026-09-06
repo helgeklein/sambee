@@ -116,21 +116,27 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   const [destFileName, setDestFileName] = useState(initialFileName);
   const inputRef = useRef<HTMLInputElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Reset state when the dialog opens with new values
+  // Reset state when the dialog opens and restore focus after a nested workflow finishes.
   useEffect(() => {
-    if (open) {
-      setDestFileName(initialFileName);
-      // Focus the filename input for single-item, or the confirm
-      // button for multi-item.  requestAnimationFrame lets the MUI
-      // Dialog finish its own focus-trap setup first.
-      if (isSingleItem) {
-        requestAnimationFrame(() => inputRef.current?.select());
-      } else {
-        requestAnimationFrame(() => confirmButtonRef.current?.focus());
-      }
+    if (!open) return;
+
+    if (isTerminal) {
+      requestAnimationFrame(() => closeButtonRef.current?.focus());
+      return;
     }
-  }, [open, initialFileName, isSingleItem]);
+
+    setDestFileName(initialFileName);
+    // Focus the filename input for single-item, or the confirm
+    // button for multi-item.  requestAnimationFrame lets the MUI
+    // Dialog finish its own focus-trap setup first.
+    if (isSingleItem) {
+      requestAnimationFrame(() => inputRef.current?.select());
+    } else {
+      requestAnimationFrame(() => confirmButtonRef.current?.focus());
+    }
+  }, [open, initialFileName, isSingleItem, isTerminal]);
 
   const title = isCopy ? S.TITLE_COPY : S.TITLE_MOVE;
   const prompt = isCopy ? S.PROMPT_COPY_MULTI(files.length) : S.PROMPT_MOVE_MULTI(files.length);
@@ -249,7 +255,9 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
 
   const actions = (
     <>
-      <Button onClick={onCancel}>{isTerminal ? "Close" : S.BUTTON_CANCEL}</Button>
+      <Button ref={isTerminal ? closeButtonRef : undefined} onClick={onCancel}>
+        {isTerminal ? "Close" : S.BUTTON_CANCEL}
+      </Button>
       {!isTerminal ? (
         <Button
           ref={confirmButtonRef}

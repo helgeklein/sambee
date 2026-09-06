@@ -15,7 +15,7 @@
  * - Error message displayed when present
  */
 
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { FileEntry } from "../../../types";
@@ -64,6 +64,14 @@ describe("CopyMoveDialog", () => {
 
     expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
+  });
+
+  it("focuses Close when a still-open dialog enters a terminal state", async () => {
+    const { rerender } = render(<CopyMoveDialog {...defaultProps} />);
+
+    rerender(<CopyMoveDialog {...defaultProps} error="One item failed" isTerminal />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Close" })).toHaveFocus());
   });
 
   it("shows single-item copy prompt with destination", () => {
