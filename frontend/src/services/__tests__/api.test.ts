@@ -409,6 +409,88 @@ describe("API Service", () => {
     expect(await new Response(destinationRequest.body).arrayBuffer()).toEqual(new Uint8Array([1, 2, 3]).buffer);
   });
 
+  it("returns a failed result when buffering a cross-provider source fails", async () => {
+    class UnsupportedStreamUploadRequest {
+      headers = new Headers({ "Content-Type": "text/plain" });
+    }
+
+    vi.stubGlobal("Request", UnsupportedStreamUploadRequest);
+    mockAxiosInstance.get.mockResolvedValue({
+      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, size: 3, is_readable: true, is_hidden: false },
+    } as AxiosResponse);
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        new ReadableStream({
+          start: (controller) => controller.error(new Error("source connection lost")),
+        })
+      )
+    );
+
+    await expect(apiService.transferAcrossBackends("copy", "source", "source.txt", "destination", "target.txt")).resolves.toMatchObject({
+      status: "failed",
+      effects: { source: "unchanged", destination: "unchanged" },
+      error: { code: "transport", detail: "Transfer source stream failed: source connection lost" },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels without publishing when buffering a cross-provider source is aborted", async () => {
+    class UnsupportedStreamUploadRequest {
+      headers = new Headers({ "Content-Type": "text/plain" });
+    }
+
+    vi.stubGlobal("Request", UnsupportedStreamUploadRequest);
+    const abortController = new AbortController();
+    mockAxiosInstance.get.mockResolvedValue({
+      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, size: 3, is_readable: true, is_hidden: false },
+    } as AxiosResponse);
+    fetchMock.mockImplementationOnce(async () => {
+      abortController.abort();
+      return new Response(
+        new ReadableStream({
+          start: (controller) => controller.error(new DOMException("The operation was aborted", "AbortError")),
+        })
+      );
+    });
+
+    await expect(
+      apiService.transferAcrossBackends("copy", "source", "source.txt", "destination", "target.txt", "ask", {
+        signal: abortController.signal,
+      })
+    ).resolves.toMatchObject({ status: "cancelled", effects: { source: "unchanged", destination: "unchanged" } });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels without publishing when buffering completes after an abort", async () => {
+    class UnsupportedStreamUploadRequest {
+      headers = new Headers({ "Content-Type": "text/plain" });
+    }
+
+    vi.stubGlobal("Request", UnsupportedStreamUploadRequest);
+    const abortController = new AbortController();
+    mockAxiosInstance.get.mockResolvedValue({
+      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, size: 3, is_readable: true, is_hidden: false },
+    } as AxiosResponse);
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        new ReadableStream({
+          start: (controller) => {
+            controller.enqueue(new Uint8Array([1, 2, 3]));
+            controller.close();
+            abortController.abort();
+          },
+        })
+      )
+    );
+
+    await expect(
+      apiService.transferAcrossBackends("copy", "source", "source.txt", "destination", "target.txt", "ask", {
+        signal: abortController.signal,
+      })
+    ).resolves.toMatchObject({ status: "cancelled", effects: { source: "unchanged", destination: "unchanged" } });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("reports byte progress while relaying a cross-provider stream", async () => {
     mockAxiosInstance.get.mockResolvedValue({
       data: { name: "source.txt", path: "source.txt", type: FileType.FILE, size: 3, is_readable: true, is_hidden: false },

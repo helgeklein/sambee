@@ -1586,7 +1586,23 @@ class ApiService {
       : sourceResponse.body;
     let destinationBody: ReadableStream<Uint8Array> | Blob = relayStream;
     if (!supportsStreamUploadRequestBodies()) {
-      const bufferedBody = await new Response(relayStream).blob();
+      let bufferedBody: Blob;
+      try {
+        bufferedBody = await new Response(relayStream).blob();
+      } catch (error) {
+        if (options.signal?.aborted) {
+          return { status: "cancelled", replaced: false, effects: { source: "unchanged", destination: "unchanged" } };
+        }
+        return {
+          status: "failed",
+          replaced: false,
+          effects: { source: "unchanged", destination: "unchanged" },
+          error: {
+            code: "transport",
+            detail: `Transfer source stream failed: ${error instanceof Error ? error.message : "unknown error"}`,
+          },
+        };
+      }
       if (bufferedBody.size !== expectedSize) {
         return {
           status: "failed",
@@ -1597,6 +1613,9 @@ class ApiService {
             detail: `Transfer source size mismatch: expected ${expectedSize} bytes but received ${bufferedBody.size} bytes`,
           },
         };
+      }
+      if (options.signal?.aborted) {
+        return { status: "cancelled", replaced: false, effects: { source: "unchanged", destination: "unchanged" } };
       }
       destinationBody = bufferedBody;
     }

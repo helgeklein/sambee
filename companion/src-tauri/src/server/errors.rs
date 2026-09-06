@@ -83,6 +83,7 @@ impl From<ApiError> for ArchiveV2Error {
             ApiError::BadRequestWithCode { message, code } => {
                 (StatusCode::BAD_REQUEST, archive_v2_contract_code(code, "invalid_request"), message)
             }
+            ApiError::UnprocessableContent(message) => (StatusCode::UNPROCESSABLE_ENTITY, "invalid_request", message),
             ApiError::Forbidden(message) => (StatusCode::FORBIDDEN, "authorization_denied", message),
             ApiError::ForbiddenWithCode { message, code } => (
                 StatusCode::FORBIDDEN,
@@ -207,6 +208,9 @@ pub enum ApiError {
     #[error("Bad request: {message}")]
     BadRequestWithCode { message: String, code: &'static str },
 
+    #[error("Unprocessable content: {0}")]
+    UnprocessableContent(String),
+
     #[error("Forbidden: {0}")]
     Forbidden(String),
 
@@ -282,6 +286,7 @@ impl IntoResponse for ApiError {
             ApiError::NotFoundWithCode { message, code } => (StatusCode::NOT_FOUND, Value::String(message), Some(code)),
             ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, Value::String(msg), None),
             ApiError::BadRequestWithCode { message, code } => (StatusCode::BAD_REQUEST, Value::String(message), Some(code)),
+            ApiError::UnprocessableContent(msg) => (StatusCode::UNPROCESSABLE_ENTITY, Value::String(msg), None),
             ApiError::Forbidden(msg) => (StatusCode::FORBIDDEN, Value::String(msg), None),
             ApiError::ForbiddenWithCode { message, code } => (StatusCode::FORBIDDEN, Value::String(message), Some(code)),
             ApiError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, Value::String(msg), None),
@@ -328,6 +333,20 @@ mod tests {
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&body).expect("response body should be JSON"),
             serde_json::json!({ "detail": "Not a file", "code": RECENT_FILE_TARGET_NOT_FILE_CODE })
+        );
+    }
+
+    #[tokio::test]
+    async fn unprocessable_content_uses_http_422() {
+        let response = ApiError::UnprocessableContent("Transfer source size mismatch".to_string()).into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body should be readable");
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).expect("response body should be JSON"),
+            serde_json::json!({ "detail": "Transfer source size mismatch" })
         );
     }
 

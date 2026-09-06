@@ -1287,6 +1287,11 @@ fn transfer_receipt_error(error: &ApiError) -> TransferReceiptError {
             detail: serde_json::Value::String(message.clone()),
             code: Some(code),
         },
+        ApiError::UnprocessableContent(message) => TransferReceiptError {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            detail: serde_json::Value::String(message.clone()),
+            code: None,
+        },
         ApiError::Forbidden(message) => TransferReceiptError {
             status: StatusCode::FORBIDDEN,
             detail: serde_json::Value::String(message.clone()),
@@ -1347,6 +1352,7 @@ fn replay_transfer_error(error: TransferReceiptError) -> ApiError {
         (StatusCode::NOT_FOUND, None) => ApiError::NotFound(message),
         (StatusCode::BAD_REQUEST, Some(code)) => ApiError::BadRequestWithCode { message, code },
         (StatusCode::BAD_REQUEST, None) => ApiError::BadRequest(message),
+        (StatusCode::UNPROCESSABLE_ENTITY, None) => ApiError::UnprocessableContent(message),
         (StatusCode::FORBIDDEN, Some(code)) => ApiError::ForbiddenWithCode { message, code },
         (StatusCode::FORBIDDEN, None) => ApiError::Forbidden(message),
         (StatusCode::TOO_MANY_REQUESTS, None) => ApiError::TooManyRequests(message),
@@ -1762,7 +1768,7 @@ pub async fn browse_stream_transfer(
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
             Err(ApiError::conflict_message(format!("Destination already exists: {}", query.path)))
         }
-        Err(error) if error.kind() == std::io::ErrorKind::InvalidData => Err(ApiError::BadRequest(error.to_string())),
+        Err(error) if error.kind() == std::io::ErrorKind::InvalidData => Err(ApiError::UnprocessableContent(error.to_string())),
         Err(error) => Err(map_io_error(error, &destination)),
     }
 }
@@ -1784,6 +1790,12 @@ async fn stage_local_request_body(destination: &FsPath, mut body: Body, expected
         while let Some(frame) = body.frame().await {
             let frame = frame.map_err(|error| std::io::Error::other(format!("Transfer request body failed: {error}")))?;
             if let Ok(data) = frame.into_data() {
+                if data.len() as u64 > expected_size.saturating_sub(bytes_written) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("Transfer source size mismatch: expected {expected_size} bytes but received more"),
+                    ));
+                }
                 output.write_all(&data).await?;
                 bytes_written += data.len() as u64;
             }
@@ -6482,6 +6494,22 @@ mod tests {
             .expect_err("truncated body must not publish a destination");
 
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(!target.exists());
+        let entries = std::fs::read_dir(directory.path()).expect("directory should be readable").count();
+        assert_eq!(entries, 0);
+    }
+
+    #[tokio::test]
+    async fn local_streamed_destination_rejects_an_oversized_body_before_publish() {
+        let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
+        let target = directory.path().join("target.txt");
+
+        let error = super::stage_local_request_body(&target, Body::from("too long"), 3)
+            .await
+            .expect_err("oversized body must not publish a destination");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("received more"));
         assert!(!target.exists());
         let entries = std::fs::read_dir(directory.path()).expect("directory should be readable").count();
         assert_eq!(entries, 0);
