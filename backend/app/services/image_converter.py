@@ -128,8 +128,11 @@ def convert_image_for_viewer(
 
             return result_bytes, mime_type, converter_name, duration_ms
 
-        except PreprocessorError:
+        except PreprocessorError as exc:
             file_type = extension.lstrip(".").upper()
+            error_message = str(exc)
+            if error_message.startswith("File too large:"):
+                raise ValueError(error_message) from None
             raise ValueError(f"Unable to preview this {file_type} file. The file may be invalid or corrupted.") from None
         except Exception:
             logger.exception("Unexpected error preparing %s for preview.", filename)

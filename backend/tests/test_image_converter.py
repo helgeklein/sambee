@@ -280,6 +280,20 @@ class TestImageConversion:
         assert "/tmp/private-file" not in str(error.value)
         assert not caplog.records
 
+    def test_preprocessor_file_size_error_is_exposed(self):
+        """The configured size limit gives users an actionable preview failure reason."""
+        preprocessor = MagicMock()
+        preprocessor.convert_to_final_format.side_effect = PreprocessorError("File too large: 368050000 bytes (max: 104857600)")
+
+        with (
+            patch("app.services.image_converter.VIPS_AVAILABLE", True),
+            patch.object(PreprocessorRegistry, "get_preprocessor_for_format", return_value=preprocessor),
+            pytest.raises(ValueError, match=r"File too large: 368050000 bytes \(max: 104857600\)") as error,
+        ):
+            convert_image_for_viewer(b"large PSD", "image.psd")
+
+        assert str(error.value) == "File too large: 368050000 bytes (max: 104857600)"
+
     def test_get_image_info(self):
         """Test getting image information."""
         test_image = self.create_test_image("RGB", (300, 200))

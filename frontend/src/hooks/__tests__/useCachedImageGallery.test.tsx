@@ -77,7 +77,7 @@ describe("useCachedImageGallery", () => {
     expect(result.current.loadingStates.get(0)).toBe(false);
   });
 
-  it("uses the same error message for image fetch and decode failures", async () => {
+  it("shows an API image conversion failure while retaining the generic decode failure", async () => {
     vi.mocked(apiService.getImageBlob).mockRejectedValue({ response: { status: 422, data: { detail: "Invalid PSD" } } });
 
     const { result: fetchResult } = renderHook(() =>
@@ -90,7 +90,7 @@ describe("useCachedImageGallery", () => {
     );
 
     await waitFor(() => {
-      expect(fetchResult.current.errorStates.get(0)).toBe(IMAGE_LOAD_FAILED_MESSAGE);
+      expect(fetchResult.current.errorStates.get(0)).toBe("Invalid PSD");
     });
 
     vi.mocked(apiService.getImageBlob).mockResolvedValue(new Blob(["invalid PSD"], { type: "image/vnd.adobe.photoshop" }));

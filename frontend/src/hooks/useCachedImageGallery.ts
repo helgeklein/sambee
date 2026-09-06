@@ -16,6 +16,7 @@ import { isLocalAbortError } from "../services/backendAvailability";
 import { error as logError, logger, info as logInfo } from "../services/logger";
 import { PreviewUnavailableError } from "../services/previewPolicy";
 import { isApiError } from "../types";
+import { getApiErrorMessage } from "../utils/apiErrors";
 import { checkIsTransientError, getTransientErrorMessage } from "./useApiRetry";
 
 // Delay before showing spinner to avoid flicker on fast loads
@@ -748,7 +749,7 @@ export const useCachedImageGallery = ({
             ? err.message
             : isTransientFailure
               ? getTransientErrorMessage()
-              : IMAGE_LOAD_FAILED_MESSAGE;
+              : getApiErrorMessage(err, IMAGE_LOAD_FAILED_MESSAGE);
 
         // Use RAF to batch state updates and avoid layout thrashing
         requestAnimationFrame(() => {

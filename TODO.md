@@ -2,7 +2,6 @@
 
 - Archive inspection: folder icon color "muted"
 - Archive member extraction: pressing F5 on a member opens a dialog for extracting the entire archive
-- "Aufrollbanner 2.psd" cannot be loaded - too large to be converted? Can we show the actual cause in the error? Currently the error message is generic.
 
 ## Bugs
 
