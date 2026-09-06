@@ -94,7 +94,7 @@ def collision_policy_from_action(action: str | None) -> ResolvedCollisionPolicy:
         return ResolvedCollisionPolicy.REPLACE
     if action == "replace_older":
         return ResolvedCollisionPolicy.REPLACE_OLDER
-    if action is None:
+    if action in {None, "ask"}:
         return ResolvedCollisionPolicy.ASK
     raise ValueError("Archive extraction collision policy is invalid")
 

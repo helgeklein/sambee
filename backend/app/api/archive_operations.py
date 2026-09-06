@@ -1359,15 +1359,16 @@ async def begin_live_companion_archive_extraction_destination(relay: ScopedCompa
     backend = build_smb_backend(connection, backend_factory=SMBBackend)
     try:
         await backend.connect()
-        try:
-            await backend.create_directory(operation.destination_path)
-        except FileExistsError:
-            destination_info = await backend.get_file_info(operation.destination_path)
-            if destination_info.type != FileType.DIRECTORY:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Archive extraction destination is not a directory",
-                )
+        if operation.destination_path:
+            try:
+                await backend.create_directory(operation.destination_path)
+            except FileExistsError:
+                destination_info = await backend.get_file_info(operation.destination_path)
+                if destination_info.type != FileType.DIRECTORY:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Archive extraction destination is not a directory",
+                    )
         return relay.commit_preflight(operation, checkpoint_json=json.dumps(new_v2_extraction_checkpoint()))
     finally:
         await disconnect_backend_safely(backend, logger=logger, context=f"live local archive destination begin operation {operation.id}")
