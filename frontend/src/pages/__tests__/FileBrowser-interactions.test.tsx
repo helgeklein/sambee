@@ -41,6 +41,12 @@ const completedTransferResult = {
   effects: { source: "unchanged", destination: "mutated" },
 } as const;
 
+const cancelledTransferResult = {
+  status: "cancelled",
+  replaced: false,
+  effects: { source: "unchanged", destination: "unchanged" },
+} as const;
+
 // Mock the API module
 vi.mock("../../services/api");
 
@@ -403,6 +409,31 @@ describe("Browser Component - Interactions", () => {
         ).length;
         expect(destinationLoads).toBeGreaterThan(initialDestinationLoads);
       });
+    });
+
+    it("closes the copy dialog when an in-progress transfer is cancelled", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.copyItem).mockImplementationOnce((...args) => {
+        const signal = args[6]?.signal;
+        return new Promise<typeof cancelledTransferResult>((resolve) => {
+          signal?.addEventListener("abort", () => resolve(cancelledTransferResult), { once: true });
+        });
+      });
+
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
+
+      const listContainer = (await screen.findAllByTestId("virtual-list"))[0];
+      await user.click(listContainer!);
+      await user.keyboard(" ");
+      await user.keyboard("{F5}");
+
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: "Copy" }));
+      await waitFor(() => expect(api.copyItem).toHaveBeenCalledOnce());
+      await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(screen.queryByText("Copy cancelled.")).not.toBeInTheDocument();
     });
 
     it("shows retained-source warnings alongside later batch errors", async () => {

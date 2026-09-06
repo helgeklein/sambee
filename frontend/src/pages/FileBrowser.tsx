@@ -2010,11 +2010,12 @@ const Browser: React.FC = () => {
       void destinationPane.reloadCurrentLocation({ forceRefresh: true });
       void sourcePane.reloadCurrentLocation({ forceRefresh: true });
       if (operationCancelled) {
-        setCopyMoveError(`${copyMoveMode === "copy" ? "Copy" : "Move"} cancelled.`);
-        if (warnings.length > 0) {
-          setCopyMoveWarning(warnings.join("; "));
-        }
         setConflictInfo(null);
+        setCopyMoveError(null);
+        setCopyMoveWarning(null);
+        setCopyMoveProgress(undefined);
+        setCopyMoveDialogOpen(false);
+        sourcePane.handleClearSelection();
         return;
       }
 
