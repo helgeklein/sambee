@@ -648,10 +648,16 @@ describe("content providers", () => {
     const execution = startArchiveExtraction(createContentProviderRegistry(), {
       source: localArchiveLocation,
       destination: physicalLocation("conn-1", "output"),
+      selectedMemberPaths: ["readme.txt"],
     });
 
-    await expect(execution.result).resolves.toMatchObject({ status: "awaiting-decision" });
+    await expect(execution.result).resolves.toMatchObject({
+      status: "awaiting-decision",
+      conflicts: [archiveConflict("readme.txt", "output/readme.txt")],
+      allowedActions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
+    });
     await expect(execution.decide("skip_all")).resolves.toMatchObject({ status: "completed", summary: { filesExtracted: 1 } });
+    expect(api.prepareArchiveOperation).toHaveBeenCalledWith(expect.objectContaining({ selected_member_paths: ["readme.txt"] }));
     expect(api.decideLocalArchiveRelayExtraction).toHaveBeenCalledWith(
       "local-drive:c",
       "extract-1",

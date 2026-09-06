@@ -41,6 +41,16 @@ class TargetWriteResult(int):
 ResolvedCollisionPolicy = TargetResolutionPolicy
 TargetWriteDisposition = TargetResolutionDisposition
 
+_ARCHIVE_COLLISION_POLICY_ALIASES: dict[str, ResolvedCollisionPolicy] = {
+    "ask": ResolvedCollisionPolicy.ASK,
+    "rename": ResolvedCollisionPolicy.ASK,
+    "skip": ResolvedCollisionPolicy.SKIP,
+    "skip_all": ResolvedCollisionPolicy.SKIP,
+    "replace": ResolvedCollisionPolicy.REPLACE,
+    "replace_all": ResolvedCollisionPolicy.REPLACE,
+    "replace_older": ResolvedCollisionPolicy.REPLACE_OLDER,
+}
+
 
 @dataclass(frozen=True)
 class TargetWriteReady:
@@ -86,17 +96,14 @@ def resolved_collision_policy(
 
 
 def collision_policy_from_action(action: str | None) -> ResolvedCollisionPolicy:
-    """Normalize one validated checkpoint action to a target-write policy."""
+    """Normalize one V2 collision action or wire policy to a target-write policy."""
 
-    if action in {"skip", "skip_all"}:
-        return ResolvedCollisionPolicy.SKIP
-    if action in {"replace", "replace_all"}:
-        return ResolvedCollisionPolicy.REPLACE
-    if action == "replace_older":
-        return ResolvedCollisionPolicy.REPLACE_OLDER
-    if action in {None, "ask"}:
+    if action is None:
         return ResolvedCollisionPolicy.ASK
-    raise ValueError("Archive extraction collision policy is invalid")
+    try:
+        return _ARCHIVE_COLLISION_POLICY_ALIASES[action]
+    except KeyError as exc:
+        raise ValueError("Archive extraction collision policy is invalid") from exc
 
 
 def resolve_target_write(

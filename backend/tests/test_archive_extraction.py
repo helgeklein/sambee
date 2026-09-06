@@ -25,6 +25,7 @@ from app.services.archive.target_write import (
     TargetWriteDisposition,
     TargetWriteFailure,
     TargetWriteResult,
+    collision_policy_from_action,
     resolve_target_write,
     resolve_target_write_attempt,
 )
@@ -35,6 +36,7 @@ ARCHIVE_TESTDATA_ROOT = WORKSPACE_ROOT / "archive_testdata"
 EXTRACTION_OUTCOME_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "fixtures" / "extraction-outcome-scenarios-v2.json"
 TARGET_WRITE_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "fixtures" / "target-write-resolution-scenarios-v2.json"
 TOPOLOGY_TRACE_FIXTURE_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "fixtures" / "topology-execution-traces-v2.json"
+ARCHIVE_CONTRACT_SCHEMA_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "schema.json"
 
 
 class MemoryRandomReader:
@@ -494,6 +496,19 @@ def test_target_write_policy_matches_the_v2_scenario_corpus() -> None:
         )
 
         assert disposition == TargetWriteDisposition(scenario["expected"]), scenario["name"]
+
+
+def test_live_relay_collision_policy_aliases_match_the_v2_contract() -> None:
+    corpus = json.loads(TARGET_WRITE_CORPUS_PATH.read_text(encoding="utf-8"))
+    schema = json.loads(ARCHIVE_CONTRACT_SCHEMA_PATH.read_text(encoding="utf-8"))
+    aliases = corpus["live_relay_collision_policy_aliases"]
+    schema_values = schema["$defs"]["liveExtractionMember"]["oneOf"][1]["properties"]["collision_policy"]["enum"]
+
+    assert {alias["wire_value"] for alias in aliases if alias["wire_value"] is not None} == set(schema_values)
+    for alias in aliases:
+        assert collision_policy_from_action(alias["wire_value"]) == ResolvedCollisionPolicy(alias["expected_policy"])
+    with pytest.raises(ValueError, match="collision policy"):
+        collision_policy_from_action("invalid")
 
 
 @pytest.mark.asyncio

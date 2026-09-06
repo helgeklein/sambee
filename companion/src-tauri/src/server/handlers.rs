@@ -38,13 +38,13 @@ use super::archive::{
     build_local_archive_manifest_for_remote_target, build_local_archive_manifest_with_cancellation,
     canonicalize_local_archive_member_roots, create_local_archive_relay_writer,
     create_local_archive_with_execution_plan_progress_and_state, create_local_extraction_root, ensure_local_extraction_directory,
-    prepare_local_archive_target_output, project_local_archive_creation_manifest, resolve_companion_archive_inspection_topology_plan,
-    resolve_companion_archive_topology_plan, stream_validated_local_archive_entry, validate_local_extraction_member_path,
-    ArchiveCreationManifest, ArchiveCreationManifestState, ArchiveDirectoryListingPresentation, ArchiveInspectionCoordinator,
-    ArchiveInspectionPlan, ArchiveInspectionPresentation, ArchiveMemberReadDelivery, ArchiveMemberReadPresentation,
-    CompanionArchiveBinding, CompanionArchiveExecutionDriver, CompanionArchiveOperationKind, CompanionArchiveRelayPurpose,
-    CompanionArchiveTopology, CompanionArchiveTopologyPlan, LocalArchiveCreationExecutionPlan, LocalArchiveCreationResult,
-    LocalArchiveDirectoryOutput, LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionDestinationResult,
+    local_archive_target_write_policy_from_wire, prepare_local_archive_target_output, project_local_archive_creation_manifest,
+    resolve_companion_archive_inspection_topology_plan, resolve_companion_archive_topology_plan, stream_validated_local_archive_entry,
+    validate_local_extraction_member_path, ArchiveCreationManifest, ArchiveCreationManifestState, ArchiveDirectoryListingPresentation,
+    ArchiveInspectionCoordinator, ArchiveInspectionPlan, ArchiveInspectionPresentation, ArchiveMemberReadDelivery,
+    ArchiveMemberReadPresentation, CompanionArchiveBinding, CompanionArchiveExecutionDriver, CompanionArchiveOperationKind,
+    CompanionArchiveRelayPurpose, CompanionArchiveTopology, CompanionArchiveTopologyPlan, LocalArchiveCreationExecutionPlan,
+    LocalArchiveCreationResult, LocalArchiveDirectoryOutput, LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionDestinationResult,
     LocalArchiveInspectionSource, LocalArchiveReadError, LocalArchiveRelayChunk, LocalArchiveTargetOutput, ARCHIVE_COPY_BUFFER_SIZE,
 };
 use super::archive_sessions::{
@@ -4574,17 +4574,8 @@ async fn extract_smb_archive_to_local_live(
         validate_local_extraction_member_path(&member.member_path, member.is_directory).map_err(map_local_archive_error)?;
         let relative_target_path = member.target_path.as_deref().unwrap_or(&member.member_path);
         validate_local_extraction_member_path(relative_target_path, member.is_directory).map_err(map_local_archive_error)?;
-        let target_policy = match member.collision_policy.as_deref() {
-            None | Some("ask") | Some("rename") => super::archive::LocalArchiveTargetWritePolicy::Ask,
-            Some("skip") | Some("skip_all") => super::archive::LocalArchiveTargetWritePolicy::Skip,
-            Some("replace") | Some("replace_all") => super::archive::LocalArchiveTargetWritePolicy::Replace,
-            Some("replace_older") => super::archive::LocalArchiveTargetWritePolicy::ReplaceOlder,
-            Some(_) => {
-                return Err(ApiError::Internal(
-                    "Live archive relay returned an invalid collision policy".to_string(),
-                ))
-            }
-        };
+        let target_policy = local_archive_target_write_policy_from_wire(member.collision_policy.as_deref())
+            .ok_or_else(|| ApiError::Internal("Live archive relay returned an invalid collision policy".to_string()))?;
         let target_path = destination_path.join(relative_target_path);
         let target_path_text = target_path.to_string_lossy().to_string();
         if member.is_directory {

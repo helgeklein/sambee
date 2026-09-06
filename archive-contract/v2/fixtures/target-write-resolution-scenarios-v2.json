@@ -216,5 +216,39 @@
       "expected_attempts": 2,
       "expected_stream_polls": 0
     }
+  ],
+  "live_relay_collision_policy_aliases": [
+    {
+      "wire_value": null,
+      "expected_policy": "ask"
+    },
+    {
+      "wire_value": "ask",
+      "expected_policy": "ask"
+    },
+    {
+      "wire_value": "rename",
+      "expected_policy": "ask"
+    },
+    {
+      "wire_value": "skip",
+      "expected_policy": "skip"
+    },
+    {
+      "wire_value": "skip_all",
+      "expected_policy": "skip"
+    },
+    {
+      "wire_value": "replace",
+      "expected_policy": "replace"
+    },
+    {
+      "wire_value": "replace_all",
+      "expected_policy": "replace"
+    },
+    {
+      "wire_value": "replace_older",
+      "expected_policy": "replace_older"
+    }
   ]
 }
