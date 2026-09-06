@@ -1951,19 +1951,6 @@ impl ArchiveRelayTransport {
         .await
     }
 
-    #[cfg(test)]
-    async fn begin_with_json<T: Serialize + ?Sized, R: DeserializeOwned>(&self, payload: &T, request_context: &str) -> Result<R, ApiError> {
-        decode_archive_relay_json(
-            self.post("begin")
-                .json(payload)
-                .send()
-                .await
-                .map_err(|error| ApiError::Internal(log_request_error(request_context, "POST", self.url(), &error)))?,
-            "start",
-        )
-        .await
-    }
-
     async fn complete_with_json<T: Serialize + ?Sized>(&self, payload: &T, request_context: &str) -> Result<(), ApiError> {
         self.post_json_without_result("complete", payload, request_context, "complete")
             .await
@@ -2003,23 +1990,6 @@ impl ArchiveRelayTransport {
             .send()
             .await
             .map_err(|error| ApiError::Internal(log_request_error(request_context, "POST", self.url(), &error)))?;
-        relay_archive_response(response, action).await
-    }
-
-    #[cfg(test)]
-    async fn post_without_result_with_idempotency_key(
-        &self,
-        path: &str,
-        idempotency_key: &str,
-        request_context: &str,
-        action: &str,
-    ) -> Result<(), ApiError> {
-        let response = self
-            .send_acknowledgement(
-                || self.post(path).header(ARCHIVE_RELAY_IDEMPOTENCY_HEADER, idempotency_key),
-                request_context,
-            )
-            .await?;
         relay_archive_response(response, action).await
     }
 
@@ -6274,8 +6244,8 @@ async fn copy_dir_contents(src: &std::path::Path, dst: &std::path::Path, cancell
 mod tests {
     use super::{
         archive_creation_response, archive_execution_response, browse_list_archive, build_file_info, build_pair_status_response,
-        classify_link_target, complete_transfer_receipt, copy_directory_exclusively, copy_regular_file_exclusively,
-        decode_archive_relay_json, execute_archive_relay, extract_smb_archive_to_local_live, inspection_resolver_call_count,
+        classify_link_target, complete_transfer_receipt, copy_directory_exclusively, copy_regular_file_exclusively, execute_archive_relay,
+        extract_local_archive_to_smb_destination_live, extract_smb_archive_to_local_live, inspection_resolver_call_count,
         is_retryable_live_archive_stream_failure, map_local_archive_error, normalize_drive_relative_path, normalize_windows_display_path,
         replay_transfer_outcome, reserve_transfer_receipt, reset_inspection_resolver_call_count, resolve_companion_archive_topology,
         resolve_companion_creation_coordinator, resolve_companion_extraction_coordinator, resolve_companion_inspection_coordinator,
@@ -6286,7 +6256,7 @@ mod tests {
         ArchiveMemberQuery, ArchiveRelayBinding, ArchiveRelayFailure, ArchiveRelayTransport, CompanionArchiveCreationPlan,
         CompanionArchiveExtractionPlan, CopyMoveRequest, DirectoryCopyError, FixtureArchiveCreationInvocation, LocalTransferWriteError,
         TransferCancellationReservation, TransferReceiptLookup, TransferReceiptOutcome, TransferReceiptReservation,
-        ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS, ARCHIVE_RELAY_IDEMPOTENCY_HEADER, INSPECTION_RESOLVER_TEST_LOCK,
+        ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS, INSPECTION_RESOLVER_TEST_LOCK,
     };
     use crate::server::archive::{
         build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive,
@@ -6298,7 +6268,7 @@ mod tests {
     };
     use crate::server::archive_sessions::{
         ArchiveSessionKind, ArchiveSessionManager, ArchiveSessionPendingDecision, ArchiveSessionPhase, ArchiveSessionProgress,
-        ArchiveSessionStatus,
+        ArchiveSessionStatus, LiveLocalArchiveSourcePhase, LiveLocalArchiveSourceSession,
     };
     use crate::server::errors::{ApiError, LOCAL_ARCHIVE_CREATION_PARTIAL_CODE};
     use crate::server::models::{
@@ -7454,167 +7424,6 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn archive_relay_transport_interoperates_with_fastapi_when_configured() {
-        let serialized_cases = match std::env::var("SAMBEE_ARCHIVE_RELAY_INTEROP_CASES") {
-            Ok(value) => value,
-            Err(_) => return,
-        };
-        let cases: Vec<serde_json::Value> = serde_json::from_str(&serialized_cases).expect("interop cases should be valid JSON");
-        assert_eq!(cases.len(), 4, "interop fixture must cover every mixed V2 relay binding");
-
-        for case in &cases {
-            let relay_url = case["relay_url"].as_str().expect("interop case must define a relay URL");
-            let token = case["token"].as_str().expect("interop case must define a capability token");
-            let action = case["action"].as_str().expect("interop case must define an action");
-            let transport = ArchiveRelayTransport::new(reqwest::Client::new(), relay_url.to_string(), token.to_string());
-            match action {
-                "local_extraction" => {
-                    transport
-                        .begin_with_json::<_, serde_json::Value>(
-                            &serde_json::json!({"entries": [{"path": "report.txt", "is_directory": false, "uncompressed_size": 3, "modified_at": null}]}),
-                            "FastAPI relay interoperability",
-                        )
-                        .await
-                        .expect("local extraction begin should succeed");
-                    let response = transport
-                        .put("member")
-                        .query(&[("member_path", "report.txt")])
-                        .header(ARCHIVE_RELAY_IDEMPOTENCY_HEADER, "b0442ce1-ed19-4b78-82ba-88d4a5d24a70")
-                        .body("abc")
-                        .send()
-                        .await
-                        .expect("local extraction member write should succeed");
-                    decode_archive_relay_json::<serde_json::Value>(response, "write member")
-                        .await
-                        .expect("local extraction member response should succeed");
-                    let idempotency_key = "f265e81c-c6ce-4f4d-9a4a-293b28a6ec95";
-                    transport
-                        .post_without_result_with_idempotency_key("complete", idempotency_key, "FastAPI relay interoperability", "complete")
-                        .await
-                        .expect("initial relay completion should succeed");
-                    transport
-                        .post_without_result_with_idempotency_key("complete", idempotency_key, "FastAPI relay interoperability", "complete")
-                        .await
-                        .expect("idempotent relay completion replay should succeed");
-                }
-                "remote_extraction" => {
-                    transport
-                        .begin::<serde_json::Value>("FastAPI relay interoperability")
-                        .await
-                        .expect("remote extraction begin should succeed");
-                    let response = transport
-                        .get("member")
-                        .query(&[("member_path", "report.txt")])
-                        .send()
-                        .await
-                        .expect("remote extraction member read should succeed");
-                    assert_eq!(response.bytes().await.expect("member bytes should be readable"), "abc");
-                    transport
-                        .post_json_without_result(
-                            "member-complete",
-                            &serde_json::json!({"member_path": "report.txt", "status": "extracted", "target_path": "archive-output.zip/report.txt", "directories_created": 0, "extracted_bytes": 3, "replaced": false, "renamed": false}),
-                            "FastAPI relay interoperability",
-                            "member completion",
-                        )
-                        .await
-                        .expect("extraction member acknowledgement should succeed");
-                    transport
-                        .complete_with_json(
-                            &serde_json::json!({"destination_root_created": false}),
-                            "FastAPI relay interoperability",
-                        )
-                        .await
-                        .expect("extraction completion should succeed");
-                }
-                "remote_creation" => {
-                    transport
-                        .begin::<serde_json::Value>("FastAPI relay interoperability")
-                        .await
-                        .expect("remote creation begin should succeed");
-                    let response = transport
-                        .get("member")
-                        .query(&[("archive_path", "report.txt")])
-                        .send()
-                        .await
-                        .expect("remote creation member read should succeed");
-                    assert_eq!(response.bytes().await.expect("member bytes should be readable"), "abc");
-                    transport
-                        .post_json_without_result(
-                            "member-complete",
-                            &serde_json::json!({"archive_path": "report.txt", "status": "created", "source_bytes": 3}),
-                            "FastAPI relay interoperability",
-                            "member completion",
-                        )
-                        .await
-                        .expect("creation member acknowledgement should succeed");
-                    transport
-                        .complete_with_json(
-                            &serde_json::json!({"files_created": 1, "directories_created": 0, "source_bytes": 3}),
-                            "FastAPI relay interoperability",
-                        )
-                        .await
-                        .expect("creation completion should succeed");
-                }
-                "local_creation" => {
-                    transport
-                        .begin_with_json::<_, serde_json::Value>(
-                            &serde_json::json!({"entries": [{"archive_path": "report.txt", "is_directory": false, "source_size": 3, "modified_at": null}]}),
-                            "FastAPI relay interoperability",
-                        )
-                        .await
-                        .expect("local creation begin should succeed");
-                    let response = transport
-                        .put("member")
-                        .query(&[("archive_path", "report.txt")])
-                        .header(ARCHIVE_RELAY_IDEMPOTENCY_HEADER, "01eff426-4ea2-4cec-b866-5831419c6c44")
-                        .body("abc")
-                        .send()
-                        .await
-                        .expect("local creation member upload should succeed");
-                    decode_archive_relay_json::<serde_json::Value>(response, "upload member")
-                        .await
-                        .expect("local creation member response should succeed");
-                    transport
-                        .complete_with_json(
-                            &serde_json::json!({"files_created": 1, "directories_created": 0, "source_bytes": 3}),
-                            "FastAPI relay interoperability",
-                        )
-                        .await
-                        .expect("local creation completion should succeed");
-                }
-                "fail" => transport
-                    .fail("loopback relay failure", "FastAPI relay interoperability")
-                    .await
-                    .expect("relay failure report should succeed"),
-                _ => panic!("interop case action is invalid"),
-            }
-        }
-
-        let rejected_transport = ArchiveRelayTransport::new(
-            reqwest::Client::new(),
-            cases[0]["relay_url"]
-                .as_str()
-                .expect("interop case must define a relay URL")
-                .to_string(),
-            "invalid-capability".to_string(),
-        );
-        let rejected_response = rejected_transport
-            .post("complete")
-            .header(ARCHIVE_RELAY_IDEMPOTENCY_HEADER, "e4bb5e85-76f0-476d-b5ec-228bd8ec5b17")
-            .send()
-            .await
-            .expect("invalid capability response should be returned");
-        assert_eq!(rejected_response.status(), StatusCode::UNAUTHORIZED);
-        assert_eq!(
-            rejected_response
-                .json::<serde_json::Value>()
-                .await
-                .expect("invalid capability response should be JSON"),
-            serde_json::json!({"code": "capability_invalid", "message": "Archive Companion session is invalid or expired"})
-        );
-    }
-
     async fn spawn_archive_relay_transport_test_server() -> String {
         let app = axum::Router::new()
             .route("/begin", axum::routing::post(|| async { (StatusCode::OK, "invalid JSON") }))
@@ -7705,14 +7514,6 @@ mod tests {
             .expect_err("a failed acknowledgement must retain its HTTP classification");
         assert!(
             matches!(failure_error, ApiError::Conflict(message) if message.as_str().is_some_and(|value| value.contains("record failure")))
-        );
-        assert_eq!(
-            expected_topology_trace("extract_malformed_input")["error_category"],
-            "invalid_input"
-        );
-        assert_eq!(
-            expected_topology_trace("extract_smb_to_local_transport_failure")["error_category"],
-            "transport_failure"
         );
     }
 
@@ -8150,108 +7951,6 @@ mod tests {
         })
     }
 
-    #[allow(dead_code)]
-    async fn spawn_remote_extraction_source_server() -> String {
-        let completed = streaming_relay_operation(serde_json::json!({
-            "extraction_outcome_checkpoint_version": 1,
-            "member_outcomes": {
-                "entry.txt": {
-                    "status": "extracted",
-                    "target_path": "output/entry.txt",
-                    "extracted_bytes": 5,
-                    "directories_created": 0,
-                    "replaced": false,
-                    "renamed": false
-                }
-            }
-        }));
-        let app = axum::Router::new()
-            .route(
-                "/begin",
-                axum::routing::post(|| async {
-                    axum::Json(serde_json::json!({
-                        "operation": streaming_relay_operation(serde_json::json!({
-                            "extraction_outcome_checkpoint_version": 1,
-                            "member_outcomes": {}
-                        })),
-                        "entries": [{
-                            "path": "entry.txt",
-                            "is_directory": false,
-                            "uncompressed_size": 5,
-                            "modified_at": null
-                        }]
-                    }))
-                }),
-            )
-            .route("/member", axum::routing::get(|| async { (StatusCode::OK, "entry") }))
-            .route(
-                "/member-complete",
-                axum::routing::post(|| async {
-                    axum::Json(streaming_relay_operation(serde_json::json!({
-                        "extraction_outcome_checkpoint_version": 1,
-                        "member_outcomes": {}
-                    })))
-                }),
-            )
-            .route(
-                "/complete",
-                axum::routing::post(move || {
-                    let completed = completed.clone();
-                    async move { axum::Json(completed) }
-                }),
-            )
-            .route("/fail", axum::routing::post(|| async { StatusCode::NO_CONTENT }));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("remote extraction source test server should bind");
-        let address = listener
-            .local_addr()
-            .expect("remote extraction source test server should have an address");
-        tokio::spawn(async move {
-            axum::serve(listener, app)
-                .await
-                .expect("remote extraction source test server should remain available");
-        });
-        format!("http://{address}")
-    }
-
-    #[allow(dead_code)]
-    async fn spawn_remote_extraction_destination_server() -> String {
-        let app = axum::Router::new()
-            .route(
-                "/begin",
-                axum::routing::post(|| async {
-                    axum::Json(streaming_relay_operation(serde_json::json!({
-                        "extraction_outcome_checkpoint_version": 1,
-                        "member_outcomes": {}
-                    })))
-                }),
-            )
-            .route(
-                "/member",
-                axum::routing::put(|| async {
-                    axum::Json(streaming_relay_operation(serde_json::json!({
-                        "extraction_outcome_checkpoint_version": 1,
-                        "member_outcomes": {}
-                    })))
-                }),
-            )
-            .route("/complete", axum::routing::post(|| async { StatusCode::NO_CONTENT }))
-            .route("/fail", axum::routing::post(|| async { StatusCode::NO_CONTENT }));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("remote extraction destination test server should bind");
-        let address = listener
-            .local_addr()
-            .expect("remote extraction destination test server should have an address");
-        tokio::spawn(async move {
-            axum::serve(listener, app)
-                .await
-                .expect("remote extraction destination test server should remain available");
-        });
-        format!("http://{address}")
-    }
-
     #[tokio::test]
     async fn smb_to_local_live_relay_writes_one_source_owned_member() {
         let directory = tempfile::tempdir().expect("temporary archive directory should be created");
@@ -8340,6 +8039,72 @@ mod tests {
         assert_eq!(playback_state.observed_traffic[3]["json"]["source_session_id"], "source-1");
         assert_eq!(playback_state.observed_traffic[3]["json"]["delivery_sequence"], 1);
         assert_eq!(playback_state.observed_traffic[3]["json"]["member_path"], "entry.txt");
+        drop(playback_state);
+        playback.assert_consumed().await;
+    }
+
+    #[tokio::test]
+    async fn local_to_smb_live_relay_pauses_the_retained_source_for_a_destination_collision() {
+        let directory = tempfile::tempdir().expect("temporary archive directory should be created");
+        let archive_path = directory.path().join("source.zip");
+        let mut archive = ZipWriter::new(fs::File::create(&archive_path).expect("archive should be created"));
+        archive
+            .start_file(
+                "selected.txt",
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
+            )
+            .expect("archive entry should start");
+        archive.write_all(b"selected").expect("archive entry should be written");
+        archive.finish().expect("archive should finish");
+
+        let source = Arc::new(tokio::sync::Mutex::new(
+            LiveLocalArchiveSourceSession::open(&archive_path).expect("local archive source should open"),
+        ));
+        let source_session_id = source.lock().await.source_session_id().to_string();
+        let playback = spawn_fixture_relay_playback(vec![
+            serde_json::json!({
+                "request": {"method": "POST", "path": "/live/destination-begin", "query": null, "body": "empty"},
+                "response": {"status": 200, "json": {}}
+            }),
+            serde_json::json!({
+                "request": {"method": "PUT", "path": "/live/destination-member", "query": "*", "body": "bytes"},
+                "response": {"status": 200, "json": {
+                    "source_session_id": source_session_id,
+                    "delivery_sequence": 1,
+                    "member_path": "selected.txt",
+                    "status": "awaiting_collision",
+                    "extracted_bytes": 0,
+                    "directories_created": 0,
+                    "replaced": false,
+                    "target_path": "output/selected.txt",
+                    "message": "Archive target already exists"
+                }}
+            }),
+        ])
+        .await;
+        let relay = ArchiveExtractionRelay::from_transport(ArchiveRelayTransport::new(
+            reqwest::Client::new(),
+            playback.url.clone(),
+            "test-token".to_string(),
+        ));
+
+        let result = extract_local_archive_to_smb_destination_live(&relay, source.clone(), Arc::new(AtomicBool::new(false)))
+            .await
+            .expect("a destination collision should pause the local source");
+
+        assert_eq!(result.phase, Some("awaiting_user_decision"));
+        let source = source.lock().await;
+        assert_eq!(source.phase(), LiveLocalArchiveSourcePhase::AwaitingDecision);
+        assert_eq!(source.pending_decision_target_path(), Some("output/selected.txt"));
+        assert_eq!(source.pending_decision_message(), Some("Archive target already exists"));
+        drop(source);
+        let playback_state = playback.playback.lock().await;
+        let query = playback_state.observed_traffic[1]["query"]
+            .as_str()
+            .expect("destination member request should contain query parameters");
+        assert!(query.contains("member_path=selected.txt"));
+        assert!(query.contains("target_path=selected.txt"));
+        assert!(query.contains("collision_policy=ask"));
         drop(playback_state);
         playback.assert_consumed().await;
     }

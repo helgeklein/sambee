@@ -698,21 +698,6 @@
         }
       }
     },
-    "extractionSourceManifest": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "entries"
-      ],
-      "properties": {
-        "entries": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/extractionMember"
-          }
-        }
-      }
-    },
     "creationSourceManifest": {
       "type": "object",
       "additionalProperties": false,
@@ -724,25 +709,6 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/creationMember"
-          }
-        }
-      }
-    },
-    "extractionManifest": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "operation",
-        "entries"
-      ],
-      "properties": {
-        "operation": {
-          "$ref": "#/$defs/operationRead"
-        },
-        "entries": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/extractionMember"
           }
         }
       }
@@ -765,16 +731,6 @@
           }
         }
       }
-    },
-    "relayExtractionBegin": {
-      "oneOf": [
-        {
-          "$ref": "#/$defs/operationRead"
-        },
-        {
-          "$ref": "#/$defs/extractionManifest"
-        }
-      ]
     },
     "liveExtractionBegin": {
       "type": "object",
@@ -1291,109 +1247,6 @@
           ]
         }
       ]
-    },
-    "extractionMemberCompletion": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "member_path",
-        "status",
-        "target_path",
-        "directories_created",
-        "extracted_bytes",
-        "replaced",
-        "renamed"
-      ],
-      "properties": {
-        "member_path": {
-          "$ref": "#/$defs/memberPath"
-        },
-        "status": {
-          "enum": [
-            "directory",
-            "extracted",
-            "skipped",
-            "ignored"
-          ]
-        },
-        "target_path": {
-          "$ref": "#/$defs/memberPath"
-        },
-        "directories_created": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "extracted_bytes": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "replaced": {
-          "type": "boolean"
-        },
-        "renamed": {
-          "type": "boolean"
-        }
-      }
-    },
-    "extractionCollision": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "member_path",
-        "is_directory"
-      ],
-      "properties": {
-        "member_path": {
-          "$ref": "#/$defs/memberPath"
-        },
-        "is_directory": {
-          "type": "boolean"
-        },
-        "target_size": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "minimum": 0
-        },
-        "target_modified_at": {
-          "$ref": "#/$defs/timestamp"
-        }
-      }
-    },
-    "extractionMemberError": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "member_path",
-        "message",
-        "partial_output"
-      ],
-      "properties": {
-        "member_path": {
-          "$ref": "#/$defs/memberPath"
-        },
-        "message": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 500
-        },
-        "partial_output": {
-          "type": "boolean"
-        }
-      }
-    },
-    "extractionSummary": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "destination_root_created"
-      ],
-      "properties": {
-        "destination_root_created": {
-          "type": "boolean"
-        }
-      }
     },
     "creationMemberCompletion": {
       "type": "object",

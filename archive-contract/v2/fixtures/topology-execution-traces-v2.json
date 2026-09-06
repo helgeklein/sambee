@@ -61,7 +61,6 @@
     "terminal_summary",
     "error_category"
   ],
-  "segmented_mixed_extraction_trajectory_fixture": "segmented-mixed-extraction-trajectories-v2.json",
   "trajectory_trace_fixture": "topology-trajectory-traces-v2.json",
   "target_write_attempt_cases": [
     {
@@ -776,82 +775,7 @@
           "extracted_bytes": 5
         },
         "error_category": null
-      },
-      "relay_playback": [
-        {
-          "request": {
-            "method": "POST",
-            "path": "/begin",
-            "query": null,
-            "body": "empty"
-          },
-          "response": {
-            "status": 200,
-            "json": {
-              "operation": {
-                "phase": "streaming",
-                "destination_path": "output",
-                "checkpoint_json": "{\"version\":2,\"manifest\":[{\"path\":\"entry.txt\",\"is_directory\":false,\"uncompressed_size\":5,\"modified_at\":null}],\"source_snapshot\":{\"size\":0,\"modified_at\":null},\"member_outcomes\":{},\"decisions\":{\"collision_actions\":{},\"rename_targets\":{},\"ignored_members\":[],\"retry_members\":[]},\"pending_decision\":null,\"delivery_ids\":{}}",
-                "pending_decision_json": null
-              },
-              "entries": [
-                {
-                  "path": "entry.txt",
-                  "is_directory": false,
-                  "uncompressed_size": 5,
-                  "modified_at": null
-                }
-              ]
-            }
-          }
-        },
-        {
-          "request": {
-            "method": "GET",
-            "path": "/member",
-            "query": "member_path=entry.txt",
-            "body": "empty"
-          },
-          "response": {
-            "status": 200,
-            "text": "entry"
-          }
-        },
-        {
-          "request": {
-            "method": "POST",
-            "path": "/member-complete",
-            "query": null,
-            "body": "json"
-          },
-          "response": {
-            "status": 200,
-            "json": {
-              "phase": "streaming",
-              "destination_path": "output",
-              "checkpoint_json": "{\"version\":2,\"manifest\":[{\"path\":\"entry.txt\",\"is_directory\":false,\"uncompressed_size\":5,\"modified_at\":null}],\"source_snapshot\":{\"size\":0,\"modified_at\":null},\"member_outcomes\":{},\"decisions\":{\"collision_actions\":{},\"rename_targets\":{},\"ignored_members\":[],\"retry_members\":[]},\"pending_decision\":null,\"delivery_ids\":{}}",
-              "pending_decision_json": null
-            }
-          }
-        },
-        {
-          "request": {
-            "method": "POST",
-            "path": "/complete",
-            "query": null,
-            "body": "json"
-          },
-          "response": {
-            "status": 200,
-            "json": {
-              "phase": "streaming",
-              "destination_path": "output",
-              "checkpoint_json": "{\"version\":2,\"manifest\":[{\"path\":\"entry.txt\",\"is_directory\":false,\"uncompressed_size\":5,\"modified_at\":null}],\"source_snapshot\":{\"size\":0,\"modified_at\":null},\"member_outcomes\":{\"entry.txt\":{\"status\":\"extracted\",\"target_path\":\"output/entry.txt\",\"extracted_bytes\":5,\"directories_created\":0,\"replaced\":false,\"renamed\":false}},\"decisions\":{\"collision_actions\":{},\"rename_targets\":{},\"ignored_members\":[],\"retry_members\":[]},\"pending_decision\":null,\"delivery_ids\":{}}",
-              "pending_decision_json": null
-            }
-          }
-        }
-      ]
+      }
     },
     {
       "name": "create_local_to_smb_success",
@@ -938,54 +862,7 @@
           "extracted_bytes": 0
         },
         "error_category": null
-      },
-      "relay_playback": [
-        {
-          "request": {
-            "method": "POST",
-            "path": "/begin",
-            "query": null,
-            "body": "json"
-          },
-          "response": {
-            "status": 200,
-            "json": {
-              "phase": "streaming",
-              "destination_path": "output",
-              "checkpoint_json": "{\"version\":2,\"manifest\":[{\"path\":\"source.txt\",\"is_directory\":false,\"uncompressed_size\":0,\"modified_at\":null}],\"source_snapshot\":{\"size\":0,\"modified_at\":null},\"member_outcomes\":{},\"decisions\":{\"collision_actions\":{},\"rename_targets\":{},\"ignored_members\":[],\"retry_members\":[]},\"pending_decision\":null,\"delivery_ids\":{}}",
-              "pending_decision_json": null
-            }
-          }
-        },
-        {
-          "request": {
-            "method": "PUT",
-            "path": "/member",
-            "query": "member_path=source.txt&source_modified_at=1980-01-01T00%3A00%3A00%2B00%3A00",
-            "body": "bytes"
-          },
-          "response": {
-            "status": 200,
-            "json": {
-              "phase": "streaming",
-              "destination_path": "output",
-              "checkpoint_json": "{\"version\":2,\"manifest\":[{\"path\":\"source.txt\",\"is_directory\":false,\"uncompressed_size\":0,\"modified_at\":null}],\"source_snapshot\":{\"size\":0,\"modified_at\":null},\"member_outcomes\":{},\"decisions\":{\"collision_actions\":{},\"rename_targets\":{},\"ignored_members\":[],\"retry_members\":[]},\"pending_decision\":null,\"delivery_ids\":{}}",
-              "pending_decision_json": null
-            }
-          }
-        },
-        {
-          "request": {
-            "method": "POST",
-            "path": "/complete",
-            "query": null,
-            "body": "empty"
-          },
-          "response": {
-            "status": 204
-          }
-        }
-      ]
+      }
     },
     {
       "name": "extract_malformed_input",
@@ -1402,53 +1279,7 @@
         "member_outcomes": [],
         "terminal_summary": null,
         "error_category": "invalid_input"
-      },
-      "relay_playback": [
-        {
-          "request": {
-            "method": "POST",
-            "path": "/begin",
-            "query": null,
-            "body": "empty"
-          },
-          "response": {
-            "status": 200,
-            "json": {
-              "operation": {
-                "phase": "streaming",
-                "destination_path": "output",
-                "checkpoint_json": "{\"version\":2,\"manifest\":[{\"path\":\"entry.txt\",\"is_directory\":false,\"uncompressed_size\":5,\"modified_at\":null},{\"path\":\"entry.txt\",\"is_directory\":false,\"uncompressed_size\":5,\"modified_at\":null}],\"source_snapshot\":{\"size\":0,\"modified_at\":null},\"member_outcomes\":{},\"decisions\":{\"collision_actions\":{},\"rename_targets\":{},\"ignored_members\":[],\"retry_members\":[]},\"pending_decision\":null,\"delivery_ids\":{}}",
-                "pending_decision_json": null
-              },
-              "entries": [
-                {
-                  "path": "entry.txt",
-                  "is_directory": false,
-                  "uncompressed_size": 5,
-                  "modified_at": null
-                },
-                {
-                  "path": "entry.txt",
-                  "is_directory": false,
-                  "uncompressed_size": 5,
-                  "modified_at": null
-                }
-              ]
-            }
-          }
-        },
-        {
-          "request": {
-            "method": "POST",
-            "path": "/fail",
-            "query": null,
-            "body": "json"
-          },
-          "response": {
-            "status": 204
-          }
-        }
-      ]
+      }
     },
     {
       "name": "extract_smb_to_local_collision",
@@ -1468,53 +1299,7 @@
         "member_outcomes": [],
         "terminal_summary": null,
         "error_category": null
-      },
-      "relay_playback": [
-        {
-          "request": {
-            "method": "POST",
-            "path": "/begin",
-            "query": null,
-            "body": "empty"
-          },
-          "response": {
-            "status": 200,
-            "json": {
-              "operation": {
-                "phase": "streaming",
-                "destination_path": "output",
-                "checkpoint_json": "{\"version\":2,\"manifest\":[{\"path\":\"entry.txt\",\"is_directory\":false,\"uncompressed_size\":5,\"modified_at\":null}],\"source_snapshot\":{\"size\":0,\"modified_at\":null},\"member_outcomes\":{},\"decisions\":{\"collision_actions\":{},\"rename_targets\":{},\"ignored_members\":[],\"retry_members\":[]},\"pending_decision\":null,\"delivery_ids\":{}}",
-                "pending_decision_json": null
-              },
-              "entries": [
-                {
-                  "path": "entry.txt",
-                  "is_directory": false,
-                  "uncompressed_size": 5,
-                  "modified_at": null
-                }
-              ]
-            }
-          }
-        },
-        {
-          "request": {
-            "method": "POST",
-            "path": "/member-collision",
-            "query": null,
-            "body": "json"
-          },
-          "response": {
-            "status": 200,
-            "json": {
-              "phase": "awaiting_user_decision",
-              "destination_path": "output",
-              "checkpoint_json": "{\"version\":2,\"manifest\":[{\"path\":\"entry.txt\",\"is_directory\":false,\"uncompressed_size\":5,\"modified_at\":null}],\"source_snapshot\":{\"size\":0,\"modified_at\":null},\"member_outcomes\":{},\"decisions\":{\"collision_actions\":{},\"rename_targets\":{},\"ignored_members\":[],\"retry_members\":[]},\"pending_decision\":null,\"delivery_ids\":{}}",
-              "pending_decision_json": "{\"kind\":\"collision\"}"
-            }
-          }
-        }
-      ]
+      }
     },
     {
       "name": "extract_smb_to_local_partial_write",
@@ -1534,65 +1319,7 @@
         "member_outcomes": [],
         "terminal_summary": null,
         "error_category": "partial_write"
-      },
-      "relay_playback": [
-        {
-          "request": {
-            "method": "POST",
-            "path": "/begin",
-            "query": null,
-            "body": "empty"
-          },
-          "response": {
-            "status": 200,
-            "json": {
-              "operation": {
-                "phase": "streaming",
-                "destination_path": "output",
-                "checkpoint_json": "{\"version\":2,\"manifest\":[{\"path\":\"entry.txt\",\"is_directory\":false,\"uncompressed_size\":5,\"modified_at\":null}],\"source_snapshot\":{\"size\":0,\"modified_at\":null},\"member_outcomes\":{},\"decisions\":{\"collision_actions\":{},\"rename_targets\":{},\"ignored_members\":[],\"retry_members\":[]},\"pending_decision\":null,\"delivery_ids\":{}}",
-                "pending_decision_json": null
-              },
-              "entries": [
-                {
-                  "path": "entry.txt",
-                  "is_directory": false,
-                  "uncompressed_size": 5,
-                  "modified_at": null
-                }
-              ]
-            }
-          }
-        },
-        {
-          "request": {
-            "method": "GET",
-            "path": "/member",
-            "query": "member_path=entry.txt",
-            "body": "empty"
-          },
-          "response": {
-            "status": 200,
-            "text": "bad"
-          }
-        },
-        {
-          "request": {
-            "method": "POST",
-            "path": "/member-error",
-            "query": null,
-            "body": "json"
-          },
-          "response": {
-            "status": 200,
-            "json": {
-              "phase": "awaiting_user_decision",
-              "destination_path": "output",
-              "checkpoint_json": "{\"version\":2,\"manifest\":[{\"path\":\"entry.txt\",\"is_directory\":false,\"uncompressed_size\":5,\"modified_at\":null}],\"source_snapshot\":{\"size\":0,\"modified_at\":null},\"member_outcomes\":{},\"decisions\":{\"collision_actions\":{},\"rename_targets\":{},\"ignored_members\":[],\"retry_members\":[]},\"pending_decision\":null,\"delivery_ids\":{}}",
-              "pending_decision_json": "{\"kind\":\"member_error\"}"
-            }
-          }
-        }
-      ]
+      }
     },
     {
       "name": "extract_smb_to_local_transport_failure",
@@ -1610,31 +1337,7 @@
         "member_outcomes": [],
         "terminal_summary": null,
         "error_category": "transport_failure"
-      },
-      "relay_playback": [
-        {
-          "request": {
-            "method": "POST",
-            "path": "/begin",
-            "query": null,
-            "body": "empty"
-          },
-          "response": {
-            "status": 503
-          }
-        },
-        {
-          "request": {
-            "method": "POST",
-            "path": "/fail",
-            "query": null,
-            "body": "json"
-          },
-          "response": {
-            "status": 204
-          }
-        }
-      ]
+      }
     },
     {
       "name": "extract_local_to_smb_malformed_input",
@@ -1652,20 +1355,7 @@
         "member_outcomes": [],
         "terminal_summary": null,
         "error_category": "invalid_input"
-      },
-      "relay_playback": [
-        {
-          "request": {
-            "method": "POST",
-            "path": "/fail",
-            "query": null,
-            "body": "json"
-          },
-          "response": {
-            "status": 204
-          }
-        }
-      ]
+      }
     },
     {
       "name": "extract_local_to_smb_collision",
@@ -1685,43 +1375,7 @@
         "member_outcomes": [],
         "terminal_summary": null,
         "error_category": null
-      },
-      "relay_playback": [
-        {
-          "request": {
-            "method": "POST",
-            "path": "/begin",
-            "query": null,
-            "body": "json"
-          },
-          "response": {
-            "status": 200,
-            "json": {
-              "phase": "streaming",
-              "destination_path": "output",
-              "checkpoint_json": "{\"version\":2,\"manifest\":[{\"path\":\"source.txt\",\"is_directory\":false,\"uncompressed_size\":0,\"modified_at\":null}],\"source_snapshot\":{\"size\":0,\"modified_at\":null},\"member_outcomes\":{},\"decisions\":{\"collision_actions\":{},\"rename_targets\":{},\"ignored_members\":[],\"retry_members\":[]},\"pending_decision\":null,\"delivery_ids\":{}}",
-              "pending_decision_json": null
-            }
-          }
-        },
-        {
-          "request": {
-            "method": "PUT",
-            "path": "/member",
-            "query": "member_path=source.txt&source_modified_at=1980-01-01T00%3A00%3A00%2B00%3A00",
-            "body": "bytes"
-          },
-          "response": {
-            "status": 200,
-            "json": {
-              "phase": "awaiting_user_decision",
-              "destination_path": "output",
-              "checkpoint_json": "{\"version\":2,\"manifest\":[{\"path\":\"source.txt\",\"is_directory\":false,\"uncompressed_size\":0,\"modified_at\":null}],\"source_snapshot\":{\"size\":0,\"modified_at\":null},\"member_outcomes\":{},\"decisions\":{\"collision_actions\":{},\"rename_targets\":{},\"ignored_members\":[],\"retry_members\":[]},\"pending_decision\":null,\"delivery_ids\":{}}",
-              "pending_decision_json": "{\"kind\":\"collision\"}"
-            }
-          }
-        }
-      ]
+      }
     },
     {
       "name": "extract_local_to_smb_partial_write",
@@ -1741,43 +1395,7 @@
         "member_outcomes": [],
         "terminal_summary": null,
         "error_category": "partial_write"
-      },
-      "relay_playback": [
-        {
-          "request": {
-            "method": "POST",
-            "path": "/begin",
-            "query": null,
-            "body": "json"
-          },
-          "response": {
-            "status": 200,
-            "json": {
-              "phase": "streaming",
-              "destination_path": "output",
-              "checkpoint_json": "{\"version\":2,\"manifest\":[{\"path\":\"source.txt\",\"is_directory\":false,\"uncompressed_size\":0,\"modified_at\":null}],\"source_snapshot\":{\"size\":0,\"modified_at\":null},\"member_outcomes\":{},\"decisions\":{\"collision_actions\":{},\"rename_targets\":{},\"ignored_members\":[],\"retry_members\":[]},\"pending_decision\":null,\"delivery_ids\":{}}",
-              "pending_decision_json": null
-            }
-          }
-        },
-        {
-          "request": {
-            "method": "PUT",
-            "path": "/member",
-            "query": "member_path=source.txt&source_modified_at=1980-01-01T00%3A00%3A00%2B00%3A00",
-            "body": "bytes"
-          },
-          "response": {
-            "status": 200,
-            "json": {
-              "phase": "awaiting_user_decision",
-              "destination_path": "output",
-              "checkpoint_json": "{\"version\":2,\"manifest\":[{\"path\":\"source.txt\",\"is_directory\":false,\"uncompressed_size\":0,\"modified_at\":null}],\"source_snapshot\":{\"size\":0,\"modified_at\":null},\"member_outcomes\":{},\"decisions\":{\"collision_actions\":{},\"rename_targets\":{},\"ignored_members\":[],\"retry_members\":[]},\"pending_decision\":null,\"delivery_ids\":{}}",
-              "pending_decision_json": "{\"kind\":\"member_error\"}"
-            }
-          }
-        }
-      ]
+      }
     },
     {
       "name": "extract_local_to_smb_transport_failure",
@@ -1797,31 +1415,7 @@
         "member_outcomes": [],
         "terminal_summary": null,
         "error_category": "transport_failure"
-      },
-      "relay_playback": [
-        {
-          "request": {
-            "method": "POST",
-            "path": "/begin",
-            "query": null,
-            "body": "json"
-          },
-          "response": {
-            "status": 503
-          }
-        },
-        {
-          "request": {
-            "method": "POST",
-            "path": "/fail",
-            "query": null,
-            "body": "json"
-          },
-          "response": {
-            "status": 204
-          }
-        }
-      ]
+      }
     },
     {
       "name": "extract_smb_to_local_cancellation",
@@ -1839,34 +1433,7 @@
         "member_outcomes": [],
         "terminal_summary": null,
         "error_category": "cancelled"
-      },
-      "relay_playback": [
-        {
-          "request": {
-            "method": "POST",
-            "path": "/begin",
-            "query": null,
-            "body": "empty"
-          },
-          "response": {
-            "status": 409,
-            "json": {
-              "detail": "Archive operation was cancelled"
-            }
-          }
-        },
-        {
-          "request": {
-            "method": "POST",
-            "path": "/fail",
-            "query": null,
-            "body": "json"
-          },
-          "response": {
-            "status": 204
-          }
-        }
-      ]
+      }
     },
     {
       "name": "extract_smb_to_local_source_changed",
@@ -1884,34 +1451,7 @@
         "member_outcomes": [],
         "terminal_summary": null,
         "error_category": "source_changed"
-      },
-      "relay_playback": [
-        {
-          "request": {
-            "method": "POST",
-            "path": "/begin",
-            "query": null,
-            "body": "empty"
-          },
-          "response": {
-            "status": 409,
-            "json": {
-              "detail": "Archive extraction source changed after manifest validation"
-            }
-          }
-        },
-        {
-          "request": {
-            "method": "POST",
-            "path": "/fail",
-            "query": null,
-            "body": "json"
-          },
-          "response": {
-            "status": 204
-          }
-        }
-      ]
+      }
     },
     {
       "name": "extract_local_to_smb_cancellation",
@@ -1931,34 +1471,7 @@
         "member_outcomes": [],
         "terminal_summary": null,
         "error_category": "cancelled"
-      },
-      "relay_playback": [
-        {
-          "request": {
-            "method": "POST",
-            "path": "/begin",
-            "query": null,
-            "body": "json"
-          },
-          "response": {
-            "status": 409,
-            "json": {
-              "detail": "Archive operation was cancelled"
-            }
-          }
-        },
-        {
-          "request": {
-            "method": "POST",
-            "path": "/fail",
-            "query": null,
-            "body": "json"
-          },
-          "response": {
-            "status": 204
-          }
-        }
-      ]
+      }
     },
     {
       "name": "extract_local_to_local_transport_failure",
@@ -1997,34 +1510,7 @@
         "member_outcomes": [],
         "terminal_summary": null,
         "error_category": "source_changed"
-      },
-      "relay_playback": [
-        {
-          "request": {
-            "method": "POST",
-            "path": "/begin",
-            "query": null,
-            "body": "json"
-          },
-          "response": {
-            "status": 409,
-            "json": {
-              "detail": "Archive extraction source changed after manifest validation"
-            }
-          }
-        },
-        {
-          "request": {
-            "method": "POST",
-            "path": "/fail",
-            "query": null,
-            "body": "json"
-          },
-          "response": {
-            "status": 204
-          }
-        }
-      ]
+      }
     },
     {
       "name": "create_local_to_local_malformed_input",
