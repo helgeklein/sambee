@@ -7016,9 +7016,9 @@ mod tests {
     }
 
     fn fixture_request_matches(expected: &serde_json::Value, observed: &serde_json::Value) -> bool {
-        ["method", "path", "query", "body"]
+        ["method", "path", "query", "body", "body_hex"]
             .iter()
-            .all(|field| expected[*field] == "*" || expected[*field] == observed[*field])
+            .all(|field| expected.get(*field).is_none() || expected[*field] == "*" || expected[*field] == observed[*field])
     }
 
     async fn fixture_relay_handler(
@@ -7041,6 +7041,7 @@ mod tests {
             } else {
                 "bytes"
             },
+            "body_hex": hex::encode(&body),
             "json": json_body,
         });
         let step = {
@@ -8061,13 +8062,22 @@ mod tests {
             LiveLocalArchiveSourceSession::open(&archive_path).expect("local archive source should open"),
         ));
         let source_session_id = source.lock().await.source_session_id().to_string();
+        let destination_member_query = format!(
+            "source_session_id={source_session_id}&delivery_sequence=1&member_path=selected.txt&target_path=selected.txt&is_directory=false&collision_policy=ask&modified_at=1980-01-01T00%3A00%3A00%2B00%3A00"
+        );
         let playback = spawn_fixture_relay_playback(vec![
             serde_json::json!({
                 "request": {"method": "POST", "path": "/live/destination-begin", "query": null, "body": "empty"},
                 "response": {"status": 200, "json": {}}
             }),
             serde_json::json!({
-                "request": {"method": "PUT", "path": "/live/destination-member", "query": "*", "body": "bytes"},
+                "request": {
+                    "method": "PUT",
+                    "path": "/live/destination-member",
+                    "query": destination_member_query,
+                    "body": "bytes",
+                    "body_hex": "73656c6563746564"
+                },
                 "response": {"status": 200, "json": {
                     "source_session_id": source_session_id,
                     "delivery_sequence": 1,
@@ -8098,14 +8108,6 @@ mod tests {
         assert_eq!(source.pending_decision_target_path(), Some("output/selected.txt"));
         assert_eq!(source.pending_decision_message(), Some("Archive target already exists"));
         drop(source);
-        let playback_state = playback.playback.lock().await;
-        let query = playback_state.observed_traffic[1]["query"]
-            .as_str()
-            .expect("destination member request should contain query parameters");
-        assert!(query.contains("member_path=selected.txt"));
-        assert!(query.contains("target_path=selected.txt"));
-        assert!(query.contains("collision_policy=ask"));
-        drop(playback_state);
         playback.assert_consumed().await;
     }
 
