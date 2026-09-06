@@ -770,7 +770,7 @@ export const EN_TRANSLATIONS = {
           title: "Create ZIP Archive",
         },
         extractArchive: {
-          title: "Extract ZIP Archive",
+          title: "Extract from ZIP Archive",
         },
         openInApp: {
           title: "Open Focused File In Native App",

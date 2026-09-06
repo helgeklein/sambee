@@ -940,6 +940,13 @@ describe("Browser Component - Interactions", () => {
 
       fireEvent.keyDown(document, { key: "F9", altKey: true });
       expect(screen.queryByRole("dialog", { name: "Extract from ZIP Archive" })).not.toBeInTheDocument();
+
+      await user.keyboard("{Control>}p{/Control}");
+      const commandInput = await screen.findByPlaceholderText("Run a command");
+      await user.type(commandInput, "extract");
+      expect(screen.queryByText(/Extract.*ZIP Archive/)).not.toBeInTheDocument();
+
+      await user.keyboard("{Escape}");
       fireEvent.keyDown(document, { key: "F1" });
 
       const helpDialog = await screen.findByRole("dialog", { name: "File browser shortcuts" });
