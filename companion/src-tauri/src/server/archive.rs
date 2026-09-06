@@ -345,7 +345,9 @@ impl ArchiveDirectoryListingPresentation {
                     compression_method: entry.compression_method,
                     crc32: entry.crc32,
                     modified_at: entry.modified_at,
-                    state: if entry.encrypted {
+                    state: if entry.is_directory {
+                        ArchiveEntryState::Readable
+                    } else if entry.encrypted {
                         ArchiveEntryState::Blocked
                     } else if entry.is_available {
                         ArchiveEntryState::Readable
@@ -3478,6 +3480,7 @@ mod tests {
         let first_page = inspection.directory_listing().unwrap();
         assert_eq!(first_page.items.len(), 1);
         assert_eq!(first_page.items[0].file_type, FileType::Directory);
+        assert_eq!(first_page.items[0].state, ArchiveEntryState::Readable);
         assert!(first_page.next_cursor.is_none());
 
         let nested_page = ArchiveInspectionCoordinator::from_plan(
@@ -3505,6 +3508,41 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![("alpha.txt", &FileType::File), ("nested", &FileType::Directory)]
         );
+        assert_eq!(
+            nested_page.items.iter().find(|item| item.name == "nested").map(|item| &item.state),
+            Some(&ArchiveEntryState::Readable)
+        );
+    }
+
+    #[test]
+    fn lists_synthesized_archive_directory_as_readable() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("implicit-directory.zip");
+        let mut archive = ZipWriter::new(FsFile::create(&archive_path).unwrap());
+        archive.start_file("nested/file.txt", SimpleFileOptions::default()).unwrap();
+        archive.write_all(b"content").unwrap();
+        archive.finish().unwrap();
+
+        let inspection = ArchiveInspectionCoordinator::from_plan(
+            ArchiveInspectionPlan::from_local_source(
+                LocalArchiveInspectionSource::from_archive_path(archive_path),
+                ArchiveInspectionPresentation::DirectoryListing(ArchiveDirectoryListingPresentation::new(
+                    "implicit-directory.zip".to_string(),
+                    0,
+                    None,
+                    String::new(),
+                    None,
+                    10,
+                )),
+            )
+            .unwrap(),
+        );
+        let listing = inspection.directory_listing().unwrap();
+
+        assert_eq!(listing.items.len(), 1);
+        assert_eq!(listing.items[0].name, "nested");
+        assert_eq!(listing.items[0].file_type, FileType::Directory);
+        assert_eq!(listing.items[0].state, ArchiveEntryState::Readable);
     }
 
     #[test]

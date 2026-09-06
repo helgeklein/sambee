@@ -47,6 +47,15 @@ class PreprocessorError(SambeeError):
     pass
 
 
+class PreprocessorFileTooLargeError(PreprocessorError):
+    """Raised when a file exceeds the configured preprocessing size limit."""
+
+    def __init__(self, file_size: int, max_file_size: int) -> None:
+        self.file_size = file_size
+        self.max_file_size = max_file_size
+        super().__init__(f"File too large: {file_size} bytes (max: {max_file_size})")
+
+
 class PreprocessorInterface(ABC):
     """
     Abstract base class for image preprocessors.
@@ -122,7 +131,7 @@ class PreprocessorInterface(ABC):
         file_size = len(input_data)
         max_file_size = self.get_max_file_size()
         if file_size > max_file_size:
-            raise PreprocessorError(f"File too large: {file_size} bytes (max: {max_file_size})")
+            raise PreprocessorFileTooLargeError(file_size, max_file_size)
 
         # Check extension from filename
         extension = Path(filename).suffix.lower().lstrip(".")

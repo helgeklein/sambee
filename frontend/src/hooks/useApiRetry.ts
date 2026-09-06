@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { isBackendConnectivityError, isLocalAbortOrClientTimeout } from "../services/backendAvailability";
 import { info as logInfo } from "../services/logger";
+import { PreviewUnavailableError } from "../services/previewPolicy";
 import { isApiError } from "../types";
 
 /**
@@ -20,6 +21,10 @@ interface RetryOptions {
  * Only true network errors (no response at all from server) should trigger retry
  */
 const isTransientError = (err: unknown): boolean => {
+  if (err instanceof PreviewUnavailableError) {
+    return false;
+  }
+
   if (isLocalAbortOrClientTimeout(err)) {
     return false;
   }

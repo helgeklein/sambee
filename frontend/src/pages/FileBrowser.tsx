@@ -23,7 +23,7 @@ import { AppBar, Box, Container, Divider, Snackbar, Toolbar, Typography, useMedi
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArchiveExtractDialog } from "../components/FileBrowser/ArchiveExtractDialog";
+import { ArchiveExtractDialog, type ArchiveExtractionScope } from "../components/FileBrowser/ArchiveExtractDialog";
 import { ArchiveOperationProgress } from "../components/FileBrowser/ArchiveOperationProgress";
 import CopyMoveDialog, { type CopyMoveMode } from "../components/FileBrowser/CopyMoveDialog";
 import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
@@ -133,6 +133,8 @@ import { useFileBrowserPane } from "./FileBrowser/useFileBrowserPane";
 // ============================================================================
 // Main Component
 // ============================================================================
+
+const FULL_ARCHIVE_EXTRACTION_SCOPE: ArchiveExtractionScope = { kind: "archive" };
 
 const SERVER_WEBSOCKET_RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 5_000] as const;
 const COMPANION_WEBSOCKET_RECONNECT_DELAY_MS = 5_000;
@@ -471,7 +473,7 @@ const Browser: React.FC = () => {
   const archiveCreationExecutionRef = React.useRef<ContentOperationExecution | null>(null);
   const [archiveExtractionContext, setArchiveExtractionContext] = useState<{
     location: VirtualLocation;
-    selectedMemberPaths?: string[];
+    extractionScope: ArchiveExtractionScope;
     destinationParent: PhysicalLocation;
     destinationPaneId: PaneId;
     usesSiblingDirectory: boolean;
@@ -496,12 +498,12 @@ const Browser: React.FC = () => {
   >([]);
   const [isSubmittingArchiveExtractionDecision, setIsSubmittingArchiveExtractionDecision] = useState(false);
   const archiveExtractionExecutionRef = React.useRef<ArchiveExtractionExecution | null>(null);
-  const [archiveInterruptionNoticeOpen, setArchiveInterruptionNoticeOpen] = useState(false);
+  const [archiveExtractionNotice, setArchiveExtractionNotice] = useState<string | null>(null);
   const archiveWorkflowDialogOpen = archiveCreateContext !== null || archiveExtractionContext !== null;
 
   useEffect(() => {
     void recoverInterruptedArchiveOperation(browserContentServices.archiveOperations).then((interrupted) => {
-      if (interrupted) setArchiveInterruptionNoticeOpen(true);
+      if (interrupted) setArchiveExtractionNotice(t("fileBrowser.archive.interruptedAfterReload"));
     });
     void recoverInterruptedPhysicalTransfer();
 
@@ -527,7 +529,7 @@ const Browser: React.FC = () => {
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [browserContentServices.archiveOperations]);
+  }, [browserContentServices.archiveOperations, t]);
 
   // Overwrite conflict dialog state
   const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
@@ -681,6 +683,7 @@ const Browser: React.FC = () => {
   const activePaneFocusedFile = activePane.focusedIndex >= 0 ? activePane.filesRef.current[activePane.focusedIndex] : undefined;
   const quickBarFocusedFile = quickBarPane.focusedIndex >= 0 ? quickBarPane.filesRef.current[quickBarPane.focusedIndex] : undefined;
   const activePaneIsArchive = activePane.archiveLocation !== null;
+  const activePaneIsVirtualArchive = activePane.currentLocation.kind === "virtual";
   const archiveExtractionSource = useMemo((): VirtualLocation | null => {
     const location = activePane.currentLocation;
     if (location.kind === "virtual") {
@@ -2201,9 +2204,13 @@ const Browser: React.FC = () => {
   }, [t]);
 
   const handleArchiveExtractionRequest = useCallback(
-    (selectedMemberPaths?: string[]) => {
+    (extractionScope: ArchiveExtractionScope = FULL_ARCHIVE_EXTRACTION_SCOPE) => {
       const location = archiveExtractionSource;
-      if (!location) {
+      if (
+        !location ||
+        (extractionScope.kind === "archive" && activePaneIsVirtualArchive) ||
+        (extractionScope.kind === "members" && extractionScope.memberPaths.length === 0)
+      ) {
         return;
       }
       const destinationPaneId: PaneId = isDualMode ? (effectiveActivePaneId === "left" ? "right" : "left") : effectiveActivePaneId;
@@ -2216,7 +2223,10 @@ const Browser: React.FC = () => {
       setArchiveExtractionError(null);
       setArchiveExtractionContext({
         location,
-        selectedMemberPaths,
+        extractionScope:
+          extractionScope.kind === "members"
+            ? { kind: "members", memberPaths: [...extractionScope.memberPaths] }
+            : FULL_ARCHIVE_EXTRACTION_SCOPE,
         destinationParent: usesSiblingDirectory
           ? physicalLocation(location.source.connectionId, parentPath(location.source.path))
           : destinationPane.currentLocation,
@@ -2233,7 +2243,7 @@ const Browser: React.FC = () => {
         initialDestinationName: archiveName.replace(/\.zip$/i, "") || archiveName,
       });
     },
-    [allConnections, archiveExtractionSource, effectiveActivePaneId, isDualMode, leftPane, rightPane]
+    [activePaneIsVirtualArchive, allConnections, archiveExtractionSource, effectiveActivePaneId, isDualMode, leftPane, rightPane]
   );
 
   const completeArchiveExtraction = useCallback(
@@ -2251,6 +2261,18 @@ const Browser: React.FC = () => {
         return;
       }
 
+      if (outcome.status === "completed") {
+        setArchiveExtractionNotice(
+          outcome.filesSkipped > 0
+            ? t("fileBrowser.archive.extractPartialSuccess", { count: outcome.filesSkipped })
+            : t("fileBrowser.archive.extractSuccess")
+        );
+      } else if (outcome.status === "cancelled") {
+        setArchiveExtractionNotice(t("fileBrowser.archive.extractCancelled"));
+      } else {
+        setArchiveExtractionNotice(t("fileBrowser.archive.extractInterrupted"));
+      }
+
       archiveExtractionExecutionRef.current = null;
       setArchiveExtractionConflicts(null);
       setArchiveExtractionAllowedActions([]);
@@ -2265,7 +2287,7 @@ const Browser: React.FC = () => {
       });
       setArchiveExtractionContext(null);
     },
-    [leftPane, rightPane]
+    [leftPane, rightPane, t]
   );
 
   const handleArchiveExtractionConfirm = useCallback(
@@ -2290,7 +2312,7 @@ const Browser: React.FC = () => {
       const execution = startArchiveExtraction(browserContentServices.providers, {
         source: executionContext.location,
         destination,
-        selectedMemberPaths: executionContext.selectedMemberPaths,
+        selectedMemberPaths: executionContext.extractionScope.kind === "members" ? executionContext.extractionScope.memberPaths : undefined,
       });
       archiveExtractionExecutionRef.current = execution;
       const unsubscribeProgress = execution.onProgress(setArchiveExtractionProgress);
@@ -2382,7 +2404,10 @@ const Browser: React.FC = () => {
             : []
         );
       if (selectedMemberPaths.length > 0) {
-        handleArchiveExtractionRequest(selectedMemberPaths);
+        handleArchiveExtractionRequest({
+          kind: "members",
+          memberPaths: selectedMemberPaths,
+        });
       }
       return;
     }
@@ -2402,7 +2427,7 @@ const Browser: React.FC = () => {
       connectionSelected: quickBarPane.connectionId !== "",
       connectionWritable: quickBarPaneWritable,
       canCreateArchive: activePaneCanCreateArchive,
-      canExtractArchive: archiveExtractionSource !== null && archiveExtractionContext === null,
+      canExtractArchive: !activePaneIsVirtualArchive && archiveExtractionSource !== null && archiveExtractionContext === null,
       canOpenFocusedFileInApp: quickBarCanOpenInApp,
       canCopyToOtherPane: quickBarCanCopyToOtherPane,
       canMoveToOtherPane: quickBarCanMoveToOtherPane,
@@ -2439,6 +2464,7 @@ const Browser: React.FC = () => {
       handleCopyToOtherPane,
       handleCreateArchiveRequest,
       handleArchiveExtractionRequest,
+      activePaneIsVirtualArchive,
       archiveExtractionSource,
       handleFocusLeftPane,
       handleFocusRightPane,
@@ -2741,7 +2767,8 @@ const Browser: React.FC = () => {
       {
         ...BROWSER_SHORTCUTS.EXTRACT_ARCHIVE,
         handler: handleArchiveExtractionRequest,
-        enabled: browsing && noDialogOpen && archiveExtractionSource !== null && archiveExtractionContext === null,
+        enabled:
+          browsing && !activePaneIsVirtualArchive && noDialogOpen && archiveExtractionSource !== null && archiveExtractionContext === null,
       },
       // ── Selection Shortcuts (Norton Commander multi-select) ──────────────
       // Toggle selection on focused file, then move focus down (Insert / Space)
@@ -2798,6 +2825,7 @@ const Browser: React.FC = () => {
     activePaneCanOpenInApp,
     activePaneCanExtractSelectedMembers,
     activePaneIsArchive,
+    activePaneIsVirtualArchive,
     handleOpenSettings,
     handleOpenConnectionSelector,
     settingsOpen,
@@ -3253,6 +3281,7 @@ const Browser: React.FC = () => {
       />
       <ArchiveExtractDialog
         archiveName={archiveExtractionContext?.archiveName ?? ""}
+        extractionScope={archiveExtractionContext?.extractionScope ?? FULL_ARCHIVE_EXTRACTION_SCOPE}
         initialDestinationName={archiveExtractionContext?.initialDestinationName ?? ""}
         destinationLabel={archiveExtractionContext?.destinationLabel}
         sourcePathPrefix={
@@ -3301,11 +3330,11 @@ const Browser: React.FC = () => {
         message={t("fileBrowser.chrome.alerts.companionLaunchHint")}
       />
       <Snackbar
-        open={archiveInterruptionNoticeOpen}
+        open={archiveExtractionNotice !== null}
         autoHideDuration={8000}
-        onClose={() => setArchiveInterruptionNoticeOpen(false)}
+        onClose={() => setArchiveExtractionNotice(null)}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-        message={t("fileBrowser.archive.interruptedAfterReload")}
+        message={archiveExtractionNotice}
       />
       {/* Copy / Move Dialog (dual-pane F5/F6) */}
       <CopyMoveDialog

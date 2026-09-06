@@ -12,17 +12,20 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 from fastapi.responses import Response
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from app.api import browser as browser_api
+from app.api import viewer as viewer_api
 from app.api.companion import COMPANION_OPERATION_PURPOSE, COMPANION_TOKEN_CLAIM, COMPANION_TOKEN_CLASS
 from app.core.security import create_access_token
 from app.models.connection import Connection, ConnectionScope
 from app.models.edit_lock import EditLock
 from app.models.file import ContentTransferEffects, ContentTransferResult, CopyMoveRequest, DirectoryListing, FileInfo, FileType
 from app.models.transfer_operation import TransferOperation, TransferOperationPhase
+from app.services.preprocessor import PreprocessorFileTooLargeError
 
 
 class _MemoryRandomAccessReader:
@@ -66,6 +69,25 @@ def _archive_bytes_with_encrypted_members() -> bytes:
         flags = int.from_bytes(archive[flags_offset : flags_offset + 2], "little") | 1
         archive[flags_offset : flags_offset + 2] = flags.to_bytes(2, "little")
     return bytes(archive)
+
+
+@pytest.mark.asyncio
+async def test_image_preview_size_limit_returns_a_safe_actionable_error():
+    """The viewer exposes only the configured limit, not converter diagnostics."""
+    with (
+        patch(
+            "app.api.viewer.convert_image_for_viewer",
+            side_effect=PreprocessorFileTooLargeError(368_050_000, 104_857_600),
+        ),
+        pytest.raises(HTTPException) as error,
+    ):
+        await viewer_api.create_converted_image_response(image_bytes=b"large PSD", filename="image.psd")
+
+    assert error.value.status_code == 413
+    assert error.value.detail == {
+        "code": "image_preview_too_large",
+        "message": "This image is too large to preview (351 MB; maximum 100 MB).",
+    }
 
 
 @pytest.mark.asyncio
@@ -866,6 +888,7 @@ class TestListArchiveDirectory:
         assert response.status_code == 200
         result = response.json()
         assert [(item["name"], item["type"]) for item in result["items"]] == [("docs", "directory")]
+        assert result["items"][0]["state"] == "readable"
         assert result["next_cursor"] is not None
         assert archive_reader.closed is True
         assert len(archive_reader.reads) == 2

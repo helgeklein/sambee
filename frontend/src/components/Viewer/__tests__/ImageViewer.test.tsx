@@ -50,9 +50,11 @@ const createGalleryMock = () => ({
   currentImageLoadPhase: "ready" as const,
   imageSourceRevision: 0,
   showLoadingSpinner: false,
+  canRetryCurrentImage: false,
   markImageAsDecoded: vi.fn(),
   markImageDecodeFailed: vi.fn(),
   cancelCurrentImageLoad: vi.fn(),
+  retryCurrentImage: vi.fn(),
 });
 
 const mockUseCachedImageGallery = vi.fn(createGalleryMock);
@@ -233,6 +235,42 @@ describe("ImageViewer", () => {
 
     expect(screen.getByText("Failed to load image")).toBeInTheDocument();
     expect(screen.getByTestId("image-lightbox").parentElement).toHaveClass("image-viewer-load-error");
+  });
+
+  it("offers manual retry only for recoverable image errors", () => {
+    const retryCurrentImage = vi.fn();
+    mockUseCachedImageGallery.mockReturnValue({
+      ...createGalleryMock(),
+      errorStates: new Map([[0, "Server is busy. Please wait a moment and try again."]]),
+      currentImageLoadPhase: "error",
+      canRetryCurrentImage: true,
+      retryCurrentImage,
+    });
+
+    render(
+      <SambeeThemeProvider>
+        <ImageViewer connectionId="conn-1" path="/images/photo.jpg" onClose={() => {}} />
+      </SambeeThemeProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retryCurrentImage).toHaveBeenCalledOnce();
+  });
+
+  it("does not offer retry for a local preview policy error", () => {
+    mockUseCachedImageGallery.mockReturnValue({
+      ...createGalleryMock(),
+      errorStates: new Map([[0, "This image format requires server-side conversion."]]),
+      currentImageLoadPhase: "error",
+    });
+
+    render(
+      <SambeeThemeProvider>
+        <ImageViewer connectionId="local-conn-1" path="/images/photo.psd" onClose={() => {}} />
+      </SambeeThemeProvider>
+    );
+
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
   });
 
   it("shows cancel feedback only after slow image loading and invokes cancellation", () => {

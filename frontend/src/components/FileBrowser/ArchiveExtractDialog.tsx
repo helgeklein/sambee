@@ -15,8 +15,11 @@ import { ArchiveOperationProgress } from "./ArchiveOperationProgress";
 import { InlineItemName } from "./InlineItemName";
 import { type ConflictDecision, type ConflictResolution, OverwriteResolutionDialog } from "./OverwriteConflictDialog";
 
+export type ArchiveExtractionScope = { kind: "archive" } | { kind: "members"; memberPaths: string[] };
+
 interface ArchiveExtractDialogProps {
   archiveName: string;
+  extractionScope: ArchiveExtractionScope;
   initialDestinationName: string;
   destinationLabel?: string;
   sourcePathPrefix?: string;
@@ -54,6 +57,12 @@ function getItemName(path: string): string {
 function getParentPath(path: string): string {
   const separatorIndex = path.lastIndexOf("/");
   return separatorIndex < 0 ? "" : path.slice(0, separatorIndex);
+}
+
+function getMemberDisplayName(memberPath: string): string {
+  const normalizedPath = memberPath.replace(/\/+$/, "");
+  const separatorIndex = normalizedPath.lastIndexOf("/");
+  return normalizedPath.slice(separatorIndex + 1) || memberPath;
 }
 
 function joinDisplayPath(prefix: string | undefined, path: string): string {
@@ -120,6 +129,7 @@ function toArchiveDecision(
 
 export function ArchiveExtractDialog({
   archiveName,
+  extractionScope,
   initialDestinationName,
   destinationLabel,
   sourcePathPrefix,
@@ -175,6 +185,8 @@ export function ArchiveExtractDialog({
         : " ";
   const currentConflict = conflicts?.[0] ?? null;
   const awaitingConflictDecision = currentConflict !== null && onConflictDecision !== undefined;
+  const selectedMemberPaths = extractionScope.kind === "members" ? extractionScope.memberPaths : [];
+  const isSingleMemberExtraction = selectedMemberPaths.length === 1;
   const focusInitialControl = () => {
     if (memberError) {
       retryMemberButtonRef.current?.focus();
@@ -188,12 +200,20 @@ export function ArchiveExtractDialog({
     <Typography variant="body2" sx={{ color: "text.secondary" }}>
       {memberError ? (
         t("fileBrowser.archive.memberErrorPrompt")
-      ) : (
+      ) : extractionScope.kind === "archive" ? (
         <Trans
           i18nKey="fileBrowser.archive.extractPrompt"
           values={{ archive: archiveName }}
           components={{ item: <InlineItemName testId="archive-extract-prompt-name" /> }}
         />
+      ) : isSingleMemberExtraction ? (
+        <Trans
+          i18nKey="fileBrowser.archive.extractMemberPrompt"
+          values={{ member: getMemberDisplayName(selectedMemberPaths[0]!) }}
+          components={{ item: <InlineItemName testId="archive-extract-prompt-name" /> }}
+        />
+      ) : (
+        <Trans i18nKey="fileBrowser.archive.extractMembersPrompt" values={{ count: selectedMemberPaths.length }} />
       )}
     </Typography>
   );

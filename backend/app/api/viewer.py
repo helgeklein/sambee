@@ -42,6 +42,7 @@ from app.services.pdf_normalizer import (
     needs_pdf_normalization,
     normalize_pdf_with_queue,
 )
+from app.services.preprocessor import PreprocessorFileTooLargeError
 from app.services.system_settings import get_integer_setting_value
 from app.storage.smb import SMBBackend
 from app.utils.content_disposition import build_content_disposition
@@ -663,6 +664,16 @@ async def create_converted_image_response(
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail="Image format not supported: HEIC/HEIF requires additional system libraries",
+        ) from exc
+    except PreprocessorFileTooLargeError as exc:
+        file_size_mb = exc.file_size / (1024 * 1024)
+        max_file_size_mb = exc.max_file_size / (1024 * 1024)
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail={
+                "code": "image_preview_too_large",
+                "message": f"This image is too large to preview ({file_size_mb:.0f} MB; maximum {max_file_size_mb:.0f} MB).",
+            },
         ) from exc
     except ValueError as exc:
         import re

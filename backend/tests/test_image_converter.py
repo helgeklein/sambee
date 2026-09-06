@@ -9,7 +9,7 @@ from app.services.image_converter import (
     convert_image_for_viewer,
     get_image_info,
 )
-from app.services.preprocessor import PreprocessorError, PreprocessorRegistry
+from app.services.preprocessor import PreprocessorError, PreprocessorFileTooLargeError, PreprocessorRegistry
 from app.utils.file_type_registry import (
     is_image_file,
     needs_processing,
@@ -279,6 +279,21 @@ class TestImageConversion:
         assert "ImageMagick" not in str(error.value)
         assert "/tmp/private-file" not in str(error.value)
         assert not caplog.records
+
+    def test_preprocessor_file_size_error_reaches_the_viewer(self):
+        """The viewer API recognizes the configured size limit."""
+        preprocessor = MagicMock()
+        preprocessor.convert_to_final_format.side_effect = PreprocessorFileTooLargeError(368_050_000, 104_857_600)
+
+        with (
+            patch("app.services.image_converter.VIPS_AVAILABLE", True),
+            patch.object(PreprocessorRegistry, "get_preprocessor_for_format", return_value=preprocessor),
+            pytest.raises(PreprocessorFileTooLargeError) as error,
+        ):
+            convert_image_for_viewer(b"large PSD", "image.psd")
+
+        assert error.value.file_size == 368_050_000
+        assert error.value.max_file_size == 104_857_600
 
     def test_get_image_info(self):
         """Test getting image information."""

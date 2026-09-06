@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import apiService from "../../services/api";
 import { logger } from "../../services/logger";
+import { PreviewUnavailableError } from "../../services/previewPolicy";
 import { IMAGE_LOAD_CANCELED_MESSAGE, IMAGE_LOAD_FAILED_MESSAGE, useCachedImageGallery } from "../useCachedImageGallery";
 
 vi.mock("../../services/api", () => ({
@@ -76,8 +77,18 @@ describe("useCachedImageGallery", () => {
     expect(result.current.loadingStates.get(0)).toBe(false);
   });
 
-  it("uses the same error message for image fetch and decode failures", async () => {
-    vi.mocked(apiService.getImageBlob).mockRejectedValue({ response: { status: 422, data: { detail: "Invalid PSD" } } });
+  it("shows the safe image size-limit failure while retaining the generic decode failure", async () => {
+    vi.mocked(apiService.getImageBlob).mockRejectedValue({
+      response: {
+        status: 413,
+        data: {
+          detail: {
+            code: "image_preview_too_large",
+            message: "This image is too large to preview (351 MB; maximum 100 MB).",
+          },
+        },
+      },
+    });
 
     const { result: fetchResult } = renderHook(() =>
       useCachedImageGallery({
@@ -89,7 +100,7 @@ describe("useCachedImageGallery", () => {
     );
 
     await waitFor(() => {
-      expect(fetchResult.current.errorStates.get(0)).toBe(IMAGE_LOAD_FAILED_MESSAGE);
+      expect(fetchResult.current.errorStates.get(0)).toBe("This image is too large to preview (351 MB; maximum 100 MB).");
     });
 
     vi.mocked(apiService.getImageBlob).mockResolvedValue(new Blob(["invalid PSD"], { type: "image/vnd.adobe.photoshop" }));
@@ -111,6 +122,25 @@ describe("useCachedImageGallery", () => {
     });
 
     expect(decodeResult.current.errorStates.get(0)).toBe(IMAGE_LOAD_FAILED_MESSAGE);
+  });
+
+  it("keeps unrecognized API errors generic", async () => {
+    vi.mocked(apiService.getImageBlob).mockRejectedValue({
+      response: { status: 500, data: { detail: "Failed to read file: smb://internal-server/private-share" } },
+    });
+
+    const { result } = renderHook(() =>
+      useCachedImageGallery({
+        connectionId: "conn-1",
+        loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
+        images: ["/private.psd"],
+        preloadRange: 0,
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.errorStates.get(0)).toBe(IMAGE_LOAD_FAILED_MESSAGE);
+    });
   });
 
   it("uses an explicit image loader for non-filesystem image sources", async () => {
@@ -908,7 +938,7 @@ describe("useCachedImageGallery", () => {
     });
   });
 
-  it("retries a recoverable current-image failure after backoff without navigation", async () => {
+  it("retries a transient current-image failure once before succeeding", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       callback(performance.now());
@@ -926,11 +956,8 @@ describe("useCachedImageGallery", () => {
 
         if (currentAttempts === 1) {
           return Promise.reject({
-            message: "Server exploded",
-            response: {
-              status: 500,
-              data: { detail: "Server exploded" },
-            },
+            code: "ERR_NETWORK",
+            message: "Network Error",
           });
         }
 
@@ -955,16 +982,85 @@ describe("useCachedImageGallery", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(result.current.errorStates.get(0)).toBeDefined();
-
     expect(requestedPaths.filter((path) => path === "/0.jpg")).toHaveLength(1);
 
     await act(async () => {
-      await vi.runOnlyPendingTimersAsync();
+      await vi.advanceTimersByTimeAsync(1_000);
     });
 
     expect(requestedPaths.filter((path) => path === "/0.jpg")).toHaveLength(2);
     expect(result.current.getCachedImageSrc(0)).toBeDefined();
+  });
+
+  it("does not requeue an exhausted transient current-image failure", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(performance.now());
+      return 0;
+    });
+
+    const requestedPaths: string[] = [];
+    vi.mocked(apiService.getImageBlob).mockImplementation((_connectionId: string, path: string) => {
+      requestedPaths.push(path);
+      return Promise.reject({ code: "ERR_NETWORK", message: "Network Error" });
+    });
+
+    const { result } = renderHook(() =>
+      useCachedImageGallery({
+        connectionId: "conn-1",
+        loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
+        images: ["/0.jpg"],
+        preloadRange: 0,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(requestedPaths).toHaveLength(2);
+    expect(result.current.errorStates.get(0)).toBe("Server is busy. Please wait a moment and try again.");
+    expect(result.current.canRetryCurrentImage).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_200);
+    });
+
+    expect(requestedPaths).toHaveLength(2);
+  });
+
+  it("keeps a local preview policy error stable without retrying", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(performance.now());
+      return 0;
+    });
+
+    const policyError = new PreviewUnavailableError("This image requires server-side conversion.");
+    const loadImageBlob = vi.fn().mockRejectedValue(policyError);
+
+    const { result } = renderHook(() =>
+      useCachedImageGallery({
+        connectionId: "local-conn-1",
+        loadImageBlob,
+        images: ["/0.psd"],
+        preloadRange: 0,
+      })
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(result.current.errorStates.get(0)).toBe(policyError.message);
+    expect(result.current.currentImageLoadPhase).toBe("error");
+    expect(result.current.canRetryCurrentImage).toBe(false);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_200);
+    });
+
+    expect(loadImageBlob).toHaveBeenCalledTimes(1);
   });
 
   it("does not auto-retry a non-retryable current-image failure", async () => {

@@ -453,6 +453,7 @@ export interface DirectoryListing {
   total: number;
 }
 
+/** Whether an archive entry can be activated; directories are always readable for navigation. */
 export type ArchiveEntryState = "readable" | "blocked" | "unavailable";
 
 export interface ArchiveIdentity {

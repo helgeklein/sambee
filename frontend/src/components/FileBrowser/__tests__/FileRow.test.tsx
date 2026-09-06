@@ -88,6 +88,25 @@ describe("FileRow", () => {
     expect(screen.queryByText(translate("fileBrowser.row.openInBrowserViewer"))).not.toBeInTheDocument();
   });
 
+  it("keeps readable archive directories enabled for navigation", () => {
+    const props = createDefaultFileRowProps();
+    props.file = {
+      ...props.file,
+      name: "nested",
+      path: "nested",
+      type: FileType.DIRECTORY,
+      is_readable: true,
+      archive_entry_state: "readable",
+    };
+
+    render(<FileRow {...props} />);
+
+    const rowButton = screen.getByRole("button", { name: /nested/i });
+    expect(rowButton).not.toBeDisabled();
+    fireEvent.click(rowButton);
+    expect(props.onClick).toHaveBeenCalledWith(props.file, props.index);
+  });
+
   it("updates archive entry actions when a refresh marks the entry unavailable", () => {
     const props = createDefaultFileRowProps();
     const { rerender } = render(<FileRow {...props} />);
