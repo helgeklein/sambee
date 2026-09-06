@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getCompatibleViewerIds, hasViewerSupport, isImageFile } from "../FileTypeRegistry";
+import { getCompatibleViewerIds, hasViewerSupport, isImageFile, requiresServerImageConversion } from "../FileTypeRegistry";
 
 describe("hasViewerSupport", () => {
   it("returns true for image formats", () => {
@@ -69,6 +69,20 @@ describe("isImageFile", () => {
     expect(isImageFile("document.pdf")).toBe(false);
     expect(isImageFile("spreadsheet.xlsx")).toBe(false);
     expect(isImageFile("text.txt")).toBe(false);
+  });
+});
+
+describe("requiresServerImageConversion", () => {
+  it("identifies formats that cannot be previewed from local raw bytes", () => {
+    expect(requiresServerImageConversion("photo.jxl")).toBe(true);
+    expect(requiresServerImageConversion("design.psd")).toBe(true);
+    expect(requiresServerImageConversion("scan.tiff")).toBe(true);
+  });
+
+  it("leaves browser-native images eligible for raw local preview", () => {
+    expect(requiresServerImageConversion("photo.jpg")).toBe(false);
+    expect(requiresServerImageConversion("diagram.png")).toBe(false);
+    expect(requiresServerImageConversion("animation.webp")).toBe(false);
   });
 });
 

@@ -948,24 +948,25 @@ class ApiService {
     try {
       const segment = getBrowseSegment(connectionId);
       const { client, extraConfig } = await this.getClientConfig(connectionId);
-      const path = isLocalDrive(connectionId) ? `/viewer/${segment}/archive/v2/member` : "/archive/v2/inspection/member";
+      const localDrive = isLocalDrive(connectionId);
+      const path = localDrive ? `/viewer/${segment}/archive/v2/member` : "/archive/v2/inspection/member";
       const response = await client.get<Blob>(path, {
         ...extraConfig,
         params: {
-          ...(isLocalDrive(connectionId) ? {} : { connection_id: connectionId }),
+          ...(localDrive ? {} : { connection_id: connectionId }),
           contract_version: "v2",
           archive_path: archivePath,
           member_path: memberPath,
           download: options.download ?? false,
-          view_kind: options.request?.kind ?? "raw",
-          ...(options.request?.kind === "image"
+          ...(!localDrive ? { view_kind: options.request?.kind ?? "raw" } : {}),
+          ...(!localDrive && options.request?.kind === "image"
             ? {
                 viewport_width: getDevicePixelDimension(options.request.viewportWidth),
                 viewport_height: getDevicePixelDimension(options.request.viewportHeight),
                 no_resizing: options.request.noResizing ? 1 : undefined,
               }
             : {}),
-          ...(options.request?.kind === "pdf"
+          ...(!localDrive && options.request?.kind === "pdf"
             ? {
                 pdf_variant: options.request.variant,
                 screen_width: options.request.screenProfile?.width,

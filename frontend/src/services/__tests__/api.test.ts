@@ -1454,6 +1454,28 @@ describe("API Service", () => {
       );
     });
 
+    it("uses the Companion raw archive-member contract for local drives", async () => {
+      localStorage.setItem("companion_secret", "test-companion-secret");
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: new Blob(["archive"]), headers: {} } as AxiosResponse);
+
+      await apiService.getArchiveMember("local-drive:c", "photos.zip", "photos/image.png", {
+        request: { kind: "image", viewportWidth: 640, viewportHeight: 360 },
+      });
+
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+        "/viewer/c/archive/v2/member",
+        expect.objectContaining({
+          params: {
+            contract_version: "v2",
+            archive_path: "photos.zip",
+            member_path: "photos/image.png",
+            download: false,
+          },
+          responseType: "blob",
+        })
+      );
+    });
+
     it("getFileContent() fetches file content as text", async () => {
       localStorage.setItem("access_token", "content-token");
 

@@ -55,6 +55,11 @@ export interface StorageBackendCapabilities {
   canEditText: boolean;
   canList: boolean;
   canReadArchive: boolean;
+  preview: {
+    imageConversion: boolean;
+    imageResizing: boolean;
+    pdfNormalization: boolean;
+  };
   canWriteFile: boolean;
   canResolveActivation: boolean;
   canOpenInNativeApp: boolean;

@@ -1,5 +1,6 @@
 import type { EditLockInfo } from "../types";
 import api from "./api";
+import { assertLocalPreviewSupported } from "./previewPolicy";
 import type {
   ArchiveCreationOperations,
   ArchiveSourceOperations,
@@ -105,6 +106,7 @@ abstract class ApiStorageBackend implements StorageBackend {
       canEditText: writable,
       canList: local ? paired : Boolean(target.connection),
       canReadArchive: !local || paired,
+      preview: { imageConversion: !local, imageResizing: !local, pdfNormalization: !local },
       canWriteFile: writable,
       canResolveActivation: local && paired,
       canOpenInNativeApp: writable,
@@ -124,6 +126,7 @@ abstract class ApiStorageBackend implements StorageBackend {
   async read(location: ResolvedStorageItemLocation, request: StorageReadRequest, options?: StorageRequestOptions): Promise<Blob> {
     assertOwned(this.kind, location.resolvedTarget);
     const id = connectionId(location.target);
+    if (location.target.kind === "local") assertLocalPreviewSupported(location.path, request, options);
     if (options?.download || request.kind === "raw") return api.getOriginalFileBlob(id, location.path, options);
     if (request.kind === "text") return new Blob([await api.getFileContent(id, location.path)], { type: "text/plain" });
     if (request.kind === "image")
@@ -203,12 +206,14 @@ abstract class ApiStorageBackend implements StorageBackend {
   }
   readonly archive: ArchiveSourceOperations = {
     listDirectory: (source, path, options) => api.listArchiveDirectory(connectionId(source.target), source.path, path, options),
-    readMember: (source, path, request, options) =>
-      api.getArchiveMember(connectionId(source.target), source.path, path, {
+    readMember: (source, path, request, options) => {
+      if (source.target.kind === "local") assertLocalPreviewSupported(path, request, options);
+      return api.getArchiveMember(connectionId(source.target), source.path, path, {
         download: options?.download,
         request,
         signal: options?.signal,
-      }),
+      });
+    },
     invalidateMemberPdfDerivative: (source, path, profile) =>
       api.invalidateArchiveMemberPdfDerivative(connectionId(source.target), source.path, path, profile),
   };

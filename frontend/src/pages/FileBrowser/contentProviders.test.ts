@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import api from "../../services/api";
+import { PreviewUnavailableError } from "../../services/previewPolicy";
 import { FileType } from "../../types";
 import { getArchiveExtractionAvailability, startArchiveExtraction } from "./contentOperations";
 import {
@@ -194,6 +195,25 @@ describe("content providers", () => {
       request: { kind: "image", viewportWidth: 800 },
       signal: undefined,
     });
+  });
+
+  it("rejects transformation-dependent local preview reads before fallback transport", () => {
+    vi.clearAllMocks();
+    const localArchiveLocation = virtualLocation(
+      "zip",
+      "local-drive:c",
+      physicalLocation("local-drive:c", "archives/photos.zip"),
+      "images"
+    );
+
+    expect(() =>
+      readContent({ kind: "physical", location: physicalLocation("local-drive:c", "photos"), path: "photos/photo.jxl" }, { kind: "image" })
+    ).toThrow(PreviewUnavailableError);
+    expect(() => readContent(virtualItemHandle(localArchiveLocation, "images/photo.jxl"), { kind: "image" })).toThrow(
+      PreviewUnavailableError
+    );
+    expect(api.getImageBlob).not.toHaveBeenCalled();
+    expect(api.getArchiveMember).not.toHaveBeenCalled();
   });
 
   it("extracts a local ZIP through its content provider", async () => {

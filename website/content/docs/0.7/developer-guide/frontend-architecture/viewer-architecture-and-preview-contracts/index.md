@@ -70,6 +70,17 @@ The viewer endpoint then follows this rule:
 
 That means preview behavior for formats such as TIFF, HEIC, BMP, ICO, and similar formats depends on backend conversion policy, not just on frontend MIME recognition.
 
+### Local-Drive Preview Policy
+
+The Companion serves local-drive files and archive members as raw bytes. It does not copy local content to the backend for processing and does not bundle the backend image or PDF processing stack.
+
+- Browser-native images, text files, and original PDFs can preview from their raw local bytes.
+- Image formats that require server-side conversion, such as TIFF, HEIC, PSD, JPEG XL, and scientific image formats, show an explicit preview-unavailable state for local drives.
+- Image resizing and PDF compatibility normalization are unavailable for local drives.
+- Downloading and opening the original file locally remain available when a local preview is unavailable.
+
+The frontend resolves these capabilities before making a local viewer request. Local archive-member requests use the Companion's strict raw-stream contract, while SMB archive-member requests retain the full conversion and PDF-normalization request parameters.
+
 ### Output Format Rules
 
 The backend does not always convert everything to the same output type.
