@@ -59,6 +59,13 @@ describe("CopyMoveDialog", () => {
     expect(screen.getByRole("heading", { name: S.TITLE_MOVE })).toBeInTheDocument();
   });
 
+  it("shows a terminal Close action without allowing the batch to run again", () => {
+    render(<CopyMoveDialog {...defaultProps} error="One item failed" isTerminal />);
+
+    expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
+  });
+
   it("shows single-item copy prompt with destination", () => {
     const props = { ...defaultProps, files: [createFile("readme.txt")] };
     render(<CopyMoveDialog {...props} mode="copy" />);

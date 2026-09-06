@@ -22,8 +22,12 @@ To copy or move files and directories:
 - Press <kbd>F6</kbd> to move instead of copying.
 
 {{< admonition type="note" >}}
-Copying files and directories between different SMB connections, different local drives, and SMB connections and local drives is supported. For a move across those boundaries, Sambee creates the destination but retains the source when it cannot safely verify and delete that source. Check both panes before deleting a retained source yourself.
+You can copy and move files and directories between different SMB connections, different local drives, and SMB connections and local drives. Sambee completes the destination copy before it removes the original during a move.
 {{< /admonition >}}
+
+While a copy or move is in progress, the dialog shows its progress. Select Cancel to stop an active transfer. If a destination item already exists, use the Target already exists dialog to skip it or choose a different name.
+
+If Sambee creates the destination for a move but can't remove the original, it reports the partial move and keeps the original in place. Review both panes before trying the move again.
 
 ## Extract Selected ZIP Members
 

@@ -94,6 +94,7 @@ import {
   hasForegroundArchiveOperationWork,
   isPartialContainerOutputError,
   recoverInterruptedArchiveOperation,
+  recoverInterruptedPhysicalTransfer,
   startArchiveExtraction,
   startCreateContainer,
 } from "./FileBrowser/contentOperations";
@@ -455,6 +456,8 @@ const Browser: React.FC = () => {
     itemName: string;
   } | null>(null);
   const [copyMoveError, setCopyMoveError] = useState<string | null>(null);
+  const [copyMoveWarning, setCopyMoveWarning] = useState<string | null>(null);
+  const copyMoveAbortControllerRef = React.useRef<AbortController | null>(null);
 
   const [archiveCreateContext, setArchiveCreateContext] = useState<{
     sources: ContentItemHandle[];
@@ -468,6 +471,7 @@ const Browser: React.FC = () => {
   const archiveCreationExecutionRef = React.useRef<ContentOperationExecution | null>(null);
   const [archiveExtractionContext, setArchiveExtractionContext] = useState<{
     location: VirtualLocation;
+    selectedMemberPaths?: string[];
     destinationParent: PhysicalLocation;
     destinationPaneId: PaneId;
     usesSiblingDirectory: boolean;
@@ -499,6 +503,7 @@ const Browser: React.FC = () => {
     void recoverInterruptedArchiveOperation(browserContentServices.archiveOperations).then((interrupted) => {
       if (interrupted) setArchiveInterruptionNoticeOpen(true);
     });
+    void recoverInterruptedPhysicalTransfer();
 
     const handlePageHide = () => {
       cancelForegroundArchiveOperationOnPageHide(browserContentServices.archiveOperations);
@@ -731,6 +736,17 @@ const Browser: React.FC = () => {
           contentOperationEnvironment
         ).available
     );
+  const inactivePane = effectiveActivePaneId === "left" ? rightPane : leftPane;
+  const activePaneCanExtractSelectedMembers =
+    isDualMode &&
+    activePane.currentLocation.kind === "virtual" &&
+    activePane.currentLocation.providerId === "zip" &&
+    activePane.contentCapabilities.extract &&
+    inactivePane.currentLocation.kind === "physical" &&
+    inactivePane.contentCapabilities.mutate &&
+    activePane
+      .getEffectiveSelection()
+      .some((item) => item.handle.kind === "virtual" && item.handle.location.providerId === "zip" && item.entry.is_readable);
   const createContainerDestination = isDualMode
     ? (effectiveActivePaneId === "left" ? rightPane : leftPane).currentLocation
     : activePane.currentLocation;
@@ -1832,6 +1848,7 @@ const Browser: React.FC = () => {
       setCopyMoveSameDirectory(areSameContentLocations(sourcePane.currentLocation, destination));
       setCopyMoveDestinationPaneId(sourcePaneId === "left" ? "right" : "left");
       setCopyMoveError(null);
+      setCopyMoveWarning(null);
       setCopyMoveProgress(undefined);
       setCopyMoveTransferProgress(null);
       setCopyMoveProcessing(false);
@@ -1839,9 +1856,6 @@ const Browser: React.FC = () => {
     },
     [allConnections, contentOperationEnvironment, isDualMode, leftPane, rightPane]
   );
-
-  /** Open the copy dialog (F5). */
-  const handleCopyToOtherPane = useCallback(() => handleOpenCopyMoveDialog("copy"), [handleOpenCopyMoveDialog]);
 
   /** Open the move dialog (F6). */
   const handleMoveToOtherPane = useCallback(() => handleOpenCopyMoveDialog("move"), [handleOpenCopyMoveDialog]);
@@ -1856,11 +1870,13 @@ const Browser: React.FC = () => {
 
       setCopyMoveProcessing(true);
       setCopyMoveError(null);
+      setCopyMoveWarning(null);
       setCopyMoveTransferProgress(null);
       setCopyMoveProgress({ current: 0, total: copyMoveItems.length });
+      const abortController = new AbortController();
+      copyMoveAbortControllerRef.current = abortController;
       const errors: string[] = [];
-      let destinationMutated = false;
-      let sourceMutated = false;
+      const warnings: string[] = [];
       let effectiveStrategy: CopyMoveConflictPolicy = "ask";
       let conflictCount = 0;
       let operationCancelled = false;
@@ -1868,16 +1884,23 @@ const Browser: React.FC = () => {
 
       for (let index = 0; index < copyMoveItems.length; index += 1) {
         const item = copyMoveItems[index]!;
-        const request = { kind: copyMoveMode, source: item.handle, destination: copyMoveDestination, targetName: destFileName } as const;
+        const request = {
+          kind: copyMoveMode,
+          source: item.handle,
+          destination: copyMoveDestination,
+          targetName: destFileName,
+          signal: abortController.signal,
+          onProgress: (bytesTransferred: number, totalBytes: number | null) =>
+            setCopyMoveTransferProgress({ bytesTransferred, totalBytes, itemName: item.entry.name }),
+        } as const;
         let targetName = destFileName;
         const execute = (targetResolutionPolicy: TargetResolutionPolicy = "ask") =>
           executeTransfer({ ...request, targetName, targetResolutionPolicy }, contentOperationEnvironment);
         const applyTransferResult = (result: import("./services/storageContracts").ContentTransferResult) => {
-          destinationMutated ||= result.effects.destination !== "unchanged";
-          sourceMutated ||= result.effects.source !== "unchanged";
           if (result.status === "completed" || result.status === "skipped") return;
           if (result.status === "completed_with_source_retained") {
-            throw new Error(result.error.detail);
+            warnings.push(`${item.entry.name}: ${result.error.detail}`);
+            return;
           }
           if (result.status === "outcome_unknown") {
             outcomeUnknown = true;
@@ -1893,6 +1916,14 @@ const Browser: React.FC = () => {
         try {
           applyTransferResult(await execute());
         } catch (error) {
+          if (outcomeUnknown) {
+            errors.push("The transfer outcome is unknown. Both locations were refreshed.");
+            break;
+          }
+          if (abortController.signal.aborted) {
+            operationCancelled = true;
+            break;
+          }
           if (isApiError(error) && error.response?.status === 409) {
             const detail = error.response?.data?.detail;
             let conflict = typeof detail === "object" && detail !== null ? (detail as ConflictInfo) : null;
@@ -1968,19 +1999,29 @@ const Browser: React.FC = () => {
 
       setCopyMoveProcessing(false);
       setCopyMoveTransferProgress(null);
+      if (copyMoveAbortControllerRef.current === abortController) {
+        copyMoveAbortControllerRef.current = null;
+      }
       const sourcePane = copyMoveSourcePaneId === "left" ? leftPane : rightPane;
       const destinationPane = copyMoveDestinationPaneId === "left" ? leftPane : rightPane;
-      if (destinationMutated) void destinationPane.reloadCurrentLocation({ forceRefresh: true });
-      if (sourceMutated) void sourcePane.reloadCurrentLocation({ forceRefresh: true });
+      void destinationPane.reloadCurrentLocation({ forceRefresh: true });
+      void sourcePane.reloadCurrentLocation({ forceRefresh: true });
       if (operationCancelled) {
-        setCopyMoveDialogOpen(false);
+        setCopyMoveError(`${copyMoveMode === "copy" ? "Copy" : "Move"} cancelled.`);
+        if (warnings.length > 0) {
+          setCopyMoveWarning(warnings.join("; "));
+        }
         setConflictInfo(null);
         return;
       }
 
       if (errors.length > 0) {
         setCopyMoveError(errors.join("; "));
-      } else {
+      }
+      if (warnings.length > 0) {
+        setCopyMoveWarning(warnings.join("; "));
+      }
+      if (errors.length === 0 && warnings.length === 0) {
         setCopyMoveDialogOpen(false);
         sourcePane.handleClearSelection();
       }
@@ -2010,7 +2051,9 @@ const Browser: React.FC = () => {
 
   /** Cancel the copy/move dialog. */
   const handleCopyMoveCancel = useCallback(() => {
-    if (!copyMoveProcessing) {
+    if (copyMoveProcessing) {
+      copyMoveAbortControllerRef.current?.abort();
+    } else {
       setCopyMoveDialogOpen(false);
     }
   }, [copyMoveProcessing]);
@@ -2157,37 +2200,41 @@ const Browser: React.FC = () => {
     }
   }, [t]);
 
-  const handleArchiveExtractionRequest = useCallback(() => {
-    const location = archiveExtractionSource;
-    if (!location) {
-      return;
-    }
-    const destinationPaneId: PaneId = isDualMode ? (effectiveActivePaneId === "left" ? "right" : "left") : effectiveActivePaneId;
-    const destinationPane = destinationPaneId === "right" ? rightPane : leftPane;
-    if (isDualMode && (destinationPane.currentLocation.kind !== "physical" || !destinationPane.contentCapabilities.mutate)) {
-      return;
-    }
-    const archiveName = fileName(location.source.path);
-    const usesSiblingDirectory = !isDualMode;
-    setArchiveExtractionError(null);
-    setArchiveExtractionContext({
-      location,
-      destinationParent: usesSiblingDirectory
-        ? physicalLocation(location.source.connectionId, parentPath(location.source.path))
-        : destinationPane.currentLocation,
-      destinationPaneId,
-      usesSiblingDirectory,
-      destination: null,
-      destinationLabel: getLocationDisplayName(
-        usesSiblingDirectory
+  const handleArchiveExtractionRequest = useCallback(
+    (selectedMemberPaths?: string[]) => {
+      const location = archiveExtractionSource;
+      if (!location) {
+        return;
+      }
+      const destinationPaneId: PaneId = isDualMode ? (effectiveActivePaneId === "left" ? "right" : "left") : effectiveActivePaneId;
+      const destinationPane = destinationPaneId === "right" ? rightPane : leftPane;
+      if (isDualMode && (destinationPane.currentLocation.kind !== "physical" || !destinationPane.contentCapabilities.mutate)) {
+        return;
+      }
+      const archiveName = fileName(location.source.path);
+      const usesSiblingDirectory = !isDualMode;
+      setArchiveExtractionError(null);
+      setArchiveExtractionContext({
+        location,
+        selectedMemberPaths,
+        destinationParent: usesSiblingDirectory
           ? physicalLocation(location.source.connectionId, parentPath(location.source.path))
           : destinationPane.currentLocation,
-        (connectionId) => getConnectionById(allConnections, connectionId)?.name ?? connectionId
-      ),
-      archiveName,
-      initialDestinationName: archiveName.replace(/\.zip$/i, "") || archiveName,
-    });
-  }, [allConnections, archiveExtractionSource, effectiveActivePaneId, isDualMode, leftPane, rightPane]);
+        destinationPaneId,
+        usesSiblingDirectory,
+        destination: null,
+        destinationLabel: getLocationDisplayName(
+          usesSiblingDirectory
+            ? physicalLocation(location.source.connectionId, parentPath(location.source.path))
+            : destinationPane.currentLocation,
+          (connectionId) => getConnectionById(allConnections, connectionId)?.name ?? connectionId
+        ),
+        archiveName,
+        initialDestinationName: archiveName.replace(/\.zip$/i, "") || archiveName,
+      });
+    },
+    [allConnections, archiveExtractionSource, effectiveActivePaneId, isDualMode, leftPane, rightPane]
+  );
 
   const completeArchiveExtraction = useCallback(
     (outcome: ArchiveExtractionOutcome, context: NonNullable<typeof archiveExtractionContext>) => {
@@ -2243,6 +2290,7 @@ const Browser: React.FC = () => {
       const execution = startArchiveExtraction(browserContentServices.providers, {
         source: executionContext.location,
         destination,
+        selectedMemberPaths: executionContext.selectedMemberPaths,
       });
       archiveExtractionExecutionRef.current = execution;
       const unsubscribeProgress = execution.onProgress(setArchiveExtractionProgress);
@@ -2317,6 +2365,29 @@ const Browser: React.FC = () => {
     },
     [archiveExtractionContext, archiveExtractionMemberError, completeArchiveExtraction, t]
   );
+
+  /** Route F5 in a ZIP pane to selected-member extraction. */
+  const handleCopyToOtherPane = useCallback(() => {
+    const location = activePane.currentLocation;
+    if (location.kind === "virtual" && location.providerId === "zip" && isDualMode) {
+      const selectedMemberPaths = activePane
+        .getEffectiveSelection()
+        .flatMap((item) =>
+          item.handle.kind === "virtual" &&
+          item.handle.location.providerId === "zip" &&
+          item.handle.location.connectionId === location.connectionId &&
+          item.handle.location.source.path === location.source.path &&
+          item.entry.is_readable
+            ? [item.handle.path]
+            : []
+        );
+      if (selectedMemberPaths.length > 0) {
+        handleArchiveExtractionRequest(selectedMemberPaths);
+      }
+      return;
+    }
+    handleOpenCopyMoveDialog("copy");
+  }, [activePane, handleArchiveExtractionRequest, handleOpenCopyMoveDialog, isDualMode]);
 
   const browserCommandContext = useMemo(
     () => ({
@@ -2641,7 +2712,7 @@ const Browser: React.FC = () => {
       {
         ...COPY_MOVE_SHORTCUTS.COPY_TO_OTHER_PANE,
         handler: handleCopyToOtherPane,
-        enabled: isDualMode && browsing && !activePaneIsArchive && noDialogOrCopyMove,
+        enabled: isDualMode && browsing && noDialogOrCopyMove && (!activePaneIsArchive || activePaneCanExtractSelectedMembers),
       },
       // Move to other pane (F6 in dual mode)
       {
@@ -2725,6 +2796,7 @@ const Browser: React.FC = () => {
   }, [
     activePane,
     activePaneCanOpenInApp,
+    activePaneCanExtractSelectedMembers,
     activePaneIsArchive,
     handleOpenSettings,
     handleOpenConnectionSelector,
@@ -3248,6 +3320,8 @@ const Browser: React.FC = () => {
         progress={copyMoveProgress}
         transferProgress={copyMoveTransferProgress}
         error={copyMoveError}
+        warning={copyMoveWarning}
+        isTerminal={!copyMoveProcessing && Boolean(copyMoveError || copyMoveWarning)}
       />
       {/* Overwrite Conflict Dialog (shown per-file during copy/move) */}
       <OverwriteResolutionDialog

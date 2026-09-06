@@ -21,6 +21,12 @@ const defaultProps = {
   onConfirm: vi.fn(),
 };
 
+const conflict = {
+  source: { path: "docs/readme.txt", size: 1024, modifiedAt: "2025-01-01T12:00:00Z" },
+  target: { path: "output/docs/readme.txt", size: 2048, modifiedAt: "2025-01-02T12:00:00Z" },
+  isDirectory: false,
+};
+
 function mockMobileMode(isMobile: boolean) {
   Object.defineProperty(window, "matchMedia", {
     writable: true,
@@ -190,7 +196,7 @@ describe("ArchiveExtractDialog", () => {
       <ArchiveExtractDialog
         {...defaultProps}
         isExtracting={true}
-        conflicts={[{ memberPath: "docs/readme.txt", targetPath: "output/docs/readme.txt" }]}
+        conflicts={[conflict]}
         allowedConflictActions={["skip", "skip_all", "replace", "replace_all", "rename"]}
         onConflictDecision={onConflictDecision}
       />
@@ -198,8 +204,8 @@ describe("ArchiveExtractDialog", () => {
 
     expect(screen.getByRole("heading", { name: S.TITLE })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: S.LABEL_TARGET_NAME })).toHaveValue("readme.txt");
-    expect(screen.getByTestId("overwrite-conflict-source-path")).toHaveTextContent("docs/readme.txt");
-    expect(screen.getByTestId("overwrite-conflict-target-directory")).toHaveTextContent("output/docs");
+    expect(screen.getByTestId("overwrite-conflict-source-path")).toHaveTextContent("docs");
+    expect(screen.getByTestId("overwrite-conflict-target-path")).toHaveTextContent("output/docs");
     await user.click(screen.getByRole("checkbox", { name: S.APPLY_TO_ALL }));
     await user.click(screen.getByRole("button", { name: S.BUTTON_CONTINUE }));
 
@@ -212,7 +218,7 @@ describe("ArchiveExtractDialog", () => {
       <ArchiveExtractDialog
         {...defaultProps}
         isExtracting={true}
-        conflicts={[{ memberPath: "docs/readme.txt", targetPath: "output/docs/readme.txt" }]}
+        conflicts={[conflict]}
         allowedConflictActions={["skip", "rename"]}
         onConflictDecision={onConflictDecision}
       />
@@ -231,7 +237,7 @@ describe("ArchiveExtractDialog", () => {
       <ArchiveExtractDialog
         {...defaultProps}
         isExtracting={true}
-        conflicts={[{ memberPath: "docs/readme.txt", targetPath: "output/docs/readme.txt" }]}
+        conflicts={[conflict]}
         allowedConflictActions={["rename"]}
         onConflictDecision={onConflictDecision}
       />
@@ -248,7 +254,7 @@ describe("ArchiveExtractDialog", () => {
 
   it("resets resolution and Target name when the current conflict changes", async () => {
     const user = userEvent.setup();
-    const firstConflict = { memberPath: "docs/readme.txt", targetPath: "output/docs/readme.txt" };
+    const firstConflict = conflict;
     const { rerender } = render(
       <ArchiveExtractDialog
         {...defaultProps}
@@ -268,7 +274,13 @@ describe("ArchiveExtractDialog", () => {
       <ArchiveExtractDialog
         {...defaultProps}
         isExtracting={true}
-        conflicts={[{ memberPath: "notes/readme.txt", targetPath: "output/notes/readme.txt" }]}
+        conflicts={[
+          {
+            ...conflict,
+            source: { ...conflict.source, path: "notes/readme.txt" },
+            target: { ...conflict.target, path: "output/notes/readme.txt" },
+          },
+        ]}
         allowedConflictActions={["skip", "rename"]}
         onConflictDecision={vi.fn()}
       />
@@ -285,7 +297,7 @@ describe("ArchiveExtractDialog", () => {
       <ArchiveExtractDialog
         {...defaultProps}
         isExtracting={true}
-        conflicts={[{ memberPath: "docs/readme.txt", targetPath: "output/docs/readme.txt" }]}
+        conflicts={[conflict]}
         allowedConflictActions={["skip_all"]}
         onConflictDecision={onConflictDecision}
       />
@@ -303,7 +315,7 @@ describe("ArchiveExtractDialog", () => {
       <ArchiveExtractDialog
         {...defaultProps}
         isExtracting={true}
-        conflicts={[{ memberPath: "docs/readme.txt", targetPath: "output/docs/readme.txt" }]}
+        conflicts={[conflict]}
         allowedConflictActions={["skip", "rename"]}
         onConflictDecision={vi.fn()}
         onCancelExtraction={vi.fn()}
@@ -318,8 +330,9 @@ describe("ArchiveExtractDialog", () => {
   it("shows only the current conflict from a large collision payload", () => {
     mockMobileMode(false);
     const conflicts = Array.from({ length: 1000 }, (_, index) => ({
-      memberPath: `member-${index}.txt`,
-      targetPath: `output/member-${index}.txt`,
+      source: { path: `member-${index}.txt`, size: null, modifiedAt: null },
+      target: { path: `output/member-${index}.txt`, size: null, modifiedAt: null },
+      isDirectory: false,
     }));
     render(
       <ArchiveExtractDialog
@@ -332,7 +345,7 @@ describe("ArchiveExtractDialog", () => {
       />
     );
 
-    expect(screen.getByTestId("overwrite-conflict-source-path")).toHaveTextContent("member-0.txt");
+    expect(screen.getByTestId("overwrite-conflict-source-path")).toHaveTextContent("/");
     expect(screen.queryByDisplayValue("member-999.txt")).not.toBeInTheDocument();
     expect(within(screen.getByTestId("responsive-form-dialog-desktop-actions")).getAllByRole("button")).toHaveLength(2);
   });

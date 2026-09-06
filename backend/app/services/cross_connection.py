@@ -19,19 +19,21 @@ Design decisions
 """
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Optional
+from uuid import uuid4
 
 from app.models.file import FileInfo, FileType
 from app.services.content_transfer import (
     RegularFileSourceSnapshot,
     SourceChangedError,
     SourceDeleteError,
+    SourceDeletionOutcomeUnknown,
     TargetCollisionError,
     resolve_regular_file_transfer,
 )
 from app.services.target_resolution import TargetResolutionDisposition, TargetResolutionPolicy
-from app.storage.base import ProgressCallback, StorageBackend
+from app.storage.base import MoveSourceReader, ProgressCallback, StorageBackend
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +46,23 @@ class DirectoryTransferError(OSError):
         self.destination_mutated = destination_mutated
 
 
+class TransferCancelled(RuntimeError):
+    """Raised when an active copy or move is cancelled before publication."""
+
+
+def _raise_if_cancelled(cancellation: Callable[[], bool] | None) -> None:
+    if cancellation is not None and cancellation():
+        raise TransferCancelled("Transfer cancelled before destination publication")
+
+
 async def cross_connection_copy(
     source: StorageBackend,
     dest: StorageBackend,
     source_path: str,
     dest_path: str,
     on_progress: ProgressCallback | None = None,
+    before_destination_commit: Callable[[], Awaitable[None]] | None = None,
+    cancellation: Callable[[], bool] | None = None,
     *,
     overwrite: bool = False,
     target_resolution_policy: TargetResolutionPolicy | None = None,
@@ -83,6 +96,7 @@ async def cross_connection_copy(
         OSError: On any I/O failure during the transfer.
     """
 
+    _raise_if_cancelled(cancellation)
     info = await source.get_file_info(source_path)
 
     if info.type == FileType.DIRECTORY:
@@ -95,7 +109,10 @@ async def cross_connection_copy(
                 if target_resolution_policy == TargetResolutionPolicy.SKIP:
                     return None, info
                 raise TargetCollisionError(source=info, target=await dest.get_file_info(dest_path))
-        return await _copy_directory(source, dest, source_path, dest_path, on_progress, overwrite=overwrite), info
+        return (
+            await _copy_directory_staged(source, dest, source_path, dest_path, on_progress, cancellation=cancellation, overwrite=overwrite),
+            info,
+        )
 
     source_snapshot = RegularFileSourceSnapshot.from_file_info(info)
     if target_resolution_policy is not None:
@@ -110,6 +127,8 @@ async def cross_connection_copy(
                 source_path,
                 dest_path,
                 on_progress,
+                before_destination_commit=before_destination_commit,
+                cancellation=cancellation,
                 source_info=info,
                 source_snapshot=source_snapshot,
                 overwrite=False,
@@ -130,6 +149,8 @@ async def cross_connection_copy(
             source_path,
             dest_path,
             on_progress,
+            before_destination_commit=before_destination_commit,
+            cancellation=cancellation,
             source_info=info,
             source_snapshot=source_snapshot,
             overwrite=overwrite,
@@ -148,6 +169,7 @@ async def copy_regular_file_to_missing_target(
     dest_path: str,
     source_info: FileInfo,
     on_progress: ProgressCallback | None = None,
+    cancellation: Callable[[], bool] | None = None,
 ) -> int:
     """Copy one already-observed regular source through a staged missing-target commit."""
 
@@ -158,6 +180,7 @@ async def copy_regular_file_to_missing_target(
         source_path,
         dest_path,
         on_progress,
+        cancellation=cancellation,
         source_info=source_info,
         source_snapshot=source_snapshot,
     )
@@ -173,6 +196,8 @@ async def cross_connection_move(
     source_path: str,
     dest_path: str,
     on_progress: ProgressCallback | None = None,
+    before_destination_commit: Callable[[], Awaitable[None]] | None = None,
+    cancellation: Callable[[], bool] | None = None,
     *,
     overwrite: bool = False,
     target_resolution_policy: TargetResolutionPolicy | None = None,
@@ -202,26 +227,102 @@ async def cross_connection_move(
         OSError: On transfer failure.
     """
 
-    total_bytes, source_info = await cross_connection_copy(
-        source,
-        dest,
-        source_path,
-        dest_path,
-        on_progress,
-        overwrite=overwrite,
-        target_resolution_policy=target_resolution_policy,
-    )
-    if total_bytes is None:
+    _raise_if_cancelled(cancellation)
+    source_info = await source.get_file_info(source_path)
+    if source_info.type == FileType.DIRECTORY:
+        bytes_written, _ = await cross_connection_copy(
+            source,
+            dest,
+            source_path,
+            dest_path,
+            on_progress,
+            cancellation=cancellation,
+            overwrite=overwrite,
+            target_resolution_policy=target_resolution_policy,
+        )
+        if bytes_written is None:
+            return None, source_info
+        _raise_if_cancelled(cancellation)
+        try:
+            await source.delete_item(source_path)
+        except Exception as error:
+            raise SourceDeleteError(
+                f"Destination was created but the original directory could not be removed: {source_path}",
+                destination_mutated=True,
+            ) from error
         return None, source_info
+    source_snapshot = RegularFileSourceSnapshot.from_file_info(source_info)
+    try:
+        source_reader = await source.open_move_source_reader(source_path)
+    except NotImplementedError as error:
+        await cross_connection_copy(
+            source,
+            dest,
+            source_path,
+            dest_path,
+            on_progress,
+            cancellation=cancellation,
+            overwrite=overwrite,
+            target_resolution_policy=target_resolution_policy,
+        )
+        raise SourceDeleteError(
+            f"Destination was created but guarded source deletion is unavailable: {source_path}",
+            destination_mutated=True,
+        ) from error
 
-    # A separate get_file_info() followed by delete_item() is not a
-    # conditional delete: another writer can replace the source between those
-    # calls. Do not risk deleting a different object after publishing the
-    # destination. Storage backends must expose an atomic identity-guarded
-    # delete before cross-connection moves can remove their source.
-    raise SourceDeleteError(
-        f"Destination was created but the source was retained because conditional deletion is unavailable: {source_path}"
-    )
+    try:
+        if target_resolution_policy is not None:
+            resolution = await resolve_regular_file_transfer(
+                source=source_info,
+                target_path=dest_path,
+                policy=target_resolution_policy,
+                observe_target=lambda: dest.get_file_info(dest_path),
+                attempt_create=lambda: _copy_file(
+                    source,
+                    dest,
+                    source_path,
+                    dest_path,
+                    on_progress,
+                    before_destination_commit=before_destination_commit,
+                    cancellation=cancellation,
+                    source_info=source_info,
+                    source_snapshot=source_snapshot,
+                    source_reader=source_reader,
+                    overwrite=False,
+                ),
+                replacement_supported=False,
+            )
+            if resolution.disposition == TargetResolutionDisposition.SKIP:
+                return None, source_info
+            if resolution.disposition == TargetResolutionDisposition.AWAIT_COLLISION:
+                raise TargetCollisionError(source=source_info, target=resolution.target)
+            if not isinstance(resolution.mutation_result, int):
+                raise RuntimeError("Regular-file move committed without reporting bytes written")
+            total_bytes = resolution.mutation_result
+        else:
+            total_bytes = await _copy_file(
+                source,
+                dest,
+                source_path,
+                dest_path,
+                on_progress,
+                before_destination_commit=before_destination_commit,
+                cancellation=cancellation,
+                source_info=source_info,
+                source_snapshot=source_snapshot,
+                source_reader=source_reader,
+                overwrite=overwrite,
+            )
+        _raise_if_cancelled(cancellation)
+        try:
+            await source_reader.commit_delete()
+        except Exception as error:
+            raise SourceDeletionOutcomeUnknown(
+                f"Guarded source deletion may have completed before its result was observed: {source_path}"
+            ) from error
+        return total_bytes, source_info
+    finally:
+        await source_reader.close()
 
 
 # ---------------------------------------------------------------------------
@@ -236,8 +337,11 @@ async def _copy_file(
     dest_path: str,
     on_progress: ProgressCallback | None,
     *,
+    before_destination_commit: Callable[[], Awaitable[None]] | None = None,
+    cancellation: Callable[[], bool] | None = None,
     source_info: FileInfo | None = None,
     source_snapshot: RegularFileSourceSnapshot | None = None,
+    source_reader: MoveSourceReader | None = None,
     overwrite: bool = False,
 ) -> int:
     """Stream a single file from *source* to *dest*.
@@ -269,6 +373,7 @@ async def _copy_file(
             on_progress(transferred, total_size)
 
     async def verify_source_before_commit() -> None:
+        _raise_if_cancelled(cancellation)
         if source_snapshot is None:
             return
         try:
@@ -277,13 +382,24 @@ async def _copy_file(
             raise SourceChangedError(f"Source disappeared before commit: {source_path}") from error
         if not source_snapshot.matches(current_source):
             raise SourceChangedError(f"Source changed before commit: {source_path}")
+        if before_destination_commit is not None:
+            await before_destination_commit()
 
     # A fresh reader is created only after target policy has authorized this
     # attempt. The destination owns and discards its private stage on failure.
-    stream: AsyncIterator[bytes] = source.read_file(source_path)
+    if source_reader is None:
+        stream: AsyncIterator[bytes] = source.read_file(source_path)
+    else:
+        stream = _read_retained_move_source(source_reader, total_size)
+
+    async def cancellable_stream() -> AsyncIterator[bytes]:
+        async for chunk in stream:
+            _raise_if_cancelled(cancellation)
+            yield chunk
+
     bytes_written = await dest.stage_and_commit_new_file_from_stream(
         dest_path,
-        stream,
+        cancellable_stream(),
         before_commit=verify_source_before_commit,
         on_progress=_progress_with_total,
         source_mtime=source_mtime,
@@ -293,6 +409,21 @@ async def _copy_file(
     return bytes_written
 
 
+async def _read_retained_move_source(source_reader: MoveSourceReader, total_size: int | None) -> AsyncIterator[bytes]:
+    """Stream a retained source handle so its delete capability stays bound to copied bytes."""
+
+    if total_size is None:
+        raise SourceChangedError("Move source has no stable length")
+    chunk_size = 1024 * 1024
+    offset = 0
+    while offset < total_size:
+        chunk = await source_reader.read_at(offset, min(chunk_size, total_size - offset))
+        if not chunk:
+            raise SourceChangedError("Move source ended before its captured length")
+        offset += len(chunk)
+        yield chunk
+
+
 async def _copy_directory(
     source: StorageBackend,
     dest: StorageBackend,
@@ -300,6 +431,7 @@ async def _copy_directory(
     dest_path: str,
     on_progress: ProgressCallback | None,
     *,
+    cancellation: Callable[[], bool] | None = None,
     overwrite: bool = False,
     root: bool = True,
 ) -> int:
@@ -307,6 +439,7 @@ async def _copy_directory(
 
     root_created = False
     try:
+        _raise_if_cancelled(cancellation)
         # The root is the only directory collision considered by directory
         # policy. Descendant collisions are transfer failures, never merges.
         if overwrite:
@@ -320,6 +453,7 @@ async def _copy_directory(
         total_bytes = 0
 
         for item in listing.items:
+            _raise_if_cancelled(cancellation)
             child_source = f"{source_path}/{item.name}" if source_path else item.name
             child_dest = f"{dest_path}/{item.name}" if dest_path else item.name
 
@@ -330,6 +464,7 @@ async def _copy_directory(
                     child_source,
                     child_dest,
                     on_progress,
+                    cancellation=cancellation,
                     overwrite=False,
                     root=False,
                 )
@@ -340,6 +475,7 @@ async def _copy_directory(
                     child_source,
                     child_dest,
                     on_progress,
+                    cancellation=cancellation,
                     overwrite=False,
                 )
     except FileExistsError as error:
@@ -349,7 +485,7 @@ async def _copy_directory(
             f"Directory child target already exists while copying '{source_path}'",
             destination_mutated=True,
         ) from error
-    except DirectoryTransferError:
+    except (DirectoryTransferError, TransferCancelled):
         raise
     except Exception as error:
         raise DirectoryTransferError(
@@ -368,3 +504,51 @@ async def _copy_directory(
 
     logger.info(f"Cross-connection copy directory: '{source_path}' -> '{dest_path}' ({total_bytes} bytes, {listing.total} items)")
     return total_bytes
+
+
+async def _copy_directory_staged(
+    source: StorageBackend,
+    dest: StorageBackend,
+    source_path: str,
+    dest_path: str,
+    on_progress: ProgressCallback | None,
+    *,
+    cancellation: Callable[[], bool] | None = None,
+    overwrite: bool,
+) -> int:
+    """Copy a directory through a private sibling stage before publishing it."""
+
+    if overwrite:
+        return await _copy_directory(source, dest, source_path, dest_path, on_progress, cancellation=cancellation, overwrite=True)
+
+    parent_path, separator, target_name = dest_path.rpartition("/")
+    stage_name = f".{target_name}.sambee-stage-{uuid4().hex}"
+    stage_path = f"{parent_path}/{stage_name}" if separator else stage_name
+    try:
+        total_bytes = await _copy_directory(
+            source,
+            dest,
+            source_path,
+            stage_path,
+            on_progress,
+            cancellation=cancellation,
+            overwrite=False,
+        )
+        _raise_if_cancelled(cancellation)
+        await dest.rename_item(stage_path, target_name)
+        return total_bytes
+    except Exception as error:
+        try:
+            await dest.delete_item(stage_path)
+        except FileNotFoundError:
+            pass
+        except Exception as cleanup_error:
+            raise DirectoryTransferError(
+                f"Directory copy failed and its private stage could not be removed: {stage_path}",
+                destination_mutated=True,
+            ) from cleanup_error
+        if isinstance(error, TransferCancelled):
+            raise
+        if isinstance(error, DirectoryTransferError):
+            raise DirectoryTransferError(str(error), destination_mutated=False) from error
+        raise

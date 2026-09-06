@@ -13,22 +13,21 @@ export const OVERWRITE_CONFLICT_STRINGS = {
   get TITLE() {
     return translate("fileBrowser.overwriteConflict.title");
   },
-
-  get LABEL_SOURCE_PATH() {
-    return translate("fileBrowser.overwriteConflict.labelSourcePath");
+  get ALREADY_EXISTS() {
+    return translate("fileBrowser.overwriteConflict.alreadyExists");
   },
+
   get LABEL_TARGET_NAME() {
     return translate("fileBrowser.overwriteConflict.labelTargetName");
   },
-  get LABEL_TARGET_DIRECTORY() {
-    return translate("fileBrowser.overwriteConflict.labelTargetDirectory");
-  },
-
   get LABEL_EXISTING() {
     return translate("fileBrowser.overwriteConflict.labelExisting");
   },
   get LABEL_INCOMING() {
     return translate("fileBrowser.overwriteConflict.labelIncoming");
+  },
+  get LABEL_PATH() {
+    return translate("fileBrowser.overwriteConflict.labelPath");
   },
   get LABEL_SIZE() {
     return translate("fileBrowser.overwriteConflict.labelSize");

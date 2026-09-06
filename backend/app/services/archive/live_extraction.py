@@ -14,6 +14,28 @@ from app.storage.base import RandomAccessReader
 _MAX_AGGREGATE_COUNTER = (1 << 63) - 1
 
 
+def canonicalize_selected_member_roots(paths: list[str] | tuple[str, ...] | None) -> tuple[str, ...] | None:
+    """Validate and collapse selected ZIP member roots into a stable namespace."""
+
+    if paths is None:
+        return None
+    if not paths:
+        raise LiveSourceSessionError("Archive member selection must not be empty")
+    roots: list[str] = []
+    for path in paths:
+        normalized = path.replace("\\", "/").rstrip("/")
+        if not normalized or normalized.startswith("/") or "\x00" in normalized:
+            raise LiveSourceSessionError("Archive member selection contains an invalid path")
+        segments = normalized.split("/")
+        if any(segment in {"", ".", ".."} for segment in segments):
+            raise LiveSourceSessionError("Archive member selection contains an invalid path")
+        if any(normalized == root or normalized.startswith(f"{root}/") for root in roots):
+            continue
+        roots = [root for root in roots if not root.startswith(f"{normalized}/")]
+        roots.append(normalized)
+    return tuple(sorted(roots))
+
+
 class LiveSourceSessionError(ValueError):
     """Raised when a live source transition does not match its current state."""
 
@@ -58,6 +80,8 @@ class DestinationWriteResult:
     replaced: bool = False
     target_path: str | None = None
     message: str | None = None
+    target_size: int | None = None
+    target_modified_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +93,10 @@ class LiveSourcePendingDecision:
     member_path: str
     target_path: str | None
     message: str | None
+    source_size: int | None = None
+    source_modified_at: datetime | None = None
+    target_size: int | None = None
+    target_modified_at: datetime | None = None
 
 
 @dataclass
@@ -157,6 +185,7 @@ class LiveSourceSession:
     """One retained ZIP source cursor serialized by its per-session lock."""
 
     reader: ZipReader
+    selected_member_roots: tuple[str, ...] | None = None
     source_session_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     aggregate: LiveExtractionAggregate = field(default_factory=LiveExtractionAggregate)
     phase: LiveSourceSessionPhase = LiveSourceSessionPhase.READY
@@ -174,6 +203,9 @@ class LiveSourceSession:
     _closed: bool = field(default=False, init=False, repr=False)
     _projected_entries: tuple[ZipEntry, ...] | None = field(default=None, init=False, repr=False)
     _projected_entry_index: int = field(default=0, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self.selected_member_roots = canonicalize_selected_member_roots(self.selected_member_roots)
 
     async def next_member(self) -> LiveSourceMember | None:
         """Return the next destination-facing record after source-only rejections."""
@@ -195,6 +227,19 @@ class LiveSourceSession:
     async def _next_member_locked(self) -> LiveSourceMember | None:
         if self._projected_entries is None:
             self._projected_entries, skipped_entries = await self.reader.extraction_entries()
+            if self.selected_member_roots is not None:
+                unmatched_roots = [
+                    root
+                    for root in self.selected_member_roots
+                    if not any(entry.path == root or entry.path.startswith(f"{root}/") for entry in self._projected_entries)
+                ]
+                if unmatched_roots:
+                    raise ArchiveFormatError("Archive member selection does not match the archive contents")
+                self._projected_entries = tuple(
+                    entry
+                    for entry in self._projected_entries
+                    if any(entry.path == root or entry.path.startswith(f"{root}/") for root in self.selected_member_roots)
+                )
             for _ in range(skipped_entries):
                 self.aggregate.record("skipped")
         while True:
@@ -315,7 +360,16 @@ class LiveSourceSession:
                 decision_kind: Literal["collision", "member_error"] = (
                     "collision" if result.status == "awaiting_collision" else "member_error"
                 )
-                self._await_decision(decision_kind, current.entry.path, result.target_path, result.message)
+                self._await_decision(
+                    decision_kind,
+                    current.entry.path,
+                    result.target_path,
+                    result.message,
+                    source_size=current.entry.uncompressed_size,
+                    source_modified_at=current.entry.modified_at,
+                    target_size=result.target_size,
+                    target_modified_at=result.target_modified_at,
+                )
                 return
             pre_stream_skip = result.status in {"skipped", "ignored"} and not current.entry.is_directory
             if self.phase != LiveSourceSessionPhase.AWAITING_RESULT and not (
@@ -486,15 +540,26 @@ class LiveSourceSession:
         member_path: str,
         target_path: str | None,
         message: str | None,
+        *,
+        source_size: int | None = None,
+        source_modified_at: datetime | None = None,
+        target_size: int | None = None,
+        target_modified_at: datetime | None = None,
     ) -> None:
         if message is not None and (not message or len(message) > 500):
             raise LiveSourceSessionError("Archive decision message is invalid")
+        if kind == "collision" and target_path is None:
+            raise LiveSourceSessionError("Archive collision target is unavailable")
         self._pending_decision = LiveSourcePendingDecision(
             self._next_decision_revision,
             kind,
             member_path,
             target_path,
             message,
+            source_size,
+            source_modified_at,
+            target_size,
+            target_modified_at,
         )
         self._next_decision_revision += 1
         self.phase = LiveSourceSessionPhase.AWAITING_DECISION
@@ -514,8 +579,15 @@ class LiveSourceSessionRegistry:
         self._operation_sessions: dict[object, str] = {}
         self._lock = asyncio.Lock()
 
-    async def open(self, reader: RandomAccessReader, size: int, *, operation_id: object | None = None) -> LiveSourceSession:
-        session = LiveSourceSession(ZipReader(reader, size))
+    async def open(
+        self,
+        reader: RandomAccessReader,
+        size: int,
+        *,
+        operation_id: object | None = None,
+        selected_member_roots: tuple[str, ...] | None = None,
+    ) -> LiveSourceSession:
+        session = LiveSourceSession(ZipReader(reader, size), selected_member_roots)
         async with self._lock:
             if operation_id is not None and operation_id in self._operation_sessions:
                 raise LiveSourceSessionError("Archive operation already has a live source session")

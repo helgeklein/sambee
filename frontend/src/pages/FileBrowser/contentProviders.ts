@@ -91,13 +91,15 @@ export interface ContentCapabilities {
 }
 
 export interface ArchiveExtractionConflict {
-  memberPath: string;
-  targetPath: string;
-  isDirectory?: boolean;
-  sourceSize?: number;
-  sourceModifiedAt?: string;
-  targetSize?: number;
-  targetModifiedAt?: string;
+  source: ArchiveExtractionConflictItem;
+  target: ArchiveExtractionConflictItem;
+  isDirectory: boolean;
+}
+
+export interface ArchiveExtractionConflictItem {
+  path: string;
+  size: number | null;
+  modifiedAt: string | null;
 }
 
 export interface ArchiveExtractionMemberError {
@@ -123,6 +125,7 @@ export type ArchiveExtractionConflictAction = "skip" | "skip_all" | "replace" | 
 export interface ArchiveExtractionRequest {
   source: VirtualLocation;
   destination: PhysicalLocation;
+  selectedMemberPaths?: string[];
 }
 
 export type ArchiveExtractionOutcome =

@@ -1,13 +1,13 @@
 import asyncio
 import json
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
 from typing import NoReturn, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
@@ -60,19 +60,30 @@ from app.models.recent_file import (
     RecentFileValidationCode,
     RecentFileValidationError,
 )
+from app.models.transfer_operation import (
+    TransferOperation,
+    TransferOperationCreate,
+    TransferOperationPhase,
+    TransferOperationRead,
+)
 from app.models.user import User
 from app.services.archive.execution import resolve_archive_inspection_topology_plan
 from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.services.content_transfer import (
+    RegularFileSourceSnapshot,
     SourceChangedError,
+    SourceDeleteError,
+    SourceDeletionOutcomeUnknown,
     TargetCollisionError,
     resolve_regular_file_transfer,
 )
 from app.services.cross_connection import (
     DirectoryTransferError,
+    TransferCancelled,
     copy_regular_file_to_missing_target,
     cross_connection_copy,
+    cross_connection_move,
 )
 from app.services.history_common import LOCAL_DRIVE_PREFIX, normalize_recent_history_path
 from app.services.lock_manager import remove_expired_file_locks
@@ -100,7 +111,13 @@ logger = get_logger(__name__)
 
 DIRECTORY_LIST_ROUTE_TIMEOUT_SECONDS = 35.0
 TRANSFER_RECEIPT_TTL_SECONDS = 5 * 60
+TRANSFER_OPERATION_TTL = timedelta(seconds=TRANSFER_RECEIPT_TTL_SECONDS)
+TRANSFER_OPERATION_PROGRESS_PERSIST_INTERVAL_BYTES = 1024 * 1024
 TRANSFER_UNAVAILABLE_DETAIL = "Transfers are unavailable in this release"
+
+
+class TransferOperationCancelled(RuntimeError):
+    """Raised when a durable transfer observes a cooperative cancellation request."""
 
 
 @dataclass(frozen=True)
@@ -126,12 +143,40 @@ class _InFlightTransferOutcome:
 _transfer_receipts: dict[tuple[str, str], _TransferReceipt] = {}
 _transfer_in_flight: dict[tuple[str, str], tuple[str, asyncio.Future[_InFlightTransferOutcome]]] = {}
 _transfer_receipt_lock = asyncio.Lock()
+_transfer_cancellations: dict[tuple[str, str], asyncio.Event] = {}
+_transfer_cancellation_lock = asyncio.Lock()
 
 
 def _transfer_fingerprint(body: CopyMoveRequest) -> str:
     """Build a stable request fingerprint for idempotency-key reuse checks."""
 
-    return json.dumps(body.model_dump(exclude={"idempotency_key"}), sort_keys=True, default=str, separators=(",", ":"))
+    return json.dumps(
+        body.model_dump(exclude={"idempotency_key", "transfer_attempt_id"}),
+        sort_keys=True,
+        default=str,
+        separators=(",", ":"),
+    )
+
+
+async def _register_transfer_cancellation(current_user: User, body: CopyMoveRequest) -> asyncio.Event | None:
+    if body.transfer_attempt_id is None:
+        return None
+    key = (current_user.username, str(body.transfer_attempt_id))
+    async with _transfer_cancellation_lock:
+        cancellation = _transfer_cancellations.get(key)
+        if cancellation is None:
+            cancellation = asyncio.Event()
+            _transfer_cancellations[key] = cancellation
+        return cancellation
+
+
+async def _unregister_transfer_cancellation(current_user: User, body: CopyMoveRequest, cancellation: asyncio.Event | None) -> None:
+    if body.transfer_attempt_id is None or cancellation is None:
+        return
+    key = (current_user.username, str(body.transfer_attempt_id))
+    async with _transfer_cancellation_lock:
+        if _transfer_cancellations.get(key) is cancellation:
+            del _transfer_cancellations[key]
 
 
 async def _find_transfer_receipt(current_user: User, body: CopyMoveRequest) -> ContentTransferResult | None:
@@ -1207,6 +1252,482 @@ async def upload_file(
         )
 
 
+@router.post("/{connection_id}/transfer-stream", response_model=ContentTransferResult)
+async def stream_transfer_to_new_item(
+    connection_id: uuid.UUID,
+    request: Request,
+    path: str = Query(..., description="New destination path on the share"),
+    target_resolution_policy: TargetResolutionPolicy = Query(TargetResolutionPolicy.ASK),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ContentTransferResult:
+    """Publish a cross-provider regular file from a streamed request body.
+
+    The endpoint has destination authority only. It stages the complete body
+    privately and uses an exclusive final promotion, so an interrupted browser
+    relay cannot expose partial output or replace an existing target.
+    """
+
+    target_path = path.strip("/")
+    if not target_path:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Destination path must not be empty")
+    _validate_item_name(target_path.rsplit("/", 1)[-1])
+    set_user(current_user.username)
+    connection = _get_connection_or_404(session, current_user, connection_id)
+    require_connection_write_access(current_user, connection, action="transfer_destination", path=target_path)
+
+    async def request_stream() -> AsyncIterator[bytes]:
+        async for chunk in request.stream():
+            if chunk:
+                yield chunk
+
+    async def before_commit() -> None:
+        return None
+
+    backend = build_smb_backend(connection, backend_factory=SMBBackend)
+    try:
+        await backend.connect()
+        try:
+            try:
+                existing_target = await backend.get_file_info(target_path)
+            except FileNotFoundError:
+                existing_target = None
+            if existing_target is not None:
+                if target_resolution_policy == TargetResolutionPolicy.SKIP:
+                    return ContentTransferResult(
+                        status="skipped",
+                        effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
+                    )
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Destination already exists: {target_path}")
+            bytes_written = await backend.stage_and_commit_new_file_from_stream(
+                target_path,
+                request_stream(),
+                before_commit=before_commit,
+            )
+        finally:
+            await disconnect_backend_safely(
+                backend,
+                logger=logger,
+                context=f"cross-provider destination stream: connection_id={connection_id}, path='{target_path}'",
+            )
+        _add_to_directory_cache(str(connection_id), target_path)
+        logger.info(
+            "Published cross-provider transfer destination: connection_id=%s, path='%s', bytes=%s, user=%s",
+            connection_id,
+            target_path,
+            bytes_written,
+            current_user.username,
+        )
+        return ContentTransferResult(
+            status="completed",
+            effects=ContentTransferEffects(source="unchanged", destination="mutated"),
+        )
+    except FileExistsError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Destination already exists: {target_path}") from None
+    except TimeoutError as error:
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="Transfer destination timed out") from error
+    except OSError as error:
+        logger.error("Failed to publish cross-provider destination '%s': %s", target_path, error, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Transfer destination failed: {error}") from error
+
+
+def _transfer_operation_fingerprint(body: TransferOperationCreate, destination_connection_id: uuid.UUID) -> str:
+    """Return the immutable plan fingerprint used for idempotent operation creation."""
+
+    return json.dumps(
+        {**body.model_dump(exclude={"idempotency_key"}), "destination_connection_id": str(destination_connection_id)},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _transfer_operation_read(operation: TransferOperation) -> TransferOperationRead:
+    """Project the durable operation without exposing its internal request fingerprint."""
+
+    return TransferOperationRead.model_validate(operation)
+
+
+def _transfer_operation_result(operation: TransferOperation) -> ContentTransferResult | None:
+    """Decode a previously persisted factual result, failing closed on corrupt state."""
+
+    return _transfer_operation_read(operation).result
+
+
+def _record_transfer_operation_result(
+    session: Session,
+    operation: TransferOperation,
+    result: ContentTransferResult,
+) -> TransferOperation:
+    """Persist one terminal result before returning it to a retried caller."""
+
+    if result.status in {"completed", "skipped", "completed_with_source_retained"}:
+        operation.phase = TransferOperationPhase.COMPLETED
+    elif result.status == "cancelled":
+        operation.phase = TransferOperationPhase.CANCELLED
+    else:
+        operation.phase = TransferOperationPhase.FAILED
+    operation.bytes_transferred = operation.source_size if result.effects.destination == "mutated" else 0
+    operation.result_json = result.model_dump_json()
+    operation.updated_at = datetime.now(timezone.utc)
+    session.add(operation)
+    session.commit()
+    session.refresh(operation)
+    return operation
+
+
+def _record_transfer_operation_progress(session: Session, operation: TransferOperation, bytes_transferred: int) -> None:
+    """Persist monotonic copy progress for reload recovery without changing commit state."""
+
+    if bytes_transferred <= operation.bytes_transferred:
+        return
+    operation.bytes_transferred = bytes_transferred
+    operation.updated_at = datetime.now(timezone.utc)
+    session.add(operation)
+    session.commit()
+
+
+def _repair_corrupt_terminal_transfer_operation(session: Session, operation: TransferOperation) -> TransferOperation:
+    """Replace an unreadable terminal receipt with a conservative recovery outcome."""
+
+    if (
+        operation.phase
+        not in {
+            TransferOperationPhase.COMPLETED,
+            TransferOperationPhase.FAILED,
+            TransferOperationPhase.CANCELLED,
+        }
+        or _transfer_operation_result(operation) is not None
+    ):
+        return operation
+    logger.error("Repairing corrupt terminal transfer receipt: operation_id=%s", operation.id)
+    return _record_transfer_operation_result(
+        session,
+        operation,
+        ContentTransferResult(
+            status="outcome_unknown",
+            effects=ContentTransferEffects(source="unknown", destination="unknown"),
+        ),
+    )
+
+
+def _transfer_operation_is_expired(operation: TransferOperation) -> bool:
+    """Compare SQLite's potentially naive timestamps safely against UTC now."""
+
+    expires_at = operation.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return expires_at <= datetime.now(timezone.utc)
+
+
+def _expire_transfer_operation(session: Session, operation: TransferOperation) -> TransferOperation:
+    """Expire an uncompleted operation without claiming its destination is unchanged."""
+
+    if operation.phase in {TransferOperationPhase.COMPLETED, TransferOperationPhase.FAILED, TransferOperationPhase.CANCELLED}:
+        return operation
+    result = ContentTransferResult(
+        status="outcome_unknown" if operation.phase == TransferOperationPhase.STREAMING else "cancelled",
+        effects=ContentTransferEffects(
+            source="unknown" if operation.phase == TransferOperationPhase.STREAMING else "unchanged",
+            destination="unknown" if operation.phase == TransferOperationPhase.STREAMING else "unchanged",
+        ),
+    )
+    operation.phase = (
+        TransferOperationPhase.FAILED if operation.phase == TransferOperationPhase.STREAMING else TransferOperationPhase.CANCELLED
+    )
+    operation.result_json = result.model_dump_json()
+    operation.updated_at = datetime.now(timezone.utc)
+    session.add(operation)
+    session.commit()
+    session.refresh(operation)
+    return operation
+
+
+def _get_owned_transfer_operation(
+    session: Session,
+    current_user: User,
+    operation_id: uuid.UUID,
+    destination_connection_id: uuid.UUID,
+) -> TransferOperation:
+    """Load a destination-owned durable operation or return an authorization-safe error."""
+
+    operation = session.get(TransferOperation, operation_id)
+    if operation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transfer operation not found")
+    if operation.user_id != current_user.id or operation.destination_connection_id != str(destination_connection_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transfer operation not found")
+    if _transfer_operation_is_expired(operation):
+        return _expire_transfer_operation(session, operation)
+    return _repair_corrupt_terminal_transfer_operation(session, operation)
+
+
+@router.post("/{connection_id}/transfer-operations", response_model=TransferOperationRead)
+async def prepare_transfer_operation(
+    connection_id: uuid.UUID,
+    body: TransferOperationCreate,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> TransferOperationRead:
+    """Persist a regular SMB transfer plan and capture its source identity before streaming."""
+
+    source_path, destination_path = _validate_copy_move_paths(body.source_path, body.destination_path)
+    try:
+        source_connection_id = uuid.UUID(body.source_connection_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Source connection must be an SMB connection"
+        ) from exc
+    destination_connection = _get_connection_or_404(session, current_user, connection_id)
+    source_connection = _get_connection_or_404(session, current_user, source_connection_id)
+    require_connection_write_access(current_user, destination_connection, action="transfer_destination", path=destination_path)
+    fingerprint = _transfer_operation_fingerprint(body, connection_id)
+    existing = session.exec(
+        select(TransferOperation).where(
+            TransferOperation.user_id == current_user.id,
+            TransferOperation.idempotency_key == body.idempotency_key,
+        )
+    ).first()
+    if existing is not None:
+        if existing.request_fingerprint != fingerprint:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Idempotency key conflicts with its transfer operation")
+        return _transfer_operation_read(
+            _expire_transfer_operation(session, existing) if _transfer_operation_is_expired(existing) else existing
+        )
+    source_backend = build_smb_backend(source_connection, backend_factory=SMBBackend)
+    try:
+        await source_backend.connect()
+        source_info = await source_backend.get_file_info(source_path)
+    finally:
+        await disconnect_backend_safely(
+            source_backend,
+            logger=logger,
+            context=f"prepare transfer operation source: connection_id={source_connection_id}, path='{source_path}'",
+        )
+    if source_info.type != FileType.FILE or source_info.size is None or not source_info.stable_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Transfer source must be an identified regular file")
+    now = datetime.now(timezone.utc)
+    operation = TransferOperation(
+        user_id=current_user.id,
+        idempotency_key=body.idempotency_key,
+        request_fingerprint=fingerprint,
+        kind=body.kind,
+        source_connection_id=str(source_connection_id),
+        source_path=source_path,
+        destination_connection_id=str(connection_id),
+        destination_path=destination_path,
+        target_resolution_policy=body.target_resolution_policy,
+        source_size=source_info.size,
+        source_modified_at=source_info.modified_at,
+        source_stable_id=source_info.stable_id,
+        expires_at=now + TRANSFER_OPERATION_TTL,
+        created_at=now,
+        updated_at=now,
+    )
+    try:
+        session.add(operation)
+        session.commit()
+        session.refresh(operation)
+    except IntegrityError as exc:
+        session.rollback()
+        existing = session.exec(
+            select(TransferOperation).where(
+                TransferOperation.user_id == current_user.id,
+                TransferOperation.idempotency_key == body.idempotency_key,
+            )
+        ).first()
+        if existing is not None and existing.request_fingerprint == fingerprint:
+            return _transfer_operation_read(
+                _expire_transfer_operation(session, existing) if _transfer_operation_is_expired(existing) else existing
+            )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Idempotency key conflicts with its transfer operation") from exc
+    return _transfer_operation_read(operation)
+
+
+@router.get("/{connection_id}/transfer-operations/{operation_id}", response_model=TransferOperationRead)
+async def get_transfer_operation(
+    connection_id: uuid.UUID,
+    operation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> TransferOperationRead:
+    """Return an authenticated destination-owned transfer receipt for reload recovery."""
+
+    return _transfer_operation_read(_get_owned_transfer_operation(session, current_user, operation_id, connection_id))
+
+
+@router.post("/{connection_id}/transfer-operations/{operation_id}/cancel", response_model=TransferOperationRead)
+async def cancel_transfer_operation(
+    connection_id: uuid.UUID,
+    operation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> TransferOperationRead:
+    """Cancel a prepared operation or record an in-flight cancellation request."""
+
+    operation = _get_owned_transfer_operation(session, current_user, operation_id, connection_id)
+    if _transfer_operation_result(operation) is not None:
+        return _transfer_operation_read(operation)
+    operation.cancellation_requested = True
+    operation.updated_at = datetime.now(timezone.utc)
+    if operation.phase == TransferOperationPhase.PREPARED:
+        result = ContentTransferResult(
+            status="cancelled",
+            effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
+        )
+        _record_transfer_operation_result(session, operation, result)
+    else:
+        session.add(operation)
+        session.commit()
+        session.refresh(operation)
+    return _transfer_operation_read(operation)
+
+
+@router.post("/{connection_id}/transfer-operations/{operation_id}/execute", response_model=ContentTransferResult)
+async def execute_transfer_operation(
+    connection_id: uuid.UUID,
+    operation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ContentTransferResult:
+    """Execute one durable SMB regular-file copy through destination-owned staging."""
+
+    operation = _get_owned_transfer_operation(session, current_user, operation_id, connection_id)
+    existing_result = _transfer_operation_result(operation)
+    if existing_result is not None:
+        return existing_result
+    if operation.cancellation_requested:
+        result = ContentTransferResult(
+            status="cancelled",
+            effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
+        )
+        _record_transfer_operation_result(session, operation, result)
+        return result
+    if operation.phase != TransferOperationPhase.PREPARED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Transfer operation is already streaming")
+    source_connection = _get_connection_or_404(session, current_user, uuid.UUID(operation.source_connection_id))
+    destination_connection = _get_connection_or_404(session, current_user, connection_id)
+    source_backend = build_smb_backend(source_connection, backend_factory=SMBBackend)
+    destination_backend = build_smb_backend(destination_connection, backend_factory=SMBBackend)
+    operation.phase = TransferOperationPhase.STREAMING
+    operation.updated_at = datetime.now(timezone.utc)
+    session.add(operation)
+    session.commit()
+    try:
+        await source_backend.connect()
+        await destination_backend.connect()
+        expected_source = RegularFileSourceSnapshot(
+            path=operation.source_path,
+            size=operation.source_size,
+            modified_at=operation.source_modified_at,
+            stable_id=operation.source_stable_id,
+        )
+        current_source = await source_backend.get_file_info(operation.source_path)
+        if not expected_source.matches(current_source):
+            raise SourceChangedError(f"Source changed before durable transfer execution: {operation.source_path}")
+
+        last_persisted_progress = 0
+
+        def check_cancellation() -> None:
+            session.refresh(operation)
+            if operation.cancellation_requested:
+                raise TransferOperationCancelled()
+
+        def persist_progress(bytes_transferred: int, total_bytes: int | None) -> None:
+            nonlocal last_persisted_progress
+            check_cancellation()
+            if (
+                bytes_transferred - last_persisted_progress < TRANSFER_OPERATION_PROGRESS_PERSIST_INTERVAL_BYTES
+                and bytes_transferred != total_bytes
+            ):
+                return
+            _record_transfer_operation_progress(session, operation, bytes_transferred)
+            last_persisted_progress = bytes_transferred
+
+        async def check_cancellation_before_commit() -> None:
+            check_cancellation()
+
+        if operation.kind == "move":
+            bytes_written, _source_info = await cross_connection_move(
+                source_backend,
+                destination_backend,
+                operation.source_path,
+                operation.destination_path,
+                on_progress=persist_progress,
+                before_destination_commit=check_cancellation_before_commit,
+                target_resolution_policy=TargetResolutionPolicy(operation.target_resolution_policy),
+            )
+        else:
+            bytes_written, _source_info = await cross_connection_copy(
+                source_backend,
+                destination_backend,
+                operation.source_path,
+                operation.destination_path,
+                on_progress=persist_progress,
+                before_destination_commit=check_cancellation_before_commit,
+                target_resolution_policy=TargetResolutionPolicy(operation.target_resolution_policy),
+            )
+        if bytes_written is None:
+            result = ContentTransferResult(
+                status="skipped",
+                effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
+            )
+        else:
+            result = ContentTransferResult(
+                status="completed",
+                effects=ContentTransferEffects(
+                    source="mutated" if operation.kind == "move" else "unchanged",
+                    destination="mutated",
+                ),
+            )
+        if operation.kind == "move" and result.status == "completed":
+            _remove_from_directory_cache(operation.source_connection_id, operation.source_path)
+        _add_to_directory_cache(str(connection_id), operation.destination_path)
+    except TargetCollisionError as exc:
+        result = ContentTransferResult(
+            status="failed",
+            effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
+            error=ContentTransferError(code="conflict", detail=str(exc)),
+        )
+    except SourceChangedError as exc:
+        result = ContentTransferResult(
+            status="failed",
+            effects=ContentTransferEffects(
+                source="unchanged",
+                destination="mutated" if exc.destination_mutated else "unchanged",
+            ),
+            error=ContentTransferError(code="source_changed", detail=str(exc)),
+        )
+    except SourceDeleteError as exc:
+        result = ContentTransferResult(
+            status="completed_with_source_retained" if exc.destination_mutated else "failed",
+            effects=ContentTransferEffects(
+                source="unchanged",
+                destination="mutated" if exc.destination_mutated else "unchanged",
+            ),
+            error=ContentTransferError(code="source_delete_failed", detail=str(exc)),
+        )
+    except SourceDeletionOutcomeUnknown:
+        result = ContentTransferResult(
+            status="outcome_unknown",
+            effects=ContentTransferEffects(source="unknown", destination="unknown"),
+        )
+    except TransferOperationCancelled:
+        result = ContentTransferResult(
+            status="cancelled",
+            effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
+        )
+    except Exception:
+        logger.exception("Durable transfer operation outcome is unknown: operation_id=%s", operation.id)
+        result = ContentTransferResult(
+            status="outcome_unknown",
+            effects=ContentTransferEffects(source="unknown", destination="unknown"),
+        )
+    finally:
+        await disconnect_backend_safely(source_backend, logger=logger, context=f"transfer operation source {operation.id}")
+        await disconnect_backend_safely(destination_backend, logger=logger, context=f"transfer operation destination {operation.id}")
+    _record_transfer_operation_result(session, operation, result)
+    return result
+
+
 # ============================================================================
 # Delete file or empty directory
 # ============================================================================
@@ -1707,6 +2228,21 @@ def _get_connection_or_404(session: Session, current_user: User, connection_id: 
 #
 # copy_item
 #
+@router.post("/{connection_id}/transfer-attempts/{attempt_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_transfer_attempt(
+    connection_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+) -> None:
+    """Request cooperative cancellation of an active, non-durable transfer."""
+
+    key = (current_user.username, str(attempt_id))
+    async with _transfer_cancellation_lock:
+        cancellation = _transfer_cancellations.get(key)
+        if cancellation is not None:
+            cancellation.set()
+
+
 @router.post("/{connection_id}/copy", response_model=ContentTransferResult)
 async def copy_item(
     connection_id: uuid.UUID,
@@ -1739,6 +2275,7 @@ async def copy_item(
     cached_result = await _find_transfer_receipt(current_user, body)
     if cached_result is not None:
         return cached_result
+    cancellation = await _register_transfer_cancellation(current_user, body)
 
     try:
         if is_cross_connection:
@@ -1756,6 +2293,7 @@ async def copy_item(
                 str(body.dest_connection_id),
                 overwrite=False,
                 target_resolution_policy=policy,
+                cancellation=cancellation.is_set if cancellation is not None else None,
             )
         else:
             require_connection_write_access(current_user, connection, action="copy_destination", path=dest)
@@ -1765,14 +2303,22 @@ async def copy_item(
 
                 async def copy_direct(source_info: FileInfo) -> object:
                     if source_info.type != FileType.FILE:
-                        await backend.copy_item(source, dest, overwrite=False)
-                        return None
+                        bytes_written, _ = await cross_connection_copy(
+                            backend,
+                            backend,
+                            source,
+                            dest,
+                            target_resolution_policy=None,
+                            cancellation=cancellation.is_set if cancellation is not None else None,
+                        )
+                        return bytes_written
                     return await copy_regular_file_to_missing_target(
                         backend,
                         backend,
                         source,
                         dest,
                         source_info,
+                        cancellation=cancellation.is_set if cancellation is not None else None,
                     )
 
                 disposition = await _resolve_direct_regular_file_transfer(
@@ -1804,6 +2350,12 @@ async def copy_item(
         logger.info(f"Copied item: connection_id={connection_id}, '{source}' -> '{dest}', user={current_user.username}")
         return await _record_transfer_receipt(current_user, body, result)
 
+    except TransferCancelled:
+        return await _record_transfer_receipt(
+            current_user,
+            body,
+            ContentTransferResult(status="cancelled", effects=ContentTransferEffects(source="unchanged", destination="unchanged")),
+        )
     except TargetCollisionError as exc:
         conflict = await _conflict_response(
             connection,
@@ -1889,6 +2441,7 @@ async def copy_item(
         )
     finally:
         await _record_unknown_transfer_outcome(current_user, body)
+        await _unregister_transfer_cancellation(current_user, body, cancellation)
 
 
 # ============================================================================
@@ -1906,16 +2459,123 @@ async def move_item(
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> ContentTransferResult:
-    """Return the stabilized unavailable result for all Move requests."""
+    """Move an item within one SMB connection using its native rename primitive."""
 
     set_user(current_user.username)
 
-    _validate_copy_move_paths(body.source_path, body.dest_path)
-    return ContentTransferResult(
-        status="failed",
-        effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
-        error=ContentTransferError(code="unavailable", detail=TRANSFER_UNAVAILABLE_DETAIL),
-    )
+    source, dest = _validate_copy_move_paths(body.source_path, body.dest_path)
+    is_cross_connection = bool(body.dest_connection_id and str(body.dest_connection_id) != str(connection_id))
+    connection = _get_connection_or_404(session, current_user, connection_id)
+    cached_result = await _find_transfer_receipt(current_user, body)
+    if cached_result is not None:
+        return cached_result
+    cancellation = await _register_transfer_cancellation(current_user, body)
+
+    try:
+        if is_cross_connection:
+            dest_connection = _get_connection_or_404(session, current_user, uuid.UUID(str(body.dest_connection_id)))
+            require_connection_write_access(current_user, connection, action="move_source", path=source)
+            require_connection_write_access(current_user, dest_connection, action="move_destination", path=dest)
+            copied = await _cross_connection_move(
+                connection,
+                dest_connection,
+                source,
+                dest,
+                str(body.dest_connection_id),
+                target_resolution_policy=TargetResolutionPolicy(body.normalized_target_resolution_policy),
+                cancellation=cancellation.is_set if cancellation is not None else None,
+            )
+            return await _record_transfer_receipt(current_user, body, copied)
+
+        require_connection_write_access(current_user, connection, action="move", path=source)
+        backend = build_smb_backend(connection, backend_factory=SMBBackend)
+        await backend.connect()
+        try:
+            policy = TargetResolutionPolicy(body.normalized_target_resolution_policy)
+
+            async def move_direct(source_info: FileInfo) -> object:
+                if cancellation is not None and cancellation.is_set():
+                    raise TransferCancelled("Transfer cancelled before source move")
+                await backend.move_item(source, dest, overwrite=False)
+                return None
+
+            disposition = await _resolve_direct_regular_file_transfer(
+                backend=backend,
+                source=source,
+                dest=dest,
+                policy=policy,
+                operation=move_direct,
+            )
+            if disposition == TargetResolutionDisposition.AWAIT_COLLISION:
+                raise FileExistsError(f"Destination already exists: {dest}")
+        finally:
+            await disconnect_backend_safely(
+                backend,
+                logger=logger,
+                context=f"move request: connection_id={connection_id}, source='{source}', dest='{dest}'",
+            )
+
+        result = ContentTransferResult(
+            status="skipped" if disposition == TargetResolutionDisposition.SKIP else "completed",
+            effects=ContentTransferEffects(
+                source="unchanged" if disposition == TargetResolutionDisposition.SKIP else "mutated",
+                destination="unchanged" if disposition == TargetResolutionDisposition.SKIP else "mutated",
+            ),
+        )
+        if disposition != TargetResolutionDisposition.SKIP:
+            _remove_from_directory_cache(str(connection_id), source)
+            _add_to_directory_cache(str(connection_id), dest)
+            logger.info(f"Moved item: connection_id={connection_id}, '{source}' -> '{dest}', user={current_user.username}")
+        return await _record_transfer_receipt(current_user, body, result)
+    except TransferCancelled:
+        return await _record_transfer_receipt(
+            current_user,
+            body,
+            ContentTransferResult(status="cancelled", effects=ContentTransferEffects(source="unchanged", destination="unchanged")),
+        )
+    except FileNotFoundError:
+        missing_source = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Source not found: {source}")
+        await _record_transfer_http_error(current_user, body, missing_source)
+        raise missing_source
+    except FileExistsError:
+        conflict = await _conflict_response(connection, body, connection_id, source, dest, current_user, session)
+        await _record_transfer_http_error(current_user, body, conflict)
+        raise conflict
+    except HTTPException as error:
+        await _record_transfer_http_error(current_user, body, error)
+        raise
+    except TimeoutError:
+        await _raise_recorded_transfer_http_error(
+            current_user,
+            body,
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Move timed out. The remote share did not respond in time.",
+        )
+    except OSError as error:
+        logger.error(
+            f"Failed to move item: connection_id={connection_id}, '{source}' -> '{dest}', error={type(error).__name__}: {error}",
+            exc_info=True,
+        )
+        await _raise_recorded_transfer_http_error(
+            current_user,
+            body,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to move item: {str(error)}",
+        )
+    except Exception as error:
+        logger.error(
+            f"Failed to move item: connection_id={connection_id}, '{source}' -> '{dest}', error={type(error).__name__}: {error}",
+            exc_info=True,
+        )
+        await _raise_recorded_transfer_http_error(
+            current_user,
+            body,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to move item: {str(error)}",
+        )
+    finally:
+        await _record_unknown_transfer_outcome(current_user, body)
+        await _unregister_transfer_cancellation(current_user, body, cancellation)
 
 
 # ============================================================================
@@ -1932,6 +2592,7 @@ async def _cross_connection_copy(
     *,
     overwrite: bool = False,
     target_resolution_policy: TargetResolutionPolicy | None = None,
+    cancellation: Callable[[], bool] | None = None,
 ) -> ContentTransferResult:
     """Perform a cross-connection copy with WebSocket progress reporting.
 
@@ -1991,6 +2652,7 @@ async def _cross_connection_copy(
             on_progress=on_progress,
             overwrite=overwrite,
             target_resolution_policy=target_resolution_policy,
+            cancellation=cancellation,
         )
         if bytes_written is None:
             return ContentTransferResult(
@@ -2027,6 +2689,70 @@ async def _cross_connection_copy(
             dest_backend,
             logger=logger,
             context=f"cross-connection copy destination cleanup: '{source_path}' -> '{dest_path}'",
+        )
+
+
+async def _cross_connection_move(
+    src_conn: Connection,
+    dst_conn: Connection,
+    source_path: str,
+    dest_path: str,
+    dst_conn_id: str,
+    *,
+    target_resolution_policy: TargetResolutionPolicy | None = None,
+    cancellation: Callable[[], bool] | None = None,
+) -> ContentTransferResult:
+    """Move across SMB connections using a retained source handle when available."""
+
+    source_backend = build_smb_backend(src_conn, backend_factory=SMBBackend)
+    dest_backend = build_smb_backend(dst_conn, backend_factory=SMBBackend)
+    await source_backend.connect()
+    await dest_backend.connect()
+    try:
+        try:
+            bytes_written, _source_info = await cross_connection_move(
+                source_backend,
+                dest_backend,
+                source_path,
+                dest_path,
+                target_resolution_policy=target_resolution_policy,
+                cancellation=cancellation,
+            )
+        except SourceDeleteError as error:
+            if not error.destination_mutated:
+                raise
+            _add_to_directory_cache(dst_conn_id, dest_path)
+            return ContentTransferResult(
+                status="completed_with_source_retained",
+                effects=ContentTransferEffects(source="unchanged", destination="mutated"),
+                error=ContentTransferError(code="source_delete_failed", detail=str(error)),
+            )
+        except SourceDeletionOutcomeUnknown:
+            return ContentTransferResult(
+                status="outcome_unknown",
+                effects=ContentTransferEffects(source="unknown", destination="unknown"),
+            )
+        if bytes_written is None:
+            return ContentTransferResult(
+                status="skipped",
+                effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
+            )
+        _remove_from_directory_cache(str(src_conn.id), source_path)
+        _add_to_directory_cache(dst_conn_id, dest_path)
+        return ContentTransferResult(
+            status="completed",
+            effects=ContentTransferEffects(source="mutated", destination="mutated"),
+        )
+    finally:
+        await disconnect_backend_safely(
+            source_backend,
+            logger=logger,
+            context=f"cross-connection move source cleanup: '{source_path}' -> '{dest_path}'",
+        )
+        await disconnect_backend_safely(
+            dest_backend,
+            logger=logger,
+            context=f"cross-connection move destination cleanup: '{source_path}' -> '{dest_path}'",
         )
 
 

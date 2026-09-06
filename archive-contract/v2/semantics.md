@@ -58,6 +58,14 @@ Lost or uncertain destination outcomes terminalize without inventing a member
 outcome. Collision and retry details remain only in the live source session;
 the durable operation retains at most its awaiting-decision phase and revision.
 
+A collision pending decision has `kind: "collision"` and carries one immutable
+`source` snapshot and one immutable `target` snapshot captured when the
+collision is detected. Each snapshot always contains `path`, `size`, and
+`modified_at`; unavailable size or timestamp values are represented by `null`,
+not omitted keys. A member write error is the separate `member_error` variant
+and does not use collision snapshots. The retired `existing_files` and
+`conflicts` envelope is not valid V2 payload data.
+
 Creation checkpoints remain ledger-based and contain `version`, `manifest`,
 `member_outcomes`, `decisions`, `pending_decision`, and `delivery_ids`. Creation
 terminal outcomes are `directory` and `created`.

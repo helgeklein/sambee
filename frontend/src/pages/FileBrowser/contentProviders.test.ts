@@ -68,6 +68,27 @@ function extractionAggregate(filesExtracted = 0, directoriesCreated = 0, extract
   };
 }
 
+function archiveConflict(sourcePath: string, targetPath: string, isDirectory = false) {
+  return {
+    source: { path: sourcePath, size: 5, modifiedAt: "2025-01-01T12:00:00Z" },
+    target: { path: targetPath, size: 10, modifiedAt: "2025-01-02T12:00:00Z" },
+    isDirectory,
+  };
+}
+
+function liveCollision(memberPath: string, targetPath: string, revision = 1) {
+  return {
+    revision,
+    kind: "collision" as const,
+    member_path: memberPath,
+    delivery_sequence: revision,
+    is_directory: false,
+    allowed_actions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
+    source: { path: memberPath, size: 5, modified_at: "2025-01-01T12:00:00Z" },
+    target: { path: targetPath, size: 10, modified_at: "2025-01-02T12:00:00Z" },
+  };
+}
+
 function liveExtractionStatus(pendingDecision: Record<string, unknown>) {
   return {
     source_session_id: "source-session-1",
@@ -255,6 +276,27 @@ describe("content providers", () => {
     vi.clearAllMocks();
   });
 
+  it("persists selected ZIP member roots before starting extraction", async () => {
+    vi.mocked(api.prepareArchiveOperation).mockResolvedValueOnce({ id: "extract-selected" } as never);
+    vi.mocked(api.executeArchiveExtraction).mockResolvedValueOnce({
+      phase: "completed",
+      checkpoint_json: JSON.stringify({}),
+    } as never);
+    const destination = physicalLocation("conn-1", "output");
+
+    await expect(
+      startArchiveExtraction(createContentProviderRegistry(), {
+        source: archiveLocation,
+        destination,
+        selectedMemberPaths: ["docs", "docs/readme.txt"],
+      }).result
+    ).resolves.toMatchObject({ status: "completed" });
+
+    expect(api.prepareArchiveOperation).toHaveBeenCalledWith(
+      expect.objectContaining({ selected_member_paths: ["docs", "docs/readme.txt"] })
+    );
+  });
+
   it("resumes a paused direct-local extraction through the Companion decision endpoint", async () => {
     const localArchiveLocation = virtualLocation("zip", "local-drive:c", physicalLocation("local-drive:c", "archives/one.zip"), "");
     vi.mocked(api.startLocalArchiveExtraction).mockResolvedValueOnce({
@@ -272,11 +314,14 @@ describe("content providers", () => {
         progress: localArchiveProgress(),
         cancellation_requested: false,
         pendingDecision: {
-          kind: "existing_files",
+          kind: "collision",
           source_session_id: "source-session-1",
           delivery_sequence: 1,
           decision_revision: 1,
-          conflicts: [{ member_path: "source.txt", target_path: "renamed.txt", is_directory: false }],
+          member_path: "source.txt",
+          is_directory: false,
+          source: { path: "source.txt", size: 5, modified_at: "2025-01-01T12:00:00Z" },
+          target: { path: "renamed.txt", size: 10, modified_at: "2025-01-02T12:00:00Z" },
           allowed_actions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
         },
       })
@@ -303,7 +348,7 @@ describe("content providers", () => {
 
     await expect(execution.result).resolves.toMatchObject({
       status: "awaiting-decision",
-      conflicts: [{ memberPath: "source.txt", targetPath: "archives/one/renamed.txt", isDirectory: false }],
+      conflicts: [archiveConflict("source.txt", "archives/one/renamed.txt")],
       allowedActions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
     });
     await expect(execution.decide("replace_older", "source.txt")).resolves.toMatchObject({
@@ -435,16 +480,7 @@ describe("content providers", () => {
       phase: "awaiting_user_decision",
     } as never);
     vi.mocked(api.getArchiveLiveExtractionStatus).mockResolvedValueOnce(
-      liveExtractionStatus({
-        revision: 1,
-        kind: "collision",
-        member_path: "docs/readme.txt",
-        target_path: "output/docs/readme.txt",
-        message: null,
-        delivery_sequence: 1,
-        is_directory: false,
-        allowed_actions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
-      }) as never
+      liveExtractionStatus(liveCollision("docs/readme.txt", "output/docs/readme.txt")) as never
     );
     vi.mocked(api.decideArchiveExtraction).mockRejectedValueOnce({ isAxiosError: true, response: { status: 409 } });
     vi.mocked(api.cancelArchiveOperation).mockResolvedValueOnce({ phase: "streaming" } as never);
@@ -537,16 +573,7 @@ describe("content providers", () => {
         extracted_bytes: 0,
         files_replaced: 0,
       },
-      pending_decision: {
-        revision: 1,
-        kind: "collision",
-        member_path: "readme.txt",
-        target_path: "output/readme.txt",
-        message: null,
-        delivery_sequence: 1,
-        is_directory: false,
-        allowed_actions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
-      },
+      pending_decision: liveCollision("readme.txt", "output/readme.txt"),
     } as never);
     vi.mocked(api.decideLocalArchiveRelayExtraction).mockResolvedValueOnce({
       ...extractionAggregate(1, 1, 5),
@@ -600,16 +627,7 @@ describe("content providers", () => {
       } as never)
       .mockResolvedValueOnce(extractionAggregate(1, 1, 5) as never);
     vi.mocked(api.getArchiveLiveExtractionStatus).mockResolvedValueOnce(
-      liveExtractionStatus({
-        revision: 1,
-        kind: "collision",
-        member_path: "readme.txt",
-        target_path: "output/readme.txt",
-        message: null,
-        delivery_sequence: 1,
-        is_directory: false,
-        allowed_actions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
-      }) as never
+      liveExtractionStatus(liveCollision("readme.txt", "readme.txt")) as never
     );
     vi.mocked(api.decideArchiveExtraction).mockResolvedValueOnce({ phase: "streaming" } as never);
 
@@ -618,7 +636,10 @@ describe("content providers", () => {
       destination: physicalLocation("local-drive:c", "output"),
     });
 
-    await expect(execution.result).resolves.toMatchObject({ status: "awaiting-decision" });
+    await expect(execution.result).resolves.toMatchObject({
+      status: "awaiting-decision",
+      conflicts: [archiveConflict("readme.txt", "output/readme.txt")],
+    });
     await expect(execution.decide("skip_all")).resolves.toMatchObject({ status: "completed", summary: { filesExtracted: 1 } });
     expect(vi.mocked(api.extractSmbArchiveToLocal).mock.calls.slice(-2)).toEqual([
       ["local-drive:c", "output", "extract-1"],
@@ -632,24 +653,51 @@ describe("content providers", () => {
     expect(api.executeArchiveExtraction).not.toHaveBeenCalled();
   });
 
-  it("rejects unsupported cross-connection archive extraction pairs", async () => {
+  it("extracts ZIP members across local drives and distinct SMB connections", async () => {
     vi.clearAllMocks();
     const localArchiveLocation = virtualLocation("zip", "local-drive:c", physicalLocation("local-drive:c", "archives/one.zip"), "");
     const otherSmbArchiveLocation = virtualLocation("zip", "conn-1", physicalLocation("conn-1", "archives/one.zip"), "");
+    vi.mocked(api.startLocalArchiveExtraction).mockResolvedValueOnce({
+      execution_id: "local-extract-1",
+      phase: "streaming",
+      revision: 1,
+      progress: localArchiveProgress(),
+      cancellation_requested: false,
+    });
+    vi.mocked(api.waitForLocalArchiveExecution).mockResolvedValueOnce({
+      execution_id: "local-extract-1",
+      phase: "completed",
+      revision: 2,
+      progress: localArchiveProgress(),
+      cancellation_requested: false,
+      aggregate_counters: extractionAggregate(),
+    });
 
     await expect(
       startArchiveExtraction(createContentProviderRegistry(), {
         source: localArchiveLocation,
         destination: physicalLocation("local-drive:d", "output"),
       }).result
-    ).rejects.toThrow("between local drives");
+    ).resolves.toMatchObject({ status: "completed" });
+    expect(api.startLocalArchiveExtraction).toHaveBeenCalledWith("local-drive:c", "archives/one.zip", "output", undefined, "local-drive:d");
+    vi.mocked(api.prepareArchiveOperation).mockResolvedValueOnce({ id: "extract-remote-1" } as never);
+    vi.mocked(api.executeArchiveExtraction).mockResolvedValueOnce({
+      phase: "completed",
+      checkpoint_json: JSON.stringify({ version: 2, aggregate_counters: extractionAggregate(1, 1, 5) }),
+    } as never);
     await expect(
       startArchiveExtraction(createContentProviderRegistry(), {
         source: otherSmbArchiveLocation,
         destination: physicalLocation("conn-2", "output"),
       }).result
-    ).rejects.toThrow("between SMB connections");
-    expect(api.prepareArchiveOperation).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({ status: "completed", summary: { filesExtracted: 1, directoriesCreated: 1 } });
+    expect(api.prepareArchiveOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source_connection_id: "conn-1",
+        destination_connection_id: "conn-2",
+      })
+    );
+    expect(api.executeArchiveExtraction).toHaveBeenCalledWith("extract-remote-1");
   });
 
   it("preserves a server collision decision and resumes the same extraction operation", async () => {
@@ -666,30 +714,8 @@ describe("content providers", () => {
         checkpoint_json: JSON.stringify({ version: 2, aggregate_counters: { members_skipped: 2 } }),
       } as never);
     vi.mocked(api.getArchiveLiveExtractionStatus)
-      .mockResolvedValueOnce(
-        liveExtractionStatus({
-          revision: 1,
-          kind: "collision",
-          member_path: "docs/readme.txt",
-          target_path: "output/docs/readme.txt",
-          message: null,
-          delivery_sequence: 1,
-          is_directory: false,
-          allowed_actions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
-        }) as never
-      )
-      .mockResolvedValueOnce(
-        liveExtractionStatus({
-          revision: 2,
-          kind: "collision",
-          member_path: "images/cover.png",
-          target_path: "output/images/cover.png",
-          message: null,
-          delivery_sequence: 2,
-          is_directory: false,
-          allowed_actions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
-        }) as never
-      );
+      .mockResolvedValueOnce(liveExtractionStatus(liveCollision("docs/readme.txt", "output/docs/readme.txt")) as never)
+      .mockResolvedValueOnce(liveExtractionStatus(liveCollision("images/cover.png", "output/images/cover.png", 2)) as never);
     vi.mocked(api.decideArchiveExtraction)
       .mockResolvedValueOnce({ phase: "streaming" } as never)
       .mockResolvedValueOnce({ phase: "streaming" } as never);
@@ -702,12 +728,12 @@ describe("content providers", () => {
     await expect(execution.result).resolves.toEqual({
       status: "awaiting-decision",
       allowedActions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
-      conflicts: [{ memberPath: "docs/readme.txt", targetPath: "output/docs/readme.txt", isDirectory: false }],
+      conflicts: [archiveConflict("docs/readme.txt", "output/docs/readme.txt")],
     });
     await expect(execution.decide("skip", "docs/readme.txt")).resolves.toEqual({
       status: "awaiting-decision",
       allowedActions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
-      conflicts: [{ memberPath: "images/cover.png", targetPath: "output/images/cover.png", isDirectory: false }],
+      conflicts: [archiveConflict("images/cover.png", "output/images/cover.png")],
     });
     await expect(execution.decide("replace_older", "images/cover.png")).resolves.toMatchObject({
       status: "completed",

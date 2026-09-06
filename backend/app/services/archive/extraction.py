@@ -155,6 +155,8 @@ async def extract_live_archive_to_new_paths(
                     member.path,
                     "awaiting_collision",
                     target_path=error.conflicts[0].target_path,
+                    target_size=error.conflicts[0].target_size,
+                    target_modified_at=error.conflicts[0].target_modified_at,
                 )
             )
             return source_session.aggregate
@@ -182,6 +184,8 @@ async def extract_live_archive_to_new_paths(
                     "awaiting_collision",
                     directories_created=directories_created,
                     target_path=target_path,
+                    target_size=target_write.target.size if target_write.target is not None else None,
+                    target_modified_at=target_write.target.modified_at if target_write.target is not None else None,
                 )
             )
             return source_session.aggregate
@@ -229,7 +233,17 @@ async def _ensure_live_directory(destination: ArchiveExtractionDestination, path
         except FileExistsError:
             info = await destination.get_file_info(current)
             if info.type != FileType.DIRECTORY:
-                raise ArchiveExtractionConflicts([ArchiveExtractionConflict(path, current, is_directory=True)])
+                raise ArchiveExtractionConflicts(
+                    [
+                        ArchiveExtractionConflict(
+                            path,
+                            current,
+                            is_directory=True,
+                            target_size=info.size,
+                            target_modified_at=info.modified_at,
+                        )
+                    ]
+                )
         else:
             created += 1
     return created

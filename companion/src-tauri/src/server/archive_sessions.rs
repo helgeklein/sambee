@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
+use chrono::{DateTime, Utc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -67,7 +68,11 @@ pub struct ArchiveSessionPendingDecision {
     pub delivery_sequence: u64,
     pub decision_revision: u64,
     pub member_path: String,
+    pub source_size: u64,
+    pub source_modified_at: Option<DateTime<Utc>>,
     pub target_path: Option<String>,
+    pub target_size: Option<u64>,
+    pub target_modified_at: Option<DateTime<Utc>>,
     pub is_directory: bool,
     pub member_error: Option<LocalArchiveExtractionMemberError>,
 }
@@ -131,16 +136,27 @@ pub(crate) struct LiveLocalArchiveSourceSession {
     next_decision_revision: u64,
     pending_decision_revision: Option<u64>,
     pending_decision_target_path: Option<String>,
+    pending_decision_target_size: Option<u64>,
+    pending_decision_target_modified_at: Option<DateTime<Utc>>,
     pending_decision_message: Option<String>,
     pending_member_error: bool,
     claimed_decision: Option<ClaimedLiveSourceDecision>,
     aggregate: LocalArchiveExtractionResult,
+    selected_member_roots: Option<Vec<String>>,
     projected_entries: Option<Vec<LocalArchiveReadEntry>>,
     projected_entry_index: usize,
 }
 
 impl LiveLocalArchiveSourceSession {
+    #[cfg(test)]
     pub(crate) fn open(archive_path: &std::path::Path) -> Result<Self, LocalArchiveError> {
+        Self::open_with_selection(archive_path, None)
+    }
+
+    pub(crate) fn open_with_selection(
+        archive_path: &std::path::Path,
+        selected_member_roots: Option<Vec<String>>,
+    ) -> Result<Self, LocalArchiveError> {
         Ok(Self {
             source_session_id: Uuid::new_v4().to_string(),
             reader: LocalArchiveReader::open_pinned(archive_path)?,
@@ -154,10 +170,13 @@ impl LiveLocalArchiveSourceSession {
             next_decision_revision: 1,
             pending_decision_revision: None,
             pending_decision_target_path: None,
+            pending_decision_target_size: None,
+            pending_decision_target_modified_at: None,
             pending_decision_message: None,
             pending_member_error: false,
             claimed_decision: None,
             aggregate: LocalArchiveExtractionResult::default(),
+            selected_member_roots,
             projected_entries: None,
             projected_entry_index: 0,
         })
@@ -206,6 +225,14 @@ impl LiveLocalArchiveSourceSession {
         self.pending_decision_target_path.as_deref()
     }
 
+    pub(crate) fn pending_decision_target_size(&self) -> Option<u64> {
+        self.pending_decision_target_size
+    }
+
+    pub(crate) fn pending_decision_target_modified_at(&self) -> Option<DateTime<Utc>> {
+        self.pending_decision_target_modified_at
+    }
+
     pub(crate) fn pending_decision_message(&self) -> Option<&str> {
         self.pending_decision_message.as_deref()
     }
@@ -242,7 +269,11 @@ impl LiveLocalArchiveSourceSession {
             delivery_sequence: current.delivery_sequence,
             decision_revision,
             member_path: current.entry.path.clone(),
+            source_size: current.entry.uncompressed_size,
+            source_modified_at: current.entry.modified_at,
             target_path: self.pending_decision_target_path.clone(),
+            target_size: self.pending_decision_target_size,
+            target_modified_at: self.pending_decision_target_modified_at,
             is_directory: current.entry.is_directory,
             member_error,
         }))
@@ -252,12 +283,16 @@ impl LiveLocalArchiveSourceSession {
         &mut self,
         target_path: Option<String>,
         message: Option<String>,
+        target_size: Option<u64>,
+        target_modified_at: Option<DateTime<Utc>>,
     ) -> Result<(), LocalArchiveError> {
         if self.phase != LiveLocalArchiveSourcePhase::AwaitingDecision {
             return Err(Self::invalid_state("Archive source is not awaiting a decision"));
         }
         self.pending_decision_target_path = target_path;
         self.pending_decision_message = message;
+        self.pending_decision_target_size = target_size;
+        self.pending_decision_target_modified_at = target_modified_at;
         Ok(())
     }
 
@@ -271,6 +306,8 @@ impl LiveLocalArchiveSourceSession {
         }
         self.pending_member_error = false;
         self.pending_decision_target_path = None;
+        self.pending_decision_target_size = None;
+        self.pending_decision_target_modified_at = None;
         self.pending_decision_message = None;
         self.pending_decision_revision = Some(self.next_decision_revision);
         self.next_decision_revision = self
@@ -291,6 +328,8 @@ impl LiveLocalArchiveSourceSession {
         }
         self.pending_member_error = true;
         self.pending_decision_target_path = None;
+        self.pending_decision_target_size = None;
+        self.pending_decision_target_modified_at = None;
         self.pending_decision_message = None;
         self.pending_decision_revision = Some(self.next_decision_revision);
         self.next_decision_revision = self
@@ -440,7 +479,27 @@ impl LiveLocalArchiveSourceSession {
             for _ in 0..projection.skipped_entries {
                 self.record_source_terminal(true)?;
             }
-            self.projected_entries = Some(projection.entries);
+            let entries = if let Some(roots) = &self.selected_member_roots {
+                if roots.iter().any(|root| {
+                    !projection.entries.iter().any(|entry| {
+                        let path = entry.path.trim_end_matches('/');
+                        path == root || path.starts_with(&format!("{root}/"))
+                    })
+                }) {
+                    return Err(LocalArchiveError::UnknownExtractionMember);
+                }
+                projection
+                    .entries
+                    .into_iter()
+                    .filter(|entry| {
+                        let path = entry.path.trim_end_matches('/');
+                        roots.iter().any(|root| path == root || path.starts_with(&format!("{root}/")))
+                    })
+                    .collect()
+            } else {
+                projection.entries
+            };
+            self.projected_entries = Some(entries);
         }
         loop {
             let entries = self
@@ -783,8 +842,15 @@ pub struct ArchiveSessionStatus {
 
 #[derive(Clone)]
 pub(crate) enum ArchiveSessionWork {
-    Creation { source_paths: Vec<PathBuf>, target_path: PathBuf },
-    Extraction { archive_path: PathBuf, destination_path: PathBuf },
+    Creation {
+        source_paths: Vec<PathBuf>,
+        target_path: PathBuf,
+    },
+    Extraction {
+        archive_path: PathBuf,
+        destination_path: PathBuf,
+        selected_member_roots: Option<Vec<String>>,
+    },
 }
 
 pub(crate) struct PreparedLocalArchiveCreation {
@@ -958,12 +1024,13 @@ struct RelayLiveLocalArchiveSource {
     expires_at: Option<Instant>,
 }
 
-struct RelayLiveSourceDetails {
-    drive: String,
-    owner_origin: String,
-    archive_path: PathBuf,
-    server_url: String,
-    operation_token: String,
+pub(crate) struct RelayLiveSourceDetails {
+    pub(crate) drive: String,
+    pub(crate) owner_origin: String,
+    pub(crate) archive_path: PathBuf,
+    pub(crate) server_url: String,
+    pub(crate) operation_token: String,
+    pub(crate) selected_member_roots: Option<Vec<String>>,
 }
 
 struct RelaySourceOpeningReservation {
@@ -1170,6 +1237,7 @@ impl ArchiveSessionManager {
     }
 
     /// Open the retained local ZIP reader for one mixed relay operation exactly once.
+    #[cfg(test)]
     pub(crate) async fn start_relay_live_source(
         &self,
         operation_id: &str,
@@ -1187,9 +1255,23 @@ impl ArchiveSessionManager {
                 archive_path,
                 server_url: server_url.to_string(),
                 operation_token: operation_token.to_string(),
+                selected_member_roots: None,
             },
             |source_path| LiveLocalArchiveSourceSession::open(&source_path),
         )
+        .await
+    }
+
+    /// Open a retained local ZIP reader bound to backend-authorized member roots.
+    pub(crate) async fn start_relay_live_source_with_selection(
+        &self,
+        operation_id: &str,
+        details: RelayLiveSourceDetails,
+    ) -> Result<(Arc<Mutex<LiveLocalArchiveSourceSession>>, Arc<AtomicBool>), ApiError> {
+        let selected_member_roots = details.selected_member_roots.clone();
+        self.start_relay_live_source_with_opener(operation_id, details, move |source_path| {
+            LiveLocalArchiveSourceSession::open_with_selection(&source_path, selected_member_roots)
+        })
         .await
     }
 
@@ -1350,6 +1432,7 @@ impl ArchiveSessionManager {
             .ok_or_else(|| ApiError::NotFound("Archive relay source not found or expired".to_string()))
     }
 
+    #[cfg(test)]
     pub async fn create_extraction(
         &self,
         drive: String,
@@ -1358,6 +1441,19 @@ impl ArchiveSessionManager {
         archive_path: PathBuf,
         destination_path: PathBuf,
     ) -> ArchiveSessionStatus {
+        self.create_extraction_with_selection(drive, owner_origin, drive_root, archive_path, destination_path, None)
+            .await
+    }
+
+    pub async fn create_extraction_with_selection(
+        &self,
+        drive: String,
+        owner_origin: String,
+        drive_root: PathBuf,
+        archive_path: PathBuf,
+        destination_path: PathBuf,
+        selected_member_roots: Option<Vec<String>>,
+    ) -> ArchiveSessionStatus {
         self.create(
             drive,
             owner_origin,
@@ -1365,6 +1461,7 @@ impl ArchiveSessionManager {
             ArchiveSessionWork::Extraction {
                 archive_path,
                 destination_path,
+                selected_member_roots,
             },
             None,
         )
@@ -1534,6 +1631,7 @@ impl ArchiveSessionManager {
         let ArchiveSessionWork::Extraction {
             archive_path,
             destination_path,
+            ..
         } = &session.work
         else {
             return Err(ApiError::conflict_message("Archive execution is not an extraction operation"));
@@ -1579,7 +1677,7 @@ impl ArchiveSessionManager {
         ),
         ApiError,
     > {
-        let archive_path = {
+        let (archive_path, selected_member_roots) = {
             let mut sessions = self.sessions.lock().await;
             Self::remove_expired(&mut sessions);
             let session = sessions
@@ -1588,20 +1686,27 @@ impl ArchiveSessionManager {
             if session.kind != ArchiveSessionKind::Extract || session.phase != ArchiveSessionPhase::Accepted {
                 return Err(ApiError::conflict_message("Archive execution has already started"));
             }
-            let ArchiveSessionWork::Extraction { archive_path, .. } = &session.work else {
+            let ArchiveSessionWork::Extraction {
+                archive_path,
+                selected_member_roots,
+                ..
+            } = &session.work
+            else {
                 return Err(ApiError::conflict_message("Archive execution is not an extraction operation"));
             };
             let archive_path = archive_path.clone();
+            let selected_member_roots = selected_member_roots.clone();
             session.phase = ArchiveSessionPhase::Streaming;
             session.revision += 1;
-            archive_path
+            (archive_path, selected_member_roots)
         };
         #[cfg(test)]
         self.record_phase_transition(execution_id, ArchiveSessionPhase::Streaming).await;
-        let source = tokio::task::spawn_blocking(move || LiveLocalArchiveSourceSession::open(&archive_path))
-            .await
-            .map_err(|error| ApiError::Internal(format!("Local archive source task failed: {error}")))?
-            .map_err(|error| ApiError::Internal(error.to_string()))?;
+        let source =
+            tokio::task::spawn_blocking(move || LiveLocalArchiveSourceSession::open_with_selection(&archive_path, selected_member_roots))
+                .await
+                .map_err(|error| ApiError::Internal(format!("Local archive source task failed: {error}")))?
+                .map_err(|error| ApiError::Internal(error.to_string()))?;
         let source = Arc::new(Mutex::new(source));
         let (drive_root, archive_path, destination_path, cancellation_requested) = {
             let mut sessions = self.sessions.lock().await;
@@ -1615,6 +1720,7 @@ impl ArchiveSessionManager {
             let ArchiveSessionWork::Extraction {
                 archive_path,
                 destination_path,
+                ..
             } = &session.work
             else {
                 return Err(ApiError::conflict_message("Archive execution is not an extraction operation"));
@@ -2074,6 +2180,42 @@ mod tests {
     }
 
     #[test]
+    fn live_source_session_limits_delivery_to_selected_member_roots() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("archive.zip");
+        let mut archive = ZipWriter::new(fs::File::create(&archive_path).unwrap());
+        archive.start_file("docs/readme.txt", SimpleFileOptions::default()).unwrap();
+        archive.write_all(b"readme").unwrap();
+        archive.start_file("private/secret.txt", SimpleFileOptions::default()).unwrap();
+        archive.write_all(b"secret").unwrap();
+        archive.finish().unwrap();
+
+        let mut source = LiveLocalArchiveSourceSession::open_with_selection(&archive_path, Some(vec!["docs".to_string()])).unwrap();
+        let member = source.next_member().unwrap().unwrap();
+        assert_eq!(member.entry.path, "docs/readme.txt");
+        let mut contents = Vec::new();
+        source
+            .stream_current_member(member.delivery_sequence, &mut contents, &AtomicBool::new(false))
+            .unwrap();
+        source
+            .apply_destination_result(
+                member.delivery_sequence,
+                &LocalArchiveExtractionDestinationResult {
+                    member_path: member.entry.path,
+                    status: LocalArchiveExtractionDestinationStatus::Extracted,
+                    target_path: "docs/readme.txt".to_string(),
+                    extracted_bytes: contents.len() as u64,
+                    directories_created: 0,
+                    replaced: false,
+                    renamed: false,
+                },
+            )
+            .unwrap();
+
+        assert!(source.next_member().unwrap().is_none());
+    }
+
+    #[test]
     fn invalid_directory_header_is_source_failed_before_the_next_member_is_delivered() {
         let directory = tempdir().unwrap();
         let archive_path = directory.path().join("archive.zip");
@@ -2339,6 +2481,7 @@ mod tests {
                         archive_path: first_archive_path,
                         server_url: server_url.to_string(),
                         operation_token: operation_token.to_string(),
+                        selected_member_roots: None,
                     },
                     move |source_path| {
                         first_open_count.fetch_add(1, Ordering::AcqRel);
@@ -2363,6 +2506,7 @@ mod tests {
                     archive_path,
                     server_url: server_url.to_string(),
                     operation_token: operation_token.to_string(),
+                    selected_member_roots: None,
                 },
                 move |source_path| {
                     second_open_count.fetch_add(1, Ordering::AcqRel);
@@ -2408,6 +2552,7 @@ mod tests {
                         archive_path: opening_archive_path,
                         server_url: server_url.to_string(),
                         operation_token: operation_token.to_string(),
+                        selected_member_roots: None,
                     },
                     move |source_path| {
                         open_started_sender.send(()).unwrap();
@@ -2463,6 +2608,7 @@ mod tests {
                         archive_path: opening_archive_path,
                         server_url: server_url.to_string(),
                         operation_token: operation_token.to_string(),
+                        selected_member_roots: None,
                     },
                     move |source_path| {
                         open_started_sender.send(()).unwrap();
@@ -2591,7 +2737,7 @@ mod tests {
 
         source.pause_for_member_error(member.delivery_sequence).unwrap();
         source
-            .set_pending_decision_details(Some(member.entry.path.clone()), Some("CRC mismatch".to_string()))
+            .set_pending_decision_details(Some(member.entry.path.clone()), Some("CRC mismatch".to_string()), None, None)
             .unwrap();
         let decision = source.pending_decision().unwrap().unwrap();
         assert_eq!(decision.source_session_id, source.source_session_id());

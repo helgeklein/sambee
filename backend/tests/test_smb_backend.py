@@ -25,6 +25,8 @@ from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 import pytest
 from smbclient._os import FileAttributes
+from smbprotocol.file_info import FileDispositionInformation, InfoType
+from smbprotocol.open import FileInformationClass, FilePipePrinterAccessMask, SMB2SetInfoResponse
 
 from app.models.file import DirectoryListing, FileInfo, FileType
 from app.services.archive.extraction import extract_archive_to_new_paths
@@ -1138,6 +1140,31 @@ class TestRandomAccessReading:
 
         assert mock_open.call_args.kwargs["share_access"] == "r"
         await reader.close()
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.open_file")
+    async def test_move_source_reader_deletes_the_retained_smb_handle(self, mock_open):
+        response = SMB2SetInfoResponse().pack()
+        raw = MagicMock()
+        raw.fd.file_id = b"f" * 16
+        raw.fd.connection.receive.return_value = {"data": MagicMock(get_value=lambda: response)}
+        mock_file = MagicMock()
+        mock_file.raw = raw
+        mock_open.return_value = mock_file
+        backend = SMBBackend(host="server.local", share_name="share", username="user", password="pass")
+
+        reader = await backend.open_move_source_reader("source.txt")
+        await reader.commit_delete()
+
+        assert mock_open.call_args.kwargs["desired_access"] & FilePipePrinterAccessMask.DELETE
+        request = raw.fd.connection.send.call_args.args[0]
+        assert request["info_type"].get_value() == InfoType.SMB2_0_INFO_FILE
+        assert request["file_info_class"].get_value() == FileInformationClass.FILE_DISPOSITION_INFORMATION
+        assert request["file_id"].get_value() == b"f" * 16
+        disposition = FileDispositionInformation()
+        disposition.unpack(request["buffer"].get_value())
+        assert disposition["delete_pending"].get_value() is True
+        mock_file.close.assert_called_once()
 
 
 class TestExclusiveArchiveWriting:

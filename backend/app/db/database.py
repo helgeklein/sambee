@@ -103,6 +103,7 @@ def init_db() -> None:
     from app.models.recent_directory import RecentDirectory  # noqa: F401 - Required for table creation
     from app.models.recent_file import RecentFile  # noqa: F401 - Required for table creation
     from app.models.system_settings import SystemSetting  # noqa: F401 - Required for table creation
+    from app.models.transfer_operation import TransferOperation  # noqa: F401 - Required for table creation
     from app.models.user_settings import UserSetting  # noqa: F401 - Required for table creation
 
     # Create all tables

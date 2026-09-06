@@ -65,6 +65,8 @@ class CopyMoveRequest(BaseModel):
     # Each executed plan needs a caller-supplied key so a transport retry can
     # retrieve its factual result instead of starting a new mutation.
     idempotency_key: str
+    # Ephemeral identifier for cooperative cancellation of an active request.
+    transfer_attempt_id: Optional[UUID] = None
 
     @model_validator(mode="after")
     def validate_resolution_policy(self) -> "CopyMoveRequest":
@@ -107,7 +109,7 @@ class ContentTransferEffects(BaseModel):
 class ContentTransferError(BaseModel):
     """A stable failure detail for a factual transfer result."""
 
-    code: Literal["source_changed", "source_delete_failed", "transport", "unavailable"]
+    code: Literal["conflict", "source_changed", "source_delete_failed", "transport", "unavailable"]
     detail: str
 
 

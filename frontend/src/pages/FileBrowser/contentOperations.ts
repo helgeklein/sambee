@@ -1,9 +1,9 @@
-import { isLocalDrive } from "../../services/backendRouter";
 import type { BrowserHistoryService } from "../../services/browserHistoryService";
 import { logger } from "../../services/logger";
 import { publishRecentFilesChanged } from "../../services/recentFilesSync";
 import type { StorageArchiveOperationCoordinator } from "../../services/storageArchiveOperations";
 import type { ContentTransferResult, StorageBackendRegistry, TargetResolutionPolicy } from "../../services/storageContracts";
+import { transferAcrossStorageBackends } from "../../services/storageTransferOperations";
 import { FileType, isApiError } from "../../types";
 import { startZipArchiveExtraction } from "./archiveExtractionExecution";
 import type {
@@ -82,6 +82,8 @@ export interface TransferRequest {
   destination: ContentLocation;
   targetName?: string;
   targetResolutionPolicy?: TargetResolutionPolicy;
+  signal?: AbortSignal;
+  onProgress?: (bytesTransferred: number, totalBytes: number | null) => void;
 }
 
 export interface CreateContainerRequest {
@@ -244,15 +246,6 @@ export function getTransferAvailability(
   if (!isPhysicalItem(request.source)) {
     return unavailable("unsupported-source");
   }
-  if (request.kind === "move") {
-    return unavailable("unsupported-destination");
-  }
-  if (
-    isPhysicalLocation(request.destination) &&
-    isLocalDrive(request.source.location.connectionId) !== isLocalDrive(request.destination.connectionId)
-  ) {
-    return unavailable("unsupported-destination");
-  }
   const destinationAvailability = canWriteLocation(request.destination, environment);
   if (!destinationAvailability.available) {
     return destinationAvailability;
@@ -288,14 +281,40 @@ export async function executeTransfer(request: TransferRequest, environment: Con
   const destination = environment.storageRegistry.resolveDirectory(request.destination);
   const idempotencyKey = crypto.randomUUID();
   const targetResolutionPolicy = request.targetResolutionPolicy ?? "ask";
+  const targetName = request.targetName ?? source.path.split("/").pop() ?? "";
+  const requiresStreamRelay = source.target.kind !== destination.target.kind;
+  if (requiresStreamRelay) {
+    const targetPath = `${destination.path}/${targetName}`.replace(/^\//, "");
+    if (request.signal || request.onProgress) {
+      return transferAcrossStorageBackends(
+        request.kind,
+        request.source.location.connectionId,
+        source.path,
+        request.destination.connectionId,
+        targetPath,
+        targetResolutionPolicy,
+        { signal: request.signal, onProgress: request.onProgress }
+      );
+    }
+    return transferAcrossStorageBackends(
+      request.kind,
+      request.source.location.connectionId,
+      source.path,
+      request.destination.connectionId,
+      targetPath,
+      targetResolutionPolicy
+    );
+  }
   const backend = environment.storageRegistry.getBackend(source.target);
-  return backend.copyWithinBackend({
+  const transfer = {
     source,
     destination,
     targetName: request.targetName,
     targetResolutionPolicy,
     idempotencyKey,
-  });
+    signal: request.signal,
+  };
+  return request.kind === "move" ? backend.moveWithinBackend(transfer) : backend.copyWithinBackend(transfer);
 }
 
 export function areSameContentLocations(left: ContentLocation, right: ContentLocation): boolean {
@@ -396,6 +415,10 @@ export function cancelForegroundArchiveOperationOnPageHide(archiveOperations: St
 
 export function hasForegroundArchiveOperationWork(archiveOperations: StorageArchiveOperationCoordinator): boolean {
   return archiveOperations.hasForegroundWork();
+}
+
+export async function recoverInterruptedPhysicalTransfer(): Promise<boolean> {
+  return false;
 }
 
 export async function deleteContentItems(items: readonly ContentItemHandle[], environment: ContentOperationEnvironment): Promise<void> {

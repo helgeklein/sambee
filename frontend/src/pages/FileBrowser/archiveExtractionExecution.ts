@@ -78,7 +78,7 @@ function companionExtractionOutcome(result: {
   return { status: "completed", filesSkipped: summary.filesSkipped, summary };
 }
 
-function localRelayExtractionOutcome(status: LocalArchiveRelayExtractionStatus): ArchiveExtractionOutcome {
+function localRelayExtractionOutcome(status: LocalArchiveRelayExtractionStatus, destinationPathPrefix?: string): ArchiveExtractionOutcome {
   const pending = status.pending_decision;
   if (status.phase !== "awaiting_decision" || !pending || !Number.isSafeInteger(pending.revision) || pending.revision < 1) {
     throw new Error("Local archive relay decision is unavailable");
@@ -100,14 +100,22 @@ function localRelayExtractionOutcome(status: LocalArchiveRelayExtractionStatus):
   return {
     status: "awaiting-decision",
     conflicts: [
-      { memberPath: pending.member_path, targetPath: pending.target_path ?? pending.member_path, isDirectory: pending.is_directory },
+      {
+        source: { path: pending.source.path, size: pending.source.size, modifiedAt: pending.source.modified_at },
+        target: {
+          path: destinationPathPrefix ? [destinationPathPrefix, pending.target.path].filter(Boolean).join("/") : pending.target.path,
+          size: pending.target.size,
+          modifiedAt: pending.target.modified_at,
+        },
+        isDirectory: pending.is_directory,
+      },
     ],
     allowedActions: pending.allowed_actions as ArchiveExtractionConflictAction[],
   };
 }
 
-function liveExtractionOutcome(status: ArchiveLiveExtractionStatus): ArchiveExtractionOutcome {
-  return localRelayExtractionOutcome(status);
+function liveExtractionOutcome(status: ArchiveLiveExtractionStatus, destinationPathPrefix?: string): ArchiveExtractionOutcome {
+  return localRelayExtractionOutcome(status, destinationPathPrefix);
 }
 
 function toExtractionOutcome(operation: ArchiveOperation): ArchiveExtractionOutcome {
@@ -122,7 +130,7 @@ function toExtractionOutcome(operation: ArchiveOperation): ArchiveExtractionOutc
 }
 
 export function startZipArchiveExtraction(request: ArchiveExtractionRequest): ArchiveExtractionExecution {
-  const { source: location, destination } = request;
+  const { source: location, destination, selectedMemberPaths } = request;
   const destinationPath = destination.path;
   if (location.providerId !== "zip") {
     return {
@@ -217,11 +225,21 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
       }
       return {
         status: "awaiting-decision",
-        conflicts: pendingDecision.conflicts.map((conflict) => ({
-          memberPath: conflict.member_path,
-          targetPath: [destinationPath, conflict.target_path].filter(Boolean).join("/"),
-          isDirectory: conflict.is_directory,
-        })),
+        conflicts: [
+          {
+            source: {
+              path: pendingDecision.source.path,
+              size: pendingDecision.source.size,
+              modifiedAt: pendingDecision.source.modified_at,
+            },
+            target: {
+              path: [destinationPath, pendingDecision.target.path].filter(Boolean).join("/"),
+              size: pendingDecision.target.size,
+              modifiedAt: pendingDecision.target.modified_at,
+            },
+            isDirectory: pendingDecision.is_directory,
+          },
+        ],
         allowedActions: pendingDecision.allowed_actions,
       };
     }
@@ -302,7 +320,7 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
         decisionRevision: pending.revision,
         memberPath: pending.member_path,
       };
-      return finishServerOutcome(liveExtractionOutcome(liveStatus));
+      return finishServerOutcome(liveExtractionOutcome(liveStatus, destinationPath));
     }
     return finishServerOutcome(companionExtractionOutcome(companionResult));
   };
@@ -311,9 +329,6 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
     const sourceIsLocal = isLocalDrive(location.connectionId);
     const destinationIsLocal = isLocalDrive(destination.connectionId);
     if (sourceIsLocal && destinationIsLocal) {
-      if (location.connectionId !== destination.connectionId) {
-        throw new Error("Archive extraction between local drives is not available");
-      }
       localSignal = beginForegroundLocalArchiveRequest();
       const onLocalAbort = () => {
         cancellationRequested = true;
@@ -321,7 +336,16 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
       };
       localSignal.addEventListener("abort", onLocalAbort, { once: true });
       try {
-        const execution = await api.startLocalArchiveExtraction(location.connectionId, location.source.path, destinationPath);
+        const execution =
+          selectedMemberPaths || location.connectionId !== destination.connectionId
+            ? await api.startLocalArchiveExtraction(
+                location.connectionId,
+                location.source.path,
+                destinationPath,
+                selectedMemberPaths,
+                destination.connectionId
+              )
+            : await api.startLocalArchiveExtraction(location.connectionId, location.source.path, destinationPath);
         localExecution = { executionId: execution.execution_id, revision: execution.revision };
         if (cancellationRequested) {
           await cancelLocalExecution();
@@ -332,10 +356,6 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
         clearForegroundLocalArchiveRequest(localSignal);
       }
     }
-    if (!sourceIsLocal && !destinationIsLocal && location.connectionId !== destination.connectionId) {
-      throw new Error("Archive extraction between SMB connections is not available");
-    }
-
     try {
       const operation = await api.prepareArchiveOperation({
         contract_version: "v2",
@@ -344,6 +364,7 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
         source_path: location.source.path,
         destination_connection_id: destination.connectionId,
         destination_path: destinationPath,
+        selected_member_paths: selectedMemberPaths,
       });
       operationId = operation.id;
       storeForegroundArchiveOperation(operationId);

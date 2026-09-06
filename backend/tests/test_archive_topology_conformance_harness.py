@@ -261,6 +261,27 @@ def test_cross_topology_inspection_plan_selects_the_source_executor(case: Topolo
     assert plan.binding == (ArchiveInspectionBinding.COMPANION_LOCAL if plan.source_is_local else ArchiveInspectionBinding.BACKEND_SMB)
 
 
+@pytest.mark.parametrize(
+    ("source_connection_id", "destination_connection_id", "driver"),
+    [
+        ("local-drive:c", "local-drive:d", ArchiveExecutionDriver.COMPANION),
+        ("connection-1", "connection-2", ArchiveExecutionDriver.BACKEND),
+    ],
+)
+def test_distinct_provider_connections_select_archive_extraction_owners(
+    source_connection_id: str,
+    destination_connection_id: str,
+    driver: ArchiveExecutionDriver,
+) -> None:
+    plan = resolve_archive_operation_topology_plan(
+        kind=ArchiveOperationKind.EXTRACT,
+        source_connection_id=source_connection_id,
+        destination_connection_id=destination_connection_id,
+    )
+
+    assert plan.topology.driver == driver
+
+
 @dataclass(frozen=True)
 class DeterministicCreationAdapter:
     """Test-only creation adapter that commits only manifest-backed observations."""

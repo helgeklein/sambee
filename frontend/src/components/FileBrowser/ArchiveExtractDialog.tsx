@@ -69,20 +69,20 @@ function toArchiveConflictInfo(conflict: ArchiveExtractionConflict): ConflictInf
   const type = conflict.isDirectory ? FileType.DIRECTORY : FileType.FILE;
   return {
     incoming_file: {
-      name: getItemName(conflict.memberPath),
-      path: conflict.memberPath,
+      name: getItemName(conflict.source.path),
+      path: conflict.source.path,
       type,
-      size: conflict.sourceSize,
-      modified_at: conflict.sourceModifiedAt,
+      size: conflict.source.size,
+      modified_at: conflict.source.modifiedAt,
       is_readable: true,
       is_hidden: false,
     },
     existing_file: {
-      name: getItemName(conflict.targetPath),
-      path: conflict.targetPath,
+      name: getItemName(conflict.target.path),
+      path: conflict.target.path,
       type,
-      size: conflict.targetSize,
-      modified_at: conflict.targetModifiedAt,
+      size: conflict.target.size,
+      modified_at: conflict.target.modifiedAt,
       is_readable: true,
       is_hidden: false,
     },
@@ -112,7 +112,7 @@ function toArchiveDecision(
       return { action: "replace_older" };
     case "rename": {
       if (!decision.targetName) return null;
-      const parentPath = getParentPath(conflict.memberPath);
+      const parentPath = getParentPath(conflict.source.path);
       return { action: "rename", targetPath: parentPath ? `${parentPath}/${decision.targetName}` : decision.targetName };
     }
   }
@@ -209,7 +209,7 @@ export function ArchiveExtractDialog({
     const handleConflictResolve = (decision: ConflictDecision) => {
       const archiveDecision = toArchiveDecision(decision, currentConflict, allowedConflictActions);
       if (archiveDecision) {
-        onConflictDecision(archiveDecision.action, currentConflict.memberPath, archiveDecision.targetPath);
+        onConflictDecision(archiveDecision.action, currentConflict.source.path, archiveDecision.targetPath);
       }
     };
 
@@ -226,8 +226,8 @@ export function ArchiveExtractDialog({
         }
         isSubmitting={isSubmittingConflictDecision || isCancelling}
         error={error}
-        sourcePath={joinDisplayPath(sourcePathPrefix, currentConflict.memberPath)}
-        targetDirectoryPath={getConnectionPath(targetConnectionName, getParentPath(currentConflict.targetPath))}
+        sourcePath={joinDisplayPath(sourcePathPrefix, currentConflict.source.path)}
+        targetDirectoryPath={getConnectionPath(targetConnectionName, getParentPath(currentConflict.target.path))}
         onResolve={handleConflictResolve}
         onCancel={onCancelExtraction ?? onClose}
       />

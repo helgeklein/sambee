@@ -61,6 +61,10 @@ export interface CopyMoveDialogProps {
   transferProgress?: { bytesTransferred: number; totalBytes: number | null; itemName: string } | null;
   /** Error message from a failed operation, if any. */
   error?: string | null;
+  /** Warning message for a completed copy whose source could not be removed. */
+  warning?: string | null;
+  /** Whether the dialog is displaying a completed batch summary. */
+  isTerminal?: boolean;
 }
 
 // ============================================================================
@@ -101,6 +105,8 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   progress,
   transferProgress,
   error,
+  warning,
+  isTerminal = false,
 }) => {
   // Editable file name — only used for single-item operations
   const isSingleItem = files.length === 1;
@@ -169,6 +175,7 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   const formContent = (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
       {error ? <Alert severity="error">{error}</Alert> : null}
+      {warning ? <Alert severity="warning">{warning}</Alert> : null}
       {isSingleItem ? (
         <SettingsFormSurface>
           <SettingsFormGroup>
@@ -242,18 +249,18 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
 
   const actions = (
     <>
-      <Button onClick={onCancel} disabled={isProcessing}>
-        {S.BUTTON_CANCEL}
-      </Button>
-      <Button
-        ref={confirmButtonRef}
-        onClick={handleConfirm}
-        disabled={!canConfirm}
-        variant="contained"
-        startIcon={isProcessing ? <CircularProgress size={16} color="inherit" /> : undefined}
-      >
-        {confirmLabel}
-      </Button>
+      <Button onClick={onCancel}>{isTerminal ? "Close" : S.BUTTON_CANCEL}</Button>
+      {!isTerminal ? (
+        <Button
+          ref={confirmButtonRef}
+          onClick={handleConfirm}
+          disabled={!canConfirm}
+          variant="contained"
+          startIcon={isProcessing ? <CircularProgress size={16} color="inherit" /> : undefined}
+        >
+          {confirmLabel}
+        </Button>
+      ) : null}
     </>
   );
 

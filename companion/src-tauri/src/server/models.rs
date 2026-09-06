@@ -113,6 +113,8 @@ pub enum ArchiveV2ExecutionStartRequest {
         contract_version: ArchiveContractVersion,
         archive_path: String,
         destination_path: String,
+        destination_drive: Option<String>,
+        selected_member_paths: Option<Vec<String>>,
     },
 }
 
@@ -201,23 +203,26 @@ pub enum ArchiveExecutionDecisionAction {
 
 /// A conflict in a V2 extraction pending decision.
 #[derive(Debug, Serialize)]
-pub struct ArchiveExecutionConflict {
-    pub member_path: String,
-    pub target_path: String,
-    pub is_directory: bool,
+pub struct ArchiveExecutionConflictItem {
+    pub path: String,
+    pub size: Option<u64>,
+    pub modified_at: Option<DateTime<Utc>>,
 }
 
 /// The complete V2 decision state currently awaiting local user input.
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum ArchiveExecutionPendingDecision {
-    ExistingFiles {
+    Collision {
         kind: &'static str,
         source_session_id: String,
         delivery_sequence: u64,
         decision_revision: u64,
+        member_path: String,
+        is_directory: bool,
         allowed_actions: Vec<String>,
-        conflicts: Vec<ArchiveExecutionConflict>,
+        source: ArchiveExecutionConflictItem,
+        target: ArchiveExecutionConflictItem,
     },
     MemberError {
         kind: &'static str,
@@ -353,6 +358,15 @@ mod tests {
                 r#"{"kind":"create","contract_version":"v2","source_paths":["source.txt"],"target_path":"archive.zip"}"#
             ),
             Ok(ArchiveV2ExecutionStartRequest::Create { .. })
+        ));
+        assert!(matches!(
+            serde_json::from_str::<ArchiveV2ExecutionStartRequest>(
+                r#"{"kind":"extract","contract_version":"v2","archive_path":"archive.zip","destination_path":"output","selected_member_paths":["docs"]}"#
+            ),
+            Ok(ArchiveV2ExecutionStartRequest::Extract {
+                selected_member_paths: Some(paths),
+                ..
+            }) if paths == ["docs"]
         ));
         assert!(serde_json::from_str::<ArchiveV2ExecutionStartRequest>(
             r#"{"kind":"extract","contract_version":"v1","archive_path":"archive.zip","destination_path":"output"}"#

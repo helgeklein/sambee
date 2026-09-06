@@ -20,6 +20,13 @@ class RandomAccessReader(Protocol):
         """Release the underlying provider handle and associated resources."""
 
 
+class MoveSourceReader(RandomAccessReader, Protocol):
+    """A retained source handle that can delete only the object it opened."""
+
+    async def commit_delete(self) -> None:
+        """Delete the retained source object after a destination commit."""
+
+
 class ExclusiveWriter(Protocol):
     """Operation-scoped writer that owns a newly created final target."""
 
@@ -86,6 +93,11 @@ class StorageBackend(ABC):
         """Open an operation-scoped reader for bounded offset reads."""
 
         pass
+
+    async def open_move_source_reader(self, path: str) -> MoveSourceReader:
+        """Open a source handle that supports identity-bound move deletion."""
+
+        raise NotImplementedError("This storage backend cannot safely delete a retained move source")
 
     @abstractmethod
     async def open_exclusive_writer(self, path: str) -> ExclusiveWriter:

@@ -405,6 +405,40 @@ describe("Browser Component - Interactions", () => {
       });
     });
 
+    it("shows retained-source warnings alongside later batch errors", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.copyItem)
+        .mockResolvedValueOnce({
+          status: "completed_with_source_retained",
+          replaced: false,
+          effects: { source: "unchanged", destination: "mutated" },
+          error: { code: "source_delete_failed", detail: "Destination was created but the original could not be removed." },
+        })
+        .mockResolvedValueOnce({
+          status: "failed",
+          replaced: false,
+          effects: { source: "unchanged", destination: "unchanged" },
+          error: { code: "transport", detail: "Destination is unavailable." },
+        });
+
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
+
+      await waitFor(() => {
+        expectDirectoryLoad("conn-1", "");
+        expectDirectoryLoad("conn-2", "Documents");
+      });
+
+      const listContainer = (await screen.findAllByTestId("virtual-list"))[0];
+      await user.click(listContainer);
+      await user.keyboard("{Insert}");
+      await user.keyboard("{Insert}");
+      await user.keyboard("{F5}");
+      await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Copy" }));
+
+      expect(await screen.findByText(/Destination was created but the original could not be removed/)).toBeInTheDocument();
+      expect(await screen.findByText("Content transfer failed: transport")).toBeInTheDocument();
+    });
+
     it("offers only safe file conflict actions when replacement is unavailable", async () => {
       const user = userEvent.setup();
       const conflict: ConflictInfo = {
@@ -515,7 +549,7 @@ describe("Browser Component - Interactions", () => {
       ]);
     });
 
-    it("does not open Move when direct moves are unavailable", async () => {
+    it("opens Move when the destination is writable", async () => {
       const user = userEvent.setup();
 
       renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
@@ -530,7 +564,8 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard(" ");
       await user.keyboard("{F6}");
 
-      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Move" })).toBeInTheDocument();
       expect(api.moveItem).not.toHaveBeenCalled();
     });
 
@@ -580,7 +615,7 @@ describe("Browser Component - Interactions", () => {
       expect(api.copyItem).not.toHaveBeenCalled();
     });
 
-    it("phase_10_stabilization_move_commands_are_disabled", async () => {
+    it("opens a move dialog without executing a move immediately", async () => {
       const user = userEvent.setup();
 
       vi.mocked(api.getConnections).mockResolvedValue(mockConnections);
@@ -597,9 +632,7 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard(" ");
       await user.keyboard("{F6}");
 
-      await waitFor(() => {
-        expect(screen.queryByRole("button", { name: "Move" })).not.toBeInTheDocument();
-      });
+      expect(await screen.findByRole("button", { name: "Move" })).toBeInTheDocument();
       expect(api.moveItem).not.toHaveBeenCalled();
     });
 
