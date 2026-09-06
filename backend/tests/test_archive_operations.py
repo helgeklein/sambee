@@ -1734,6 +1734,7 @@ def test_live_smb_to_companion_relay_is_source_driven_and_aggregate_only(
             "source_path": "input.zip",
             "destination_connection_id": "local-drive:c",
             "destination_path": "output",
+            "selected_member_paths": ["selected.txt"],
         },
     ).json()
     capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
@@ -1741,7 +1742,7 @@ def test_live_smb_to_companion_relay_is_source_driven_and_aggregate_only(
     backend = AsyncMock()
     backend.connect.return_value = None
     backend.disconnect.return_value = None
-    configure_direct_extraction_archive(backend, {"first.txt": b"contents"})
+    configure_direct_extraction_archive(backend, {"selected.txt": b"contents", "excluded.txt": b"not selected"})
 
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         begin = client.post(f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/live/begin", headers=relay_headers)
@@ -1778,7 +1779,7 @@ def test_live_smb_to_companion_relay_is_source_driven_and_aggregate_only(
         completed = client.post(f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/live/complete", headers=relay_headers)
 
     assert begin.status_code == 200, begin.text
-    assert member_data["member_path"] == "first.txt"
+    assert member_data["member_path"] == "selected.txt"
     assert premature_result.status_code == 409
     assert content.content == b"contents"
     assert result.status_code == 200

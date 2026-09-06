@@ -1476,6 +1476,20 @@ describe("API Service", () => {
       );
     });
 
+    it("authenticates SMB-to-local archive extraction with the browser token", async () => {
+      localStorage.setItem("companion_secret", "test-companion-secret");
+      authSession.setAuthenticated({ access_token: "browser-token", token_type: "bearer" }, false);
+      mockAxiosInstance.post.mockResolvedValueOnce({ data: { members_completed: 1 } } as AxiosResponse);
+
+      await apiService.extractSmbArchiveToLocal("local-drive:c", "output", "operation-id");
+
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+        "/browse/c/archive/v2/relay/extraction",
+        { contract_version: "v2", destination_path: "output", operation_id: "operation-id" },
+        expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer browser-token" }) })
+      );
+    });
+
     it("retries local archive cancellation after a stale progress revision", async () => {
       localStorage.setItem("companion_secret", "test-companion-secret");
       mockAxiosInstance.post.mockRejectedValueOnce({ response: { status: 409 } }).mockResolvedValueOnce({

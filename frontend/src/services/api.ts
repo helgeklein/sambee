@@ -507,6 +507,20 @@ class ApiService {
     return { client: this.api, extraConfig: {} };
   }
 
+  private authenticatedArchiveRelayConfig(extraConfig: AxiosRequestConfig): AxiosRequestConfig {
+    const accessToken = authSession.getAccessToken();
+    if (!accessToken) {
+      throw new Error("Authentication is required to start archive extraction");
+    }
+    return {
+      ...extraConfig,
+      headers: {
+        ...extraConfig.headers,
+        Authorization: `Bearer ${accessToken}`,
+      },
+    };
+  }
+
   supportsEditLocks(connectionId: string): boolean {
     return Boolean(connectionId);
   }
@@ -1143,10 +1157,6 @@ class ApiService {
   async extractLocalArchiveToSmb(connectionId: string, archivePath: string, operationId: string): Promise<ArchiveRelayExtractionResponse> {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
-    const accessToken = authSession.getAccessToken();
-    if (!accessToken) {
-      throw new Error("Authentication is required to start local archive extraction");
-    }
     const response = await client.post(
       `/browse/${segment}/archive/v2/relay/extraction`,
       {
@@ -1154,13 +1164,7 @@ class ApiService {
         archive_path: archivePath,
         operation_id: operationId,
       },
-      {
-        ...extraConfig,
-        headers: {
-          ...extraConfig.headers,
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
+      this.authenticatedArchiveRelayConfig(extraConfig)
     );
     return response.data;
   }
@@ -1213,7 +1217,7 @@ class ApiService {
         destination_path: destinationPath,
         operation_id: operationId,
       },
-      extraConfig
+      this.authenticatedArchiveRelayConfig(extraConfig)
     );
     return response.data;
   }
