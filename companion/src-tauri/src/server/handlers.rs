@@ -6158,6 +6158,16 @@ async fn copy_directory_exclusively(
             error,
             destination_mutated: false,
         })?;
+    match tokio::fs::symlink_metadata(dst).await {
+        Ok(_) => return Err(DirectoryCopyError::TargetExists),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(DirectoryCopyError::Failed {
+                error,
+                destination_mutated: false,
+            });
+        }
+    }
     let target_name = dst
         .file_name()
         .and_then(|value| value.to_str())
@@ -6203,19 +6213,23 @@ async fn copy_directory_exclusively(
                 destination_mutated: true,
             }),
         },
-        Err(error) => match discard_directory_stage(&stage).await {
-            Ok(()) => Err(DirectoryCopyError::Failed {
-                error,
-                destination_mutated: false,
-            }),
-            Err(cleanup_error) => Err(DirectoryCopyError::Failed {
-                error: std::io::Error::other(format!(
-                    "Directory promotion failed: {error}; private stage '{}' could not be removed: {cleanup_error}",
-                    stage.display()
-                )),
-                destination_mutated: true,
-            }),
-        },
+        Err(error) => {
+            let target_exists = tokio::fs::symlink_metadata(dst).await.is_ok();
+            match discard_directory_stage(&stage).await {
+                Ok(()) if target_exists => Err(DirectoryCopyError::TargetExists),
+                Ok(()) => Err(DirectoryCopyError::Failed {
+                    error,
+                    destination_mutated: false,
+                }),
+                Err(cleanup_error) => Err(DirectoryCopyError::Failed {
+                    error: std::io::Error::other(format!(
+                        "Directory promotion failed: {error}; private stage '{}' could not be removed: {cleanup_error}",
+                        stage.display()
+                    )),
+                    destination_mutated: true,
+                }),
+            }
+        }
     }
 }
 
