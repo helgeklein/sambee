@@ -360,6 +360,20 @@ describe("API Service", () => {
     );
   });
 
+  it("does not begin a cross-provider relay when the source size is unknown", async () => {
+    mockAxiosInstance.get.mockResolvedValue({
+      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, is_readable: true, is_hidden: false },
+    } as AxiosResponse);
+
+    await expect(apiService.transferAcrossBackends("copy", "source", "source.txt", "destination", "target.txt")).resolves.toMatchObject({
+      status: "failed",
+      effects: { source: "unchanged", destination: "unchanged" },
+      error: { code: "unavailable", reason: "source_size_unknown" },
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("buffers a cross-provider source when stream upload is unavailable", async () => {
     class UnsupportedStreamUploadRequest {
       headers = new Headers({ "Content-Type": "text/plain" });
@@ -430,7 +444,7 @@ describe("API Service", () => {
 
   it("cancels before publication without deleting the source", async () => {
     mockAxiosInstance.get.mockResolvedValue({
-      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, is_readable: true, is_hidden: false },
+      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, size: 0, is_readable: true, is_hidden: false },
     } as AxiosResponse);
     const abortController = new AbortController();
     abortController.abort();
@@ -447,7 +461,7 @@ describe("API Service", () => {
 
   it("reports an aborted destination acknowledgement as an unknown outcome", async () => {
     mockAxiosInstance.get.mockResolvedValue({
-      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, is_readable: true, is_hidden: false },
+      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, size: 0, is_readable: true, is_hidden: false },
     } as AxiosResponse);
     const abortController = new AbortController();
     fetchMock
@@ -474,9 +488,7 @@ describe("API Service", () => {
     mockAxiosInstance.get
       .mockResolvedValueOnce({ data: source } as AxiosResponse)
       .mockResolvedValueOnce({ data: existing } as AxiosResponse);
-    fetchMock
-      .mockResolvedValueOnce(new Response(new ReadableStream({ start: (controller) => controller.close() })))
-      .mockResolvedValueOnce(new Response("Destination already exists", { status: 409 }));
+    fetchMock.mockResolvedValueOnce(new Response("abc")).mockResolvedValueOnce(new Response("Destination already exists", { status: 409 }));
 
     await expect(apiService.transferAcrossBackends("copy", "source", "source.txt", "destination", "target.txt")).rejects.toMatchObject({
       response: { status: 409, data: { detail: { existing_file: existing, incoming_file: source } } },
@@ -487,7 +499,7 @@ describe("API Service", () => {
     localStorage.setItem("companion_secret", "test-companion-secret");
     mockAxiosInstance.delete.mockResolvedValue({});
     mockAxiosInstance.get.mockResolvedValue({
-      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, is_readable: true, is_hidden: false },
+      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, size: 0, is_readable: true, is_hidden: false },
     } as AxiosResponse);
     fetchMock.mockResolvedValueOnce(new Response(new ReadableStream({ start: (controller) => controller.close() }))).mockResolvedValueOnce(
       new Response(JSON.stringify({ status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } }), {
@@ -518,7 +530,7 @@ describe("API Service", () => {
   it("retains a mixed-provider source when deletion fails after destination publication", async () => {
     localStorage.setItem("companion_secret", "test-companion-secret");
     mockAxiosInstance.get.mockResolvedValue({
-      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, is_readable: true, is_hidden: false },
+      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, size: 0, is_readable: true, is_hidden: false },
     } as AxiosResponse);
     mockAxiosInstance.delete.mockRejectedValue(new Error("Source is read-only"));
     fetchMock.mockResolvedValueOnce(new Response(new ReadableStream({ start: (controller) => controller.close() }))).mockResolvedValueOnce(
@@ -554,7 +566,7 @@ describe("API Service", () => {
         } satisfies DirectoryListing,
       } as AxiosResponse)
       .mockResolvedValueOnce({
-        data: { name: "report.txt", path: "source/nested/report.txt", type: FileType.FILE, is_readable: true, is_hidden: false },
+        data: { name: "report.txt", path: "source/nested/report.txt", type: FileType.FILE, size: 0, is_readable: true, is_hidden: false },
       } as AxiosResponse);
     mockAxiosInstance.post.mockResolvedValue({ data: {} } as AxiosResponse);
     const sourceResponse = new Response(new ReadableStream({ start: (controller) => controller.close() }));

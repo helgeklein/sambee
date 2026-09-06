@@ -1257,6 +1257,7 @@ async def stream_transfer_to_new_item(
     connection_id: uuid.UUID,
     request: Request,
     path: str = Query(..., description="New destination path on the share"),
+    expected_size: int = Query(..., ge=0, description="Expected source byte count"),
     target_resolution_policy: TargetResolutionPolicy = Query(TargetResolutionPolicy.ASK),
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
@@ -1276,13 +1277,26 @@ async def stream_transfer_to_new_item(
     connection = _get_connection_or_404(session, current_user, connection_id)
     require_connection_write_access(current_user, connection, action="transfer_destination", path=target_path)
 
+    received_size = 0
+
     async def request_stream() -> AsyncIterator[bytes]:
+        nonlocal received_size
         async for chunk in request.stream():
             if chunk:
+                received_size += len(chunk)
+                if received_size > expected_size:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        detail=f"Transfer source size mismatch: expected {expected_size} bytes but received more",
+                    )
                 yield chunk
 
     async def before_commit() -> None:
-        return None
+        if received_size != expected_size:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Transfer source size mismatch: expected {expected_size} bytes but received {received_size} bytes",
+            )
 
     backend = build_smb_backend(connection, backend_factory=SMBBackend)
     try:

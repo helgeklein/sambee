@@ -1718,7 +1718,7 @@ async fn execute_browse_move(
 pub struct StreamTransferQuery {
     path: String,
     target_resolution_policy: Option<String>,
-    expected_size: Option<u64>,
+    expected_size: u64,
 }
 
 /// `POST /api/browse/{drive}/transfer-stream` — publish a streamed new file.
@@ -1767,7 +1767,7 @@ pub async fn browse_stream_transfer(
     }
 }
 
-async fn stage_local_request_body(destination: &FsPath, mut body: Body, expected_size: Option<u64>) -> Result<u64, std::io::Error> {
+async fn stage_local_request_body(destination: &FsPath, mut body: Body, expected_size: u64) -> Result<u64, std::io::Error> {
     let parent = destination
         .parent()
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Transfer target has no parent"))?;
@@ -1788,13 +1788,11 @@ async fn stage_local_request_body(destination: &FsPath, mut body: Body, expected
                 bytes_written += data.len() as u64;
             }
         }
-        if let Some(expected_size) = expected_size {
-            if bytes_written != expected_size {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    format!("Transfer source size mismatch: expected {expected_size} bytes but received {bytes_written} bytes"),
-                ));
-            }
+        if bytes_written != expected_size {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Transfer source size mismatch: expected {expected_size} bytes but received {bytes_written} bytes"),
+            ));
         }
         output.flush().await?;
         output.sync_data().await?;
@@ -6464,7 +6462,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
         let target = directory.path().join("target.txt");
 
-        let bytes_written = super::stage_local_request_body(&target, Body::from("streamed content"), Some(16))
+        let bytes_written = super::stage_local_request_body(&target, Body::from("streamed content"), 16)
             .await
             .expect("streamed destination should publish");
 
@@ -6479,7 +6477,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
         let target = directory.path().join("target.txt");
 
-        let error = super::stage_local_request_body(&target, Body::from("short"), Some(16))
+        let error = super::stage_local_request_body(&target, Body::from("short"), 16)
             .await
             .expect_err("truncated body must not publish a destination");
 

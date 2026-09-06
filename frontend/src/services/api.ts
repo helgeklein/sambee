@@ -1543,6 +1543,14 @@ class ApiService {
         error: { code: "unavailable", reason: "unsupported" },
       };
     }
+    if (!Number.isSafeInteger(sourceInfo.size) || sourceInfo.size < 0) {
+      return {
+        status: "failed",
+        replaced: false,
+        effects: { source: "unchanged", destination: "unchanged" },
+        error: { code: "unavailable", reason: "source_size_unknown" },
+      };
+    }
 
     let sourceResponse: Response;
     try {
@@ -1560,8 +1568,8 @@ class ApiService {
         effects: { source: "unknown", destination: "unknown" },
       };
     }
-    const expectedSize = Number.isSafeInteger(sourceInfo.size) && sourceInfo.size >= 0 ? sourceInfo.size : null;
-    const destinationUrl = `${getBaseUrl(destinationConnectionId)}/browse/${getBrowseSegment(destinationConnectionId)}/transfer-stream?path=${encodeURIComponent(destinationPath)}&target_resolution_policy=${encodeURIComponent(targetResolutionPolicy)}${expectedSize === null ? "" : `&expected_size=${expectedSize}`}`;
+    const expectedSize = sourceInfo.size;
+    const destinationUrl = `${getBaseUrl(destinationConnectionId)}/browse/${getBrowseSegment(destinationConnectionId)}/transfer-stream?path=${encodeURIComponent(destinationPath)}&target_resolution_policy=${encodeURIComponent(targetResolutionPolicy)}&expected_size=${expectedSize}`;
     const destinationHeaders = await this.getTransferFetchHeaders(destinationConnectionId);
     let bytesTransferred = 0;
     const relayStream = options.onProgress
@@ -1578,7 +1586,7 @@ class ApiService {
     let destinationBody: ReadableStream<Uint8Array> | Blob = relayStream;
     if (!supportsStreamUploadRequestBodies()) {
       const bufferedBody = await new Response(relayStream).blob();
-      if (expectedSize !== null && bufferedBody.size !== expectedSize) {
+      if (bufferedBody.size !== expectedSize) {
         return {
           status: "failed",
           replaced: false,
