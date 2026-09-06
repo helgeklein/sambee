@@ -28,6 +28,7 @@ import pyvips
 from app.core.image_settings import get_libvips_jpeg_kwargs, get_libvips_png_kwargs
 from app.services.preprocessor import (
     PreprocessorError,
+    PreprocessorFileTooLargeError,
     PreprocessorRegistry,
 )
 
@@ -128,11 +129,10 @@ def convert_image_for_viewer(
 
             return result_bytes, mime_type, converter_name, duration_ms
 
-        except PreprocessorError as exc:
+        except PreprocessorFileTooLargeError:
+            raise
+        except PreprocessorError:
             file_type = extension.lstrip(".").upper()
-            error_message = str(exc)
-            if error_message.startswith("File too large:"):
-                raise ValueError(error_message) from None
             raise ValueError(f"Unable to preview this {file_type} file. The file may be invalid or corrupted.") from None
         except Exception:
             logger.exception("Unexpected error preparing %s for preview.", filename)

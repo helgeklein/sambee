@@ -77,8 +77,18 @@ describe("useCachedImageGallery", () => {
     expect(result.current.loadingStates.get(0)).toBe(false);
   });
 
-  it("shows an API image conversion failure while retaining the generic decode failure", async () => {
-    vi.mocked(apiService.getImageBlob).mockRejectedValue({ response: { status: 422, data: { detail: "Invalid PSD" } } });
+  it("shows the safe image size-limit failure while retaining the generic decode failure", async () => {
+    vi.mocked(apiService.getImageBlob).mockRejectedValue({
+      response: {
+        status: 413,
+        data: {
+          detail: {
+            code: "image_preview_too_large",
+            message: "This image is too large to preview (351 MB; maximum 100 MB).",
+          },
+        },
+      },
+    });
 
     const { result: fetchResult } = renderHook(() =>
       useCachedImageGallery({
@@ -90,7 +100,7 @@ describe("useCachedImageGallery", () => {
     );
 
     await waitFor(() => {
-      expect(fetchResult.current.errorStates.get(0)).toBe("Invalid PSD");
+      expect(fetchResult.current.errorStates.get(0)).toBe("This image is too large to preview (351 MB; maximum 100 MB).");
     });
 
     vi.mocked(apiService.getImageBlob).mockResolvedValue(new Blob(["invalid PSD"], { type: "image/vnd.adobe.photoshop" }));
@@ -112,6 +122,25 @@ describe("useCachedImageGallery", () => {
     });
 
     expect(decodeResult.current.errorStates.get(0)).toBe(IMAGE_LOAD_FAILED_MESSAGE);
+  });
+
+  it("keeps unrecognized API errors generic", async () => {
+    vi.mocked(apiService.getImageBlob).mockRejectedValue({
+      response: { status: 500, data: { detail: "Failed to read file: smb://internal-server/private-share" } },
+    });
+
+    const { result } = renderHook(() =>
+      useCachedImageGallery({
+        connectionId: "conn-1",
+        loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
+        images: ["/private.psd"],
+        preloadRange: 0,
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.errorStates.get(0)).toBe(IMAGE_LOAD_FAILED_MESSAGE);
+    });
   });
 
   it("uses an explicit image loader for non-filesystem image sources", async () => {

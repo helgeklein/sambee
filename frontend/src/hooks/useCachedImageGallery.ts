@@ -16,7 +16,6 @@ import { isLocalAbortError } from "../services/backendAvailability";
 import { error as logError, logger, info as logInfo } from "../services/logger";
 import { PreviewUnavailableError } from "../services/previewPolicy";
 import { isApiError } from "../types";
-import { getApiErrorMessage } from "../utils/apiErrors";
 import { checkIsTransientError, getTransientErrorMessage } from "./useApiRetry";
 
 // Delay before showing spinner to avoid flicker on fast loads
@@ -29,6 +28,7 @@ const PRELOAD_RANGE_DEFAULT = 1;
 // share the same transport budget as the current image.
 const MAX_ACTIVE_VIEWER_REQUESTS = 2;
 const TRANSIENT_RETRY_DELAY_MS = 1000;
+const IMAGE_PREVIEW_TOO_LARGE_ERROR_CODE = "image_preview_too_large";
 export const IMAGE_LOAD_CANCELED_MESSAGE = "Image loading was canceled. You can still download the original file.";
 export const IMAGE_LOAD_FAILED_MESSAGE = "Failed to load image";
 
@@ -182,6 +182,25 @@ function isManuallyRetryableImageFailure(err: unknown): boolean {
   }
 
   return false;
+}
+
+function getImageLoadErrorMessage(err: unknown): string {
+  if (!isApiError(err)) {
+    return IMAGE_LOAD_FAILED_MESSAGE;
+  }
+
+  const detail = err.response?.data?.detail;
+  if (
+    typeof detail === "object" &&
+    detail !== null &&
+    detail.code === IMAGE_PREVIEW_TOO_LARGE_ERROR_CODE &&
+    typeof detail.message === "string" &&
+    detail.message.trim()
+  ) {
+    return detail.message;
+  }
+
+  return IMAGE_LOAD_FAILED_MESSAGE;
 }
 
 function disposeGallerySessionResources(session: GallerySessionResources): void {
@@ -749,7 +768,7 @@ export const useCachedImageGallery = ({
             ? err.message
             : isTransientFailure
               ? getTransientErrorMessage()
-              : getApiErrorMessage(err, IMAGE_LOAD_FAILED_MESSAGE);
+              : getImageLoadErrorMessage(err);
 
         // Use RAF to batch state updates and avoid layout thrashing
         requestAnimationFrame(() => {
