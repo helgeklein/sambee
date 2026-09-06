@@ -604,6 +604,7 @@ describe("content providers", () => {
     const execution = startArchiveExtraction(createContentProviderRegistry(), {
       source: localArchiveLocation,
       destination: physicalLocation("conn-1", "output"),
+      selectedMemberPaths: ["docs/readme.txt"],
     });
 
     await expect(execution.result).resolves.toMatchObject({
@@ -612,6 +613,7 @@ describe("content providers", () => {
       summary: { filesSkipped: 0, filesReplaced: 0, partialMembers: 0 },
     });
     expect(api.extractLocalArchiveToSmb).toHaveBeenCalledWith("local-drive:c", "archives/one.zip", "extract-1");
+    expect(api.prepareArchiveOperation).toHaveBeenCalledWith(expect.objectContaining({ selected_member_paths: ["docs/readme.txt"] }));
   });
 
   it("resumes a paused local-to-SMB extraction through the Companion", async () => {
@@ -646,10 +648,16 @@ describe("content providers", () => {
     const execution = startArchiveExtraction(createContentProviderRegistry(), {
       source: localArchiveLocation,
       destination: physicalLocation("conn-1", "output"),
+      selectedMemberPaths: ["readme.txt"],
     });
 
-    await expect(execution.result).resolves.toMatchObject({ status: "awaiting-decision" });
+    await expect(execution.result).resolves.toMatchObject({
+      status: "awaiting-decision",
+      conflicts: [archiveConflict("readme.txt", "output/readme.txt")],
+      allowedActions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
+    });
     await expect(execution.decide("skip_all")).resolves.toMatchObject({ status: "completed", summary: { filesExtracted: 1 } });
+    expect(api.prepareArchiveOperation).toHaveBeenCalledWith(expect.objectContaining({ selected_member_paths: ["readme.txt"] }));
     expect(api.decideLocalArchiveRelayExtraction).toHaveBeenCalledWith(
       "local-drive:c",
       "extract-1",
@@ -671,6 +679,7 @@ describe("content providers", () => {
     const execution = startArchiveExtraction(createContentProviderRegistry(), {
       source: archiveLocation,
       destination: physicalLocation("local-drive:c", "output"),
+      selectedMemberPaths: ["docs/readme.txt"],
     });
 
     await expect(execution.result).resolves.toMatchObject({
@@ -679,6 +688,7 @@ describe("content providers", () => {
       summary: { filesSkipped: 0, filesReplaced: 0, partialMembers: 0 },
     });
     expect(api.extractSmbArchiveToLocal).toHaveBeenCalledWith("local-drive:c", "output", "extract-1");
+    expect(api.prepareArchiveOperation).toHaveBeenCalledWith(expect.objectContaining({ selected_member_paths: ["docs/readme.txt"] }));
   });
 
   it("resumes a paused SMB-to-local extraction through the Companion", async () => {

@@ -866,17 +866,13 @@ pub enum LocalArchiveDirectoryOutput {
 
 pub type LocalArchiveTargetSnapshot = TargetSnapshot;
 
-#[cfg(test)]
-fn validated_local_archive_target_write_policy(action: Option<&str>) -> Result<LocalArchiveTargetWritePolicy, LocalArchiveError> {
+pub(crate) fn local_archive_target_write_policy_from_wire(action: Option<&str>) -> Option<LocalArchiveTargetWritePolicy> {
     match action {
-        None | Some("ask") | Some("rename") => Ok(LocalArchiveTargetWritePolicy::Ask),
-        Some("skip") | Some("skip_all") => Ok(LocalArchiveTargetWritePolicy::Skip),
-        Some("replace") | Some("replace_all") => Ok(LocalArchiveTargetWritePolicy::Replace),
-        Some("replace_older") => Ok(LocalArchiveTargetWritePolicy::ReplaceOlder),
-        Some(_) => Err(LocalArchiveError::Io(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "Archive relay returned an invalid collision action",
-        ))),
+        None | Some("ask") | Some("rename") => Some(LocalArchiveTargetWritePolicy::Ask),
+        Some("skip") | Some("skip_all") => Some(LocalArchiveTargetWritePolicy::Skip),
+        Some("replace") | Some("replace_all") => Some(LocalArchiveTargetWritePolicy::Replace),
+        Some("replace_older") => Some(LocalArchiveTargetWritePolicy::ReplaceOlder),
+        Some(_) => None,
     }
 }
 
@@ -2655,6 +2651,13 @@ mod tests {
         version: u8,
         scenarios: Vec<TargetWriteConformanceScenario>,
         attempt_scenarios: Vec<TargetWriteAttemptConformanceScenario>,
+        live_relay_collision_policy_aliases: Vec<LiveRelayCollisionPolicyAlias>,
+    }
+
+    #[derive(Deserialize)]
+    struct LiveRelayCollisionPolicyAlias {
+        wire_value: Option<String>,
+        expected_policy: String,
     }
 
     #[derive(Deserialize)]
@@ -3728,7 +3731,7 @@ mod tests {
             })
         };
         for scenario in corpus.attempt_scenarios {
-            let policy = validated_local_archive_target_write_policy(Some(&scenario.policy)).expect("fixture policy must be valid");
+            let policy = local_archive_target_write_policy_from_wire(Some(&scenario.policy)).expect("fixture policy must be valid");
             let source_modified_at = parse_timestamp(scenario.source_modified_at);
             assert_eq!(
                 scenario.steps.first().map(|step| step.kind.as_str()),
@@ -3808,6 +3811,31 @@ mod tests {
                 scenario.name
             );
         }
+    }
+
+    #[test]
+    fn live_relay_collision_policy_aliases_match_v2_fixture() {
+        let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("archive-contract/v2/fixtures/target-write-resolution-scenarios-v2.json");
+        let corpus: TargetWriteConformanceCorpus =
+            serde_json::from_slice(&fs::read(corpus_path).expect("target-write corpus should be readable"))
+                .expect("target-write corpus should be valid JSON");
+
+        for alias in corpus.live_relay_collision_policy_aliases {
+            let expected = match alias.expected_policy.as_str() {
+                "ask" => LocalArchiveTargetWritePolicy::Ask,
+                "skip" => LocalArchiveTargetWritePolicy::Skip,
+                "replace" => LocalArchiveTargetWritePolicy::Replace,
+                "replace_older" => LocalArchiveTargetWritePolicy::ReplaceOlder,
+                _ => panic!("unknown target-write fixture policy: {}", alias.expected_policy),
+            };
+            assert_eq!(
+                local_archive_target_write_policy_from_wire(alias.wire_value.as_deref()),
+                Some(expected)
+            );
+        }
+        assert_eq!(local_archive_target_write_policy_from_wire(Some("invalid")), None);
     }
 
     #[test]

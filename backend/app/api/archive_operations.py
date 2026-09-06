@@ -37,12 +37,6 @@ from app.models.archive_operation import (
     ArchiveCompanionCreationMemberCompletion,
     ArchiveCompanionCreationSourceManifest,
     ArchiveCompanionCreationSummary,
-    ArchiveCompanionExtractionCollision,
-    ArchiveCompanionExtractionManifest,
-    ArchiveCompanionExtractionMemberCompletion,
-    ArchiveCompanionExtractionMemberError,
-    ArchiveCompanionExtractionSourceManifest,
-    ArchiveCompanionExtractionSummary,
     ArchiveCompanionFailure,
     ArchiveCompanionLiveDestinationDecision,
     ArchiveCompanionLiveDestinationWriteRequest,
@@ -240,7 +234,6 @@ V2_ROUTE_QUERY_PARAMETERS: dict[str, frozenset[str]] = {
             "contract_version",
         }
     ),
-    "/v2/operations/{operation_id}/relay/extraction/member": frozenset({"member_path", "is_directory", "source_modified_at"}),
     "/v2/operations/{operation_id}/relay/creation/member": frozenset({"archive_path"}),
 }
 
@@ -1359,15 +1352,16 @@ async def begin_live_companion_archive_extraction_destination(relay: ScopedCompa
     backend = build_smb_backend(connection, backend_factory=SMBBackend)
     try:
         await backend.connect()
-        try:
-            await backend.create_directory(operation.destination_path)
-        except FileExistsError:
-            destination_info = await backend.get_file_info(operation.destination_path)
-            if destination_info.type != FileType.DIRECTORY:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Archive extraction destination is not a directory",
-                )
+        if operation.destination_path:
+            try:
+                await backend.create_directory(operation.destination_path)
+            except FileExistsError:
+                destination_info = await backend.get_file_info(operation.destination_path)
+                if destination_info.type != FileType.DIRECTORY:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Archive extraction destination is not a directory",
+                    )
         return relay.commit_preflight(operation, checkpoint_json=json.dumps(new_v2_extraction_checkpoint()))
     finally:
         await disconnect_backend_safely(backend, logger=logger, context=f"live local archive destination begin operation {operation.id}")
@@ -1715,18 +1709,6 @@ async def fail_companion_smb_archive_creation(
     return await relay.fail_creation(payload, abort=execution.abort)
 
 
-@v2_router.post("/operations/{operation_id}/relay/extraction/begin", response_model=None)
-async def begin_v2_companion_relay_extraction(
-    operation_id: uuid.UUID,
-    payload: ArchiveCompanionExtractionSourceManifest | None = None,
-    relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
-) -> ArchiveOperation | ArchiveCompanionExtractionManifest:
-    """Reject the superseded manifest-based extraction relay protocol."""
-
-    del operation_id, payload, relay_context
-    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Use the live source-owned extraction relay endpoints")
-
-
 @v2_router.post("/operations/{operation_id}/relay/extraction/live/begin", response_model=ArchiveCompanionLiveExtractionBegin)
 async def begin_v2_live_companion_relay_extraction(
     operation_id: uuid.UUID,
@@ -1895,97 +1877,6 @@ async def complete_v2_live_companion_relay_extraction(
     if relay_context.binding != ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT:
         raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Archive relay does not provide an SMB ZIP source")
     return await complete_live_companion_local_archive_extraction(ScopedCompanionRelay.from_resolved_context(relay_context))
-
-
-@v2_router.get("/operations/{operation_id}/relay/extraction/member")
-async def read_v2_companion_relay_extraction_member(
-    operation_id: uuid.UUID,
-    member_path: str = Query(..., min_length=1),
-    relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
-) -> StreamingResponse:
-    """Reject the superseded member-addressed extraction relay protocol."""
-
-    del operation_id, member_path, relay_context
-    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Use the live source-owned extraction relay endpoints")
-
-
-@v2_router.put("/operations/{operation_id}/relay/extraction/member", response_model=ArchiveOperationRead)
-async def write_v2_companion_relay_extraction_member(
-    operation_id: uuid.UUID,
-    request: Request,
-    member_path: str = Query(..., min_length=1),
-    is_directory: bool = Query(False),
-    source_modified_at: datetime | None = Query(None),
-    relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
-) -> ArchiveOperation:
-    """Reject the superseded member-addressed extraction relay protocol."""
-
-    del operation_id, request, member_path, is_directory, source_modified_at, relay_context
-    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Use the live source-owned extraction relay endpoints")
-
-
-@v2_router.post("/operations/{operation_id}/relay/extraction/member-complete", response_model=ArchiveOperationRead)
-async def complete_v2_companion_relay_extraction_member(
-    operation_id: uuid.UUID,
-    payload: ArchiveCompanionExtractionMemberCompletion,
-    idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
-    relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
-) -> ArchiveOperation:
-    """Reject the superseded per-member extraction acknowledgement protocol."""
-
-    del operation_id, payload, idempotency_key, relay_context
-    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Use the live source-owned extraction relay endpoints")
-
-
-@v2_router.post("/operations/{operation_id}/relay/extraction/member-collision", response_model=ArchiveOperationRead)
-async def pause_v2_companion_relay_extraction_member_for_collision(
-    operation_id: uuid.UUID,
-    payload: ArchiveCompanionExtractionCollision,
-    idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
-    relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
-) -> ArchiveOperation:
-    """Reject the superseded per-member extraction acknowledgement protocol."""
-
-    del operation_id, payload, idempotency_key, relay_context
-    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Use the live source-owned extraction relay endpoints")
-
-
-@v2_router.post("/operations/{operation_id}/relay/extraction/member-error", response_model=ArchiveOperationRead)
-async def pause_v2_companion_relay_extraction_member_for_error(
-    operation_id: uuid.UUID,
-    payload: ArchiveCompanionExtractionMemberError,
-    idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
-    relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
-) -> ArchiveOperation:
-    """Reject the superseded per-member extraction acknowledgement protocol."""
-
-    del operation_id, payload, idempotency_key, relay_context
-    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Use the live source-owned extraction relay endpoints")
-
-
-@v2_router.post("/operations/{operation_id}/relay/extraction/complete", response_model=ArchiveOperationRead)
-async def complete_v2_companion_relay_extraction(
-    operation_id: uuid.UUID,
-    payload: ArchiveCompanionExtractionSummary | None = None,
-    idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
-    relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
-) -> ArchiveOperation:
-    """Reject the superseded manifest-based extraction completion protocol."""
-
-    del operation_id, payload, idempotency_key, relay_context
-    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Use the live source-owned extraction relay endpoints")
-
-
-@v2_router.post("/operations/{operation_id}/relay/extraction/fail", response_model=ArchiveOperationRead)
-async def fail_v2_companion_relay_extraction(
-    operation_id: uuid.UUID,
-    payload: ArchiveCompanionFailure,
-    relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
-) -> ArchiveOperation:
-    """Reject the superseded manifest-based extraction failure protocol."""
-
-    del operation_id, payload, relay_context
-    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Use the live source-owned extraction relay endpoints")
 
 
 @v2_router.post("/operations/{operation_id}/relay/creation/begin", response_model=None)

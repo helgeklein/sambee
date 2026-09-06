@@ -126,17 +126,6 @@
     },
     {
       "method": "POST",
-      "path": "/api/archive/v2/operations/{operation_id}/relay/extraction/begin",
-      "owner": "backend",
-      "operation": "relay-extraction",
-      "durable": true,
-      "capability": true,
-      "idempotency": "none",
-      "request_schema": "extractionSourceManifest",
-      "response_schema": "relayExtractionBegin"
-    },
-    {
-      "method": "POST",
       "path": "/api/archive/v2/operations/{operation_id}/relay/extraction/live/begin",
       "owner": "backend",
       "operation": "relay-extraction-live",
@@ -265,83 +254,6 @@
       "capability": true,
       "idempotency": "none",
       "request_schema": null,
-      "response_schema": "operationRead"
-    },
-    {
-      "method": "GET",
-      "path": "/api/archive/v2/operations/{operation_id}/relay/extraction/member",
-      "owner": "backend",
-      "operation": "relay-extraction",
-      "durable": true,
-      "capability": true,
-      "idempotency": "none",
-      "request_schema": "relayMemberQuery",
-      "response_schema": "binary"
-    },
-    {
-      "method": "PUT",
-      "path": "/api/archive/v2/operations/{operation_id}/relay/extraction/member",
-      "owner": "backend",
-      "operation": "relay-extraction",
-      "durable": true,
-      "capability": true,
-      "idempotency": "delivery-id",
-      "request_schema": "binary",
-      "response_schema": "operationRead"
-    },
-    {
-      "method": "POST",
-      "path": "/api/archive/v2/operations/{operation_id}/relay/extraction/member-complete",
-      "owner": "backend",
-      "operation": "relay-extraction",
-      "durable": true,
-      "capability": true,
-      "idempotency": "delivery-id",
-      "request_schema": "extractionMemberCompletion",
-      "response_schema": "operationRead"
-    },
-    {
-      "method": "POST",
-      "path": "/api/archive/v2/operations/{operation_id}/relay/extraction/member-collision",
-      "owner": "backend",
-      "operation": "relay-extraction",
-      "durable": true,
-      "capability": true,
-      "idempotency": "delivery-id",
-      "request_schema": "extractionCollision",
-      "response_schema": "operationRead"
-    },
-    {
-      "method": "POST",
-      "path": "/api/archive/v2/operations/{operation_id}/relay/extraction/member-error",
-      "owner": "backend",
-      "operation": "relay-extraction",
-      "durable": true,
-      "capability": true,
-      "idempotency": "delivery-id",
-      "request_schema": "extractionMemberError",
-      "response_schema": "operationRead"
-    },
-    {
-      "method": "POST",
-      "path": "/api/archive/v2/operations/{operation_id}/relay/extraction/complete",
-      "owner": "backend",
-      "operation": "relay-extraction",
-      "durable": true,
-      "capability": true,
-      "idempotency": "delivery-id",
-      "request_schema": "extractionSummary",
-      "response_schema": "operationRead"
-    },
-    {
-      "method": "POST",
-      "path": "/api/archive/v2/operations/{operation_id}/relay/extraction/fail",
-      "owner": "backend",
-      "operation": "relay-extraction",
-      "durable": true,
-      "capability": true,
-      "idempotency": "none",
-      "request_schema": "failure",
       "response_schema": "operationRead"
     },
     {

@@ -175,64 +175,6 @@ class ArchiveCompanionSession(SQLModel):
     selected_member_paths: list[str] | None = None
 
 
-class ArchiveCompanionManifestEntry(ArchiveV2Payload):
-    """One validated ZIP member that Companion may write to its local destination."""
-
-    path: str
-    is_directory: bool
-    uncompressed_size: int
-    modified_at: datetime | None = None
-
-
-class ArchiveCompanionExtractionManifest(SQLModel):
-    """Safe, complete member manifest for one scoped SMB-to-local extraction."""
-
-    operation: ArchiveOperationRead
-    entries: list[ArchiveCompanionManifestEntry]
-
-
-class ArchiveCompanionExtractionSourceManifest(ArchiveV2Payload):
-    """Safe, complete local ZIP manifest supplied before a scoped SMB extraction begins."""
-
-    entries: list[ArchiveCompanionManifestEntry]
-
-
-class ArchiveCompanionExtractionSummary(ArchiveV2Payload):
-    """Execution-level local destination state reported after member outcomes commit."""
-
-    destination_root_created: bool
-
-
-class ArchiveCompanionExtractionMemberCompletion(ArchiveV2Payload):
-    """One local output member completed by the scoped Companion executor."""
-
-    member_path: str = Field(min_length=1)
-    status: Literal["directory", "extracted", "skipped", "ignored"]
-    target_path: str = Field(min_length=1)
-    directories_created: int = Field(ge=0)
-    extracted_bytes: int = Field(ge=0)
-    replaced: bool = False
-    renamed: bool = False
-
-
-class ArchiveCompanionExtractionCollision(ArchiveV2Payload):
-    """An existing local output detected before Companion opens a member target."""
-
-    member_path: str = Field(min_length=1)
-    is_directory: bool
-    target_path: str | None = Field(default=None, min_length=1)
-    target_size: int | None = Field(default=None, ge=0)
-    target_modified_at: datetime | None = None
-
-
-class ArchiveCompanionExtractionMemberError(ArchiveV2Payload):
-    """A local member write failure that can be retried or explicitly ignored."""
-
-    member_path: str = Field(min_length=1)
-    message: str = Field(min_length=1, max_length=500)
-    partial_output: bool
-
-
 class ArchiveCompanionFailure(ArchiveV2Payload):
     """A bounded executor failure description safe to persist on an operation."""
 
