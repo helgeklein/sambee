@@ -84,6 +84,8 @@ export interface CrossBackendTransferOptions {
   onProgress?: (bytesTransferred: number, totalBytes: number | null) => void;
 }
 
+type IncompleteContentTransferResult = Exclude<ContentTransferResult, { status: "completed" }>;
+
 function supportsStreamUploadRequestBodies(): boolean {
   if (typeof Request === "undefined" || typeof ReadableStream === "undefined") return false;
 
@@ -1791,7 +1793,21 @@ class ApiService {
     try {
       await this.createItem(destinationConnectionId, destinationParent, stagePath.split("/").pop() ?? "", "directory");
       stageCreated = true;
-      await this.copyDirectoryContentsAcrossBackends(sourceConnectionId, sourcePath, destinationConnectionId, stagePath, options);
+      const childFailure = await this.copyDirectoryContentsAcrossBackends(
+        sourceConnectionId,
+        sourcePath,
+        destinationConnectionId,
+        stagePath,
+        options
+      );
+      if (childFailure) {
+        try {
+          await this.deleteItem(destinationConnectionId, stagePath);
+        } catch {
+          return { status: "outcome_unknown", replaced: false, effects: { source: "unknown", destination: "unknown" } };
+        }
+        return childFailure;
+      }
       await this.renameItem(destinationConnectionId, stagePath, targetName);
       committed = true;
       if (kind === "move") {
@@ -1845,9 +1861,9 @@ class ApiService {
     destinationConnectionId: string,
     destinationPath: string,
     options: CrossBackendTransferOptions
-  ): Promise<void> {
+  ): Promise<IncompleteContentTransferResult | null> {
     if (options.signal?.aborted) {
-      throw new DOMException("Directory transfer cancelled", "AbortError");
+      return { status: "cancelled", replaced: false, effects: { source: "unchanged", destination: "unchanged" } };
     }
     const listing = await this.listDirectory(sourceConnectionId, sourcePath, { signal: options.signal });
     for (const item of listing.items) {
@@ -1855,13 +1871,14 @@ class ApiService {
       const childDestinationPath = [destinationPath, item.name].filter(Boolean).join("/");
       if (item.type === "directory") {
         await this.createItem(destinationConnectionId, destinationPath, item.name, "directory");
-        await this.copyDirectoryContentsAcrossBackends(
+        const childFailure = await this.copyDirectoryContentsAcrossBackends(
           sourceConnectionId,
           childSourcePath,
           destinationConnectionId,
           childDestinationPath,
           options
         );
+        if (childFailure) return childFailure;
         continue;
       }
       const result = await this.transferAcrossBackends(
@@ -1874,9 +1891,10 @@ class ApiService {
         options
       );
       if (result.status !== "completed") {
-        throw new Error(result.status === "failed" ? result.error.code : `Directory child transfer ${result.status}`);
+        return result;
       }
     }
+    return null;
   }
 
   /**

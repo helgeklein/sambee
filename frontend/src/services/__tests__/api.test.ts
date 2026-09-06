@@ -671,6 +671,35 @@ describe("API Service", () => {
     ]);
   });
 
+  it("preserves an unavailable directory child result after discarding its stage", async () => {
+    mockAxiosInstance.delete.mockResolvedValue({});
+    mockAxiosInstance.get
+      .mockResolvedValueOnce({
+        data: { name: "source", path: "source", type: FileType.DIRECTORY, is_readable: true, is_hidden: false },
+      } as AxiosResponse)
+      .mockRejectedValueOnce({ isAxiosError: true, response: { status: 404 } })
+      .mockResolvedValueOnce({
+        data: {
+          path: "source",
+          items: [{ name: "broken-link", path: "source/broken-link", type: FileType.FILE }],
+        } satisfies DirectoryListing,
+      } as AxiosResponse)
+      .mockResolvedValueOnce({
+        data: { name: "broken-link", path: "source/broken-link", type: FileType.FILE, is_readable: false, is_hidden: false },
+      } as AxiosResponse);
+    mockAxiosInstance.post.mockResolvedValue({ data: {} } as AxiosResponse);
+
+    await expect(apiService.transferAcrossBackends("copy", "source", "source", "destination", "output/source")).resolves.toEqual({
+      status: "failed",
+      replaced: false,
+      effects: { source: "unchanged", destination: "unchanged" },
+      error: { code: "unavailable", reason: "source_size_unknown" },
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockAxiosInstance.delete).toHaveBeenCalledTimes(1);
+  });
+
   it("deletes the source after publishing a cross-provider directory move", async () => {
     mockAxiosInstance.delete.mockResolvedValue({});
     mockAxiosInstance.get
