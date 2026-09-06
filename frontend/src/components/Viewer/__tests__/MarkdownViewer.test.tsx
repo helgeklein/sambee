@@ -2278,6 +2278,7 @@ describe("MarkdownViewer", () => {
   it("does not restore preview highlights after exiting edit mode when edit search was already closed", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
 
     renderViewer();
 
