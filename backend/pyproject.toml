@@ -24,6 +24,8 @@ markers = [
 filterwarnings = [
     # Ignore resource warnings from test cleanup (handled in fixtures)
     "ignore::ResourceWarning",
+    # Starlette 1.6.0's TestClient still references AnyIO's deprecated alias.
+    "ignore:The anyio\\.abc\\.BlockingPortal alias is deprecated, use anyio\\.from_thread\\.BlockingPortal instead\\.:DeprecationWarning:starlette\\.testclient",
 ]
 
 [tool.coverage.run]
