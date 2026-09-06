@@ -888,6 +888,7 @@ class TestListArchiveDirectory:
         assert response.status_code == 200
         result = response.json()
         assert [(item["name"], item["type"]) for item in result["items"]] == [("docs", "directory")]
+        assert result["items"][0]["state"] == "readable"
         assert result["next_cursor"] is not None
         assert archive_reader.closed is True
         assert len(archive_reader.reads) == 2

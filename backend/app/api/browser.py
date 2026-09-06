@@ -681,7 +681,15 @@ async def list_archive_directory(
                     "compression_method": None if entry.is_directory else entry.compression_method,
                     "crc32": None if entry.is_directory else entry.crc32,
                     "modified_at": entry.modified_at,
-                    "state": "blocked" if entry.encrypted else "readable" if entry.compression_method in {0, 8, 12} else "unavailable",
+                    "state": (
+                        "readable"
+                        if entry.is_directory
+                        else "blocked"
+                        if entry.encrypted
+                        else "readable"
+                        if entry.compression_method in {0, 8, 12}
+                        else "unavailable"
+                    ),
                     "is_hidden": entry.path.rsplit("/", 1)[-1].startswith("."),
                 }
                 for entry in directory_page.entries

@@ -21,6 +21,11 @@ are RFC 3339 UTC strings ending in `Z`, or `null` only where a source timestamp
 is unavailable. Counts and byte sizes are non-negative integers. Inspection
 pages contain 1 through 500 items.
 
+An inspection entry state describes whether that entry can be activated.
+Directories are always `readable` because they can be navigated. Files are
+`blocked` when encrypted, `readable` when their bytes can be served by the
+active owner, and otherwise `unavailable`.
+
 ## Durable Operations
 
 `operation` is the prepare request and `operationRead` is the durable resource

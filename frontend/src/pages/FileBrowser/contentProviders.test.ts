@@ -148,6 +148,22 @@ describe("content providers", () => {
     });
   });
 
+  it("keeps readable archive directories enabled for navigation", async () => {
+    vi.mocked(api.listArchiveDirectory).mockResolvedValueOnce({
+      archive: { path: "archives/one.zip", size: 1 },
+      path: "images",
+      items: [{ name: "nested", path: "images/nested", type: FileType.DIRECTORY, state: "readable", is_hidden: false }],
+      total: 1,
+      page_size: 100,
+    });
+
+    const listing = await getContentProvider(archiveLocation).list(archiveLocation, { pageSize: 100 });
+
+    expect(listing.items[0]).toMatchObject({
+      entry: { path: "images/nested", type: FileType.DIRECTORY, is_readable: true, archive_entry_state: "readable" },
+    });
+  });
+
   it("preserves the next cursor from storage-backed ZIP listings", async () => {
     const listDirectory = vi.fn().mockResolvedValue({
       archive: { path: "archives/one.zip", size: 1 },

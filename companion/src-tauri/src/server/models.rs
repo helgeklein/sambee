@@ -427,8 +427,11 @@ pub struct ArchiveIdentity {
     pub modified_at: Option<DateTime<Utc>>,
 }
 
-/// Whether an archive member can be read by the current Companion capability.
-#[derive(Debug, Serialize)]
+/// Whether an archive entry can be activated by the current Companion capability.
+///
+/// Directories are always readable because they can be navigated, even though
+/// they do not expose member bytes for download or preview.
+#[derive(Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ArchiveEntryState {
     Readable,
