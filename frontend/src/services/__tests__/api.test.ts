@@ -337,9 +337,9 @@ describe("API Service", () => {
     );
   });
 
-  it("relays a cross-provider regular file as a stream without Blob buffering", async () => {
+  it("relays a cross-provider regular file", async () => {
     mockAxiosInstance.get.mockResolvedValue({
-      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, is_readable: true, is_hidden: false },
+      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, size: 0, is_readable: true, is_hidden: false },
     } as AxiosResponse);
     const sourceResponse = new Response(new ReadableStream({ start: (controller) => controller.close() }));
     fetchMock.mockResolvedValueOnce(sourceResponse).mockResolvedValueOnce(
@@ -355,9 +355,44 @@ describe("API Service", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:3000/api/viewer/source/download?path=source.txt", expect.anything());
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      "http://localhost:3000/api/browse/destination/transfer-stream?path=target.txt&target_resolution_policy=ask",
-      expect.objectContaining({ body: sourceResponse.body, duplex: "half" })
+      "http://localhost:3000/api/browse/destination/transfer-stream?path=target.txt&target_resolution_policy=ask&expected_size=0",
+      expect.objectContaining({ body: expect.anything(), duplex: "half" })
     );
+  });
+
+  it("buffers a cross-provider source when stream upload is unavailable", async () => {
+    class UnsupportedStreamUploadRequest {
+      headers = new Headers({ "Content-Type": "text/plain" });
+    }
+
+    vi.stubGlobal("Request", UnsupportedStreamUploadRequest);
+    mockAxiosInstance.get.mockResolvedValue({
+      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, size: 3, is_readable: true, is_hidden: false },
+    } as AxiosResponse);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          new ReadableStream({
+            start: (controller) => {
+              controller.enqueue(new Uint8Array([1, 2, 3]));
+              controller.close();
+            },
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } }), {
+          status: 200,
+        })
+      );
+
+    await expect(apiService.transferAcrossBackends("copy", "source", "source.txt", "destination", "target.txt")).resolves.toMatchObject({
+      status: "completed",
+    });
+
+    const destinationRequest = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    expect(destinationRequest.body).toBeInstanceOf(Blob);
+    expect(await new Response(destinationRequest.body).arrayBuffer()).toEqual(new Uint8Array([1, 2, 3]).buffer);
   });
 
   it("reports byte progress while relaying a cross-provider stream", async () => {

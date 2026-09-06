@@ -1718,6 +1718,7 @@ async fn execute_browse_move(
 pub struct StreamTransferQuery {
     path: String,
     target_resolution_policy: Option<String>,
+    expected_size: Option<u64>,
 }
 
 /// `POST /api/browse/{drive}/transfer-stream` — publish a streamed new file.
@@ -1747,7 +1748,7 @@ pub async fn browse_stream_transfer(
         Err(error) => return Err(map_io_error(error, &destination)),
     }
 
-    match stage_local_request_body(&destination, body).await {
+    match stage_local_request_body(&destination, body, query.expected_size).await {
         Ok(bytes_written) => {
             log::info!(
                 "Published cross-provider transfer destination: {} ({} bytes)",
@@ -1761,11 +1762,12 @@ pub async fn browse_stream_transfer(
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
             Err(ApiError::conflict_message(format!("Destination already exists: {}", query.path)))
         }
+        Err(error) if error.kind() == std::io::ErrorKind::InvalidData => Err(ApiError::BadRequest(error.to_string())),
         Err(error) => Err(map_io_error(error, &destination)),
     }
 }
 
-async fn stage_local_request_body(destination: &FsPath, mut body: Body) -> Result<u64, std::io::Error> {
+async fn stage_local_request_body(destination: &FsPath, mut body: Body, expected_size: Option<u64>) -> Result<u64, std::io::Error> {
     let parent = destination
         .parent()
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Transfer target has no parent"))?;
@@ -1784,6 +1786,14 @@ async fn stage_local_request_body(destination: &FsPath, mut body: Body) -> Resul
             if let Ok(data) = frame.into_data() {
                 output.write_all(&data).await?;
                 bytes_written += data.len() as u64;
+            }
+        }
+        if let Some(expected_size) = expected_size {
+            if bytes_written != expected_size {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Transfer source size mismatch: expected {expected_size} bytes but received {bytes_written} bytes"),
+                ));
             }
         }
         output.flush().await?;
@@ -6454,7 +6464,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
         let target = directory.path().join("target.txt");
 
-        let bytes_written = super::stage_local_request_body(&target, Body::from("streamed content"))
+        let bytes_written = super::stage_local_request_body(&target, Body::from("streamed content"), Some(16))
             .await
             .expect("streamed destination should publish");
 
@@ -6462,6 +6472,21 @@ mod tests {
         assert_eq!(tokio::fs::read(&target).await.expect("target should exist"), b"streamed content");
         let entries = std::fs::read_dir(directory.path()).expect("directory should be readable").count();
         assert_eq!(entries, 1);
+    }
+
+    #[tokio::test]
+    async fn local_streamed_destination_discards_a_truncated_body() {
+        let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
+        let target = directory.path().join("target.txt");
+
+        let error = super::stage_local_request_body(&target, Body::from("short"), Some(16))
+            .await
+            .expect_err("truncated body must not publish a destination");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(!target.exists());
+        let entries = std::fs::read_dir(directory.path()).expect("directory should be readable").count();
+        assert_eq!(entries, 0);
     }
 
     #[tokio::test]

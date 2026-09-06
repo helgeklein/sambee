@@ -84,6 +84,25 @@ export interface CrossBackendTransferOptions {
   onProgress?: (bytesTransferred: number, totalBytes: number | null) => void;
 }
 
+function supportsStreamUploadRequestBodies(): boolean {
+  if (typeof Request === "undefined" || typeof ReadableStream === "undefined") return false;
+
+  let duplexAccessed = false;
+  try {
+    const request = new Request("https://sambee.invalid", {
+      method: "POST",
+      body: new ReadableStream(),
+      get duplex() {
+        duplexAccessed = true;
+        return "half";
+      },
+    } as RequestInit & { duplex: "half" });
+    return duplexAccessed && !request.headers.has("Content-Type");
+  } catch {
+    return false;
+  }
+}
+
 const CONNECTIONS_API_BASE = "/connections";
 const API_PATH_SUFFIX = "/api";
 const LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE = "Edit locks are not supported for local drives";
@@ -1541,7 +1560,8 @@ class ApiService {
         effects: { source: "unknown", destination: "unknown" },
       };
     }
-    const destinationUrl = `${getBaseUrl(destinationConnectionId)}/browse/${getBrowseSegment(destinationConnectionId)}/transfer-stream?path=${encodeURIComponent(destinationPath)}&target_resolution_policy=${encodeURIComponent(targetResolutionPolicy)}`;
+    const expectedSize = Number.isSafeInteger(sourceInfo.size) && sourceInfo.size >= 0 ? sourceInfo.size : null;
+    const destinationUrl = `${getBaseUrl(destinationConnectionId)}/browse/${getBrowseSegment(destinationConnectionId)}/transfer-stream?path=${encodeURIComponent(destinationPath)}&target_resolution_policy=${encodeURIComponent(targetResolutionPolicy)}${expectedSize === null ? "" : `&expected_size=${expectedSize}`}`;
     const destinationHeaders = await this.getTransferFetchHeaders(destinationConnectionId);
     let bytesTransferred = 0;
     const relayStream = options.onProgress
@@ -1555,12 +1575,28 @@ class ApiService {
           })
         )
       : sourceResponse.body;
+    let destinationBody: ReadableStream<Uint8Array> | Blob = relayStream;
+    if (!supportsStreamUploadRequestBodies()) {
+      const bufferedBody = await new Response(relayStream).blob();
+      if (expectedSize !== null && bufferedBody.size !== expectedSize) {
+        return {
+          status: "failed",
+          replaced: false,
+          effects: { source: "unchanged", destination: "unchanged" },
+          error: {
+            code: "transport",
+            detail: `Transfer source size mismatch: expected ${expectedSize} bytes but received ${bufferedBody.size} bytes`,
+          },
+        };
+      }
+      destinationBody = bufferedBody;
+    }
     let destinationResponse: Response;
     try {
       destinationResponse = await fetch(destinationUrl, {
         method: "POST",
         headers: { ...destinationHeaders, "Content-Type": "application/octet-stream" },
-        body: relayStream,
+        body: destinationBody,
         duplex: "half",
         signal: options.signal,
       } as RequestInit & { duplex: "half" });
