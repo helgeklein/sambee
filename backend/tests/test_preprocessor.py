@@ -1,6 +1,7 @@
 """Tests for the ImageMagick-based preprocessing service."""
 
 import os
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -223,6 +224,23 @@ class TestImageMagickPreprocessor:
         with patch.object(preprocessor, "check_availability", return_value=False):
             with pytest.raises(PreprocessorError, match="ImageMagick 7 is required"):
                 preprocessor._get_command()
+
+    def test_colorspace_probe_failure_does_not_log_imagemagick_stderr_at_warning_level(self, caplog: pytest.LogCaptureFixture):
+        """Expected malformed files must not expose ImageMagick diagnostics in normal logs."""
+        preprocessor = ImageMagickPreprocessor()
+        process_error = subprocess.CalledProcessError(
+            1,
+            "magick",
+            stderr=b"improper image header /tmp/private-file",
+        )
+
+        with (
+            patch.object(preprocessor, "check_availability", return_value=True),
+            patch("subprocess.run", side_effect=process_error),
+        ):
+            assert preprocessor._detect_colorspace(b"invalid PSD", "image.psd") == "Unknown"
+
+        assert not caplog.records
 
 
 class TestPreprocessorFactory:

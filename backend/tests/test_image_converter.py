@@ -261,7 +261,7 @@ class TestImageConversion:
         with pytest.raises(ValueError, match="Failed to convert image"):
             convert_image_for_viewer(invalid_data, "test.jpg")
 
-    def test_preprocessor_error_hides_converter_details(self):
+    def test_preprocessor_error_hides_converter_details(self, caplog: pytest.LogCaptureFixture):
         """Preprocessor diagnostics must not be exposed in the image viewer."""
         preprocessor = MagicMock()
         preprocessor.convert_to_final_format.side_effect = PreprocessorError(
@@ -278,6 +278,7 @@ class TestImageConversion:
         assert str(error.value) == "Unable to preview this PSD file. The file may be invalid or corrupted."
         assert "ImageMagick" not in str(error.value)
         assert "/tmp/private-file" not in str(error.value)
+        assert not caplog.records
 
     def test_get_image_info(self):
         """Test getting image information."""
