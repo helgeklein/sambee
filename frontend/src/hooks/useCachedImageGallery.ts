@@ -28,7 +28,6 @@ const PRELOAD_RANGE_DEFAULT = 1;
 // share the same transport budget as the current image.
 const MAX_ACTIVE_VIEWER_REQUESTS = 2;
 const TRANSIENT_RETRY_DELAY_MS = 1000;
-const CURRENT_FAILURE_RETRY_DELAY_MS = 1000;
 export const IMAGE_LOAD_CANCELED_MESSAGE = "Image loading was canceled. You can still download the original file.";
 export const IMAGE_LOAD_FAILED_MESSAGE = "Failed to load image";
 
@@ -71,9 +70,11 @@ export interface UseImageGalleryDataResult {
   currentImageLoadPhase: ImageLoadPhase;
   imageSourceRevision: number;
   showLoadingSpinner: boolean;
+  canRetryCurrentImage: boolean;
   markImageAsDecoded: (index: number, source: string) => void;
   markImageDecodeFailed: (index: number, source: string) => void;
   cancelCurrentImageLoad: () => void;
+  retryCurrentImage: () => void;
   abortControllersRef: React.MutableRefObject<Map<number, AbortController>>;
 }
 
@@ -95,6 +96,7 @@ interface GallerySessionView {
   index: number;
   loadingStates: Map<number, boolean>;
   errorStates: Map<number, string | null>;
+  retryableErrors: Map<number, boolean>;
   loadPhases: Map<number, ImageLoadPhase>;
 }
 
@@ -110,23 +112,24 @@ interface GallerySessionResources {
 
 interface CurrentRetryGate {
   index: number;
-  policy: "backoff" | "user-action";
-  retryAt: number | null;
 }
 
 function applyImageLoadFailure(
   session: GallerySessionView,
   index: number,
   message: string,
-  options?: { showError?: boolean }
+  options?: { canRetry?: boolean; showError?: boolean }
 ): GallerySessionView {
   const nextLoadingStates = new Map(session.loadingStates).set(index, false);
-  const nextErrorStates = options?.showError === false ? session.errorStates : new Map(session.errorStates).set(index, message);
+  const showError = options?.showError !== false;
+  const nextErrorStates = showError ? new Map(session.errorStates).set(index, message) : session.errorStates;
+  const nextRetryableErrors = showError ? new Map(session.retryableErrors).set(index, options?.canRetry === true) : session.retryableErrors;
 
   return {
     ...session,
     loadingStates: nextLoadingStates,
     errorStates: nextErrorStates,
+    retryableErrors: nextRetryableErrors,
     loadPhases: new Map(session.loadPhases).set(index, "error"),
   };
 }
@@ -158,8 +161,26 @@ function createGallerySessionView(galleryIdentity: string, generation: number, i
     index,
     loadingStates: new Map(),
     errorStates: new Map(),
+    retryableErrors: new Map(),
     loadPhases: new Map(),
   };
+}
+
+function isManuallyRetryableImageFailure(err: unknown): boolean {
+  if (checkIsTransientError(err)) {
+    return true;
+  }
+
+  if (isApiError(err)) {
+    return (err.response?.status ?? 0) >= 500;
+  }
+
+  if (typeof err === "object" && err !== null && "response" in err) {
+    const response = (err as { response?: { status?: unknown } }).response;
+    return typeof response?.status === "number" && response.status >= 500;
+  }
+
+  return false;
 }
 
 function disposeGallerySessionResources(session: GallerySessionResources): void {
@@ -174,51 +195,6 @@ function disposeGallerySessionResources(session: GallerySessionResources): void 
     URL.revokeObjectURL(url);
   });
   session.imageCache.clear();
-}
-
-function getHttpStatus(err: unknown): number | undefined {
-  if (isApiError(err)) {
-    return err.response?.status;
-  }
-
-  if (typeof err === "object" && err !== null && "response" in err) {
-    const response = (err as { response?: { status?: unknown } }).response;
-    return typeof response?.status === "number" ? response.status : undefined;
-  }
-
-  return undefined;
-}
-
-function shouldBackoffCurrentFailure(err: unknown): boolean {
-  const status = getHttpStatus(err);
-  return checkIsTransientError(err) || status === undefined || status >= 500;
-}
-
-function getCurrentRetryGate(index: number, err: unknown, now: number): CurrentRetryGate {
-  if (shouldBackoffCurrentFailure(err)) {
-    return {
-      index,
-      policy: "backoff",
-      retryAt: now + CURRENT_FAILURE_RETRY_DELAY_MS,
-    };
-  }
-
-  return {
-    index,
-    policy: "user-action",
-    retryAt: null,
-  };
-}
-
-function isCurrentRetryGateBlocking(gate: CurrentRetryGate, now: number): boolean {
-  return gate.policy === "user-action" || (gate.retryAt ?? 0) > now;
-}
-
-function clearRetryTimer(retryTimerRef: React.MutableRefObject<number | null>): void {
-  if (retryTimerRef.current !== null) {
-    window.clearTimeout(retryTimerRef.current);
-    retryTimerRef.current = null;
-  }
 }
 
 function waitForRetryDelay(delayMs: number, signal: AbortSignal): Promise<void> {
@@ -352,7 +328,6 @@ export const useCachedImageGallery = ({
   // Controls spinner visibility after delay to avoid flicker
   const [showLoadingSpinner, setShowLoadingSpinner] = useState(false);
   const [imageSourceRevision, setImageSourceRevision] = useState(0);
-  const retryTimerRef = useRef<number | null>(null);
 
   // AbortControllers for in-flight requests, keyed by index
   const abortControllersRef = useRef<Map<number, AbortController>>(committedSessionResources.abortControllers);
@@ -440,8 +415,6 @@ export const useCachedImageGallery = ({
       inFlightRequestsRef.current = nextResources.inFlightRequests;
       galleryIdentityRef.current = nextResources.galleryIdentity;
       galleryGenerationRef.current = nextResources.generation;
-
-      clearRetryTimer(retryTimerRef);
 
       disposeGallerySessionResources(committedResources);
       setImageSourceRevision((revision) => revision + 1);
@@ -556,7 +529,6 @@ export const useCachedImageGallery = ({
 
       if (priority === "current") {
         requestSessionResources.currentRetryGate = null;
-        clearRetryTimer(retryTimerRef);
         failedBackgroundRequestKeysRef.current.delete(failureKey);
       }
       requestSessionResources.inFlightRequests.set(index, inFlightRequest);
@@ -570,10 +542,17 @@ export const useCachedImageGallery = ({
             prev.loadingStates.get(index) === true ? prev.loadingStates : new Map(prev.loadingStates).set(index, true);
           const currentError = prev.errorStates.get(index) ?? null;
           const nextErrorStates = currentError === null ? prev.errorStates : new Map(prev.errorStates).set(index, null);
+          const nextRetryableErrors =
+            prev.retryableErrors.get(index) === false ? prev.retryableErrors : new Map(prev.retryableErrors).set(index, false);
           const nextLoadPhases =
             prev.loadPhases.get(index) === "fetching" ? prev.loadPhases : new Map(prev.loadPhases).set(index, "fetching");
 
-          if (nextLoadingStates === prev.loadingStates && nextErrorStates === prev.errorStates && nextLoadPhases === prev.loadPhases) {
+          if (
+            nextLoadingStates === prev.loadingStates &&
+            nextErrorStates === prev.errorStates &&
+            nextRetryableErrors === prev.retryableErrors &&
+            nextLoadPhases === prev.loadPhases
+          ) {
             return prev;
           }
 
@@ -581,6 +560,7 @@ export const useCachedImageGallery = ({
             ...prev,
             loadingStates: nextLoadingStates,
             errorStates: nextErrorStates,
+            retryableErrors: nextRetryableErrors,
             loadPhases: nextLoadPhases,
           };
         });
@@ -679,7 +659,6 @@ export const useCachedImageGallery = ({
         requestSessionResources.failedBackgroundRequestKeys.delete(failureKey);
         if (requestSessionResources.currentRetryGate?.index === index) {
           requestSessionResources.currentRetryGate = null;
-          clearRetryTimer(retryTimerRef);
         }
 
         const fetchDuration = Date.now() - fetchStartTime;
@@ -741,7 +720,7 @@ export const useCachedImageGallery = ({
         if (!isCurrentFailure) {
           requestSessionResources.failedBackgroundRequestKeys.add(failureKey);
         } else {
-          requestSessionResources.currentRetryGate = getCurrentRetryGate(index, err, Date.now());
+          requestSessionResources.currentRetryGate = { index };
         }
 
         if (isCurrentFailure || !isTransientFailure) {
@@ -774,7 +753,10 @@ export const useCachedImageGallery = ({
         // Use RAF to batch state updates and avoid layout thrashing
         requestAnimationFrame(() => {
           updateSessionView(requestGalleryIdentity, requestGeneration, (prev) =>
-            applyImageLoadFailure(prev, index, errorMessage, { showError: isCurrentFailure || !isTransientFailure })
+            applyImageLoadFailure(prev, index, errorMessage, {
+              canRetry: isCurrentFailure && isManuallyRetryableImageFailure(err),
+              showError: isCurrentFailure || !isTransientFailure,
+            })
           );
         });
 
@@ -807,14 +789,9 @@ export const useCachedImageGallery = ({
       return;
     }
 
-    const now = Date.now();
     const currentRetryGate = activeSessionResources.currentRetryGate;
     if (currentRetryGate && currentRetryGate.index !== currentIndex) {
       activeSessionResources.currentRetryGate = null;
-      clearRetryTimer(retryTimerRef);
-    } else if (currentRetryGate?.policy === "backoff" && (currentRetryGate.retryAt ?? 0) <= now) {
-      activeSessionResources.currentRetryGate = null;
-      clearRetryTimer(retryTimerRef);
     }
 
     const desiredOrder = buildPreloadOrder(currentIndex, images.length, preloadRange);
@@ -850,20 +827,8 @@ export const useCachedImageGallery = ({
     }
 
     const blockingCurrentRetryGate = activeSessionResources.currentRetryGate;
-    if (blockingCurrentRetryGate?.index === currentIndex && isCurrentRetryGateBlocking(blockingCurrentRetryGate, now)) {
+    if (blockingCurrentRetryGate?.index === currentIndex) {
       coveredIndexes.add(currentIndex);
-
-      if (blockingCurrentRetryGate.policy === "backoff" && blockingCurrentRetryGate.retryAt !== null && retryTimerRef.current === null) {
-        retryTimerRef.current = window.setTimeout(
-          () => {
-            retryTimerRef.current = null;
-            if (isMountedRef.current) {
-              reconcileRequestsRef.current();
-            }
-          },
-          Math.max(blockingCurrentRetryGate.retryAt - now, 0)
-        );
-      }
     }
 
     for (const [index, request] of activeSessionResources.inFlightRequests) {
@@ -993,7 +958,6 @@ export const useCachedImageGallery = ({
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
-      clearRetryTimer(retryTimerRef);
       disposeGallerySessionResources(sessionResourcesRef.current);
     };
   }, []);
@@ -1040,14 +1004,27 @@ export const useCachedImageGallery = ({
       setImageSourceRevision((revision) => revision + 1);
     }
 
-    resources.currentRetryGate = { index, policy: "user-action", retryAt: null };
+    resources.currentRetryGate = { index };
     updateSessionView(galleryIdentity, pendingSessionGeneration, (prev) => ({
       ...prev,
       loadingStates: new Map(prev.loadingStates).set(index, false),
       errorStates: new Map(prev.errorStates).set(index, IMAGE_LOAD_CANCELED_MESSAGE),
+      retryableErrors: new Map(prev.retryableErrors).set(index, false),
       loadPhases: new Map(prev.loadPhases).set(index, "canceled"),
     }));
   }, [galleryIdentity, pendingSessionGeneration, updateSessionView]);
+
+  const retryCurrentImage = useCallback(() => {
+    const resources = sessionResourcesRef.current;
+    const index = currentIndexRef.current;
+
+    resources.currentRetryGate = null;
+    void fetchAndCacheImageRef.current(index, { priority: "current" }).finally(() => {
+      if (isMountedRef.current) {
+        reconcileRequestsRef.current();
+      }
+    });
+  }, []);
 
   const getCachedImageSrc = useCallback(
     (index: number) => activeSessionResources.imageCache.get(index),
@@ -1066,9 +1043,11 @@ export const useCachedImageGallery = ({
     currentImageLoadPhase,
     imageSourceRevision,
     showLoadingSpinner,
+    canRetryCurrentImage: activeSessionView.retryableErrors.get(currentIndex) === true,
     markImageAsDecoded,
     markImageDecodeFailed,
     cancelCurrentImageLoad,
+    retryCurrentImage,
     abortControllersRef,
   };
 };

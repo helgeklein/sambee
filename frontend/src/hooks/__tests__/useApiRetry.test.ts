@@ -1,5 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { PreviewUnavailableError } from "../../services/previewPolicy";
 import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "../useApiRetry";
 
 describe("useApiRetry", () => {
@@ -73,6 +74,9 @@ describe("useApiRetry", () => {
 
     // Client-side abort/timeout should not automatically flip the app into backend-unavailable mode
     expect(checkIsTransientError({ code: "ECONNABORTED", message: "timeout of 8000ms exceeded" })).toBe(false);
+
+    // Intentional local capability rejections cannot recover through another request.
+    expect(checkIsTransientError(new PreviewUnavailableError("Local conversion is unavailable"))).toBe(false);
 
     // API errors with HTTP status codes are NOT transient
     expect(

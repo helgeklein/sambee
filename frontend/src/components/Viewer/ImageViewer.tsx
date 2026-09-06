@@ -133,9 +133,11 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     errorStates,
     currentImageLoadPhase,
     showLoadingSpinner,
+    canRetryCurrentImage,
     markImageAsDecoded,
     markImageDecodeFailed,
     cancelCurrentImageLoad,
+    retryCurrentImage,
   } = useCachedImageGallery({
     connectionId,
     images,
@@ -500,9 +502,15 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
                   color: "error.main",
                   textAlign: "center",
                   px: 2,
+                  pointerEvents: "auto",
                 }}
               >
-                {currentImageError}
+                <Typography>{currentImageError}</Typography>
+                {canRetryCurrentImage && (
+                  <Button color="inherit" size="small" onClick={retryCurrentImage}>
+                    {t("common.actions.retry")}
+                  </Button>
+                )}
               </Box>
             </Box>
           )}
@@ -511,12 +519,15 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     },
     [
       cancelCurrentImageLoad,
+      canRetryCurrentImage,
       currentImageError,
       currentImageLoadPhase,
       currentIndex,
       imageLoadingFeedbackStage,
       isCurrentImageLoading,
+      retryCurrentImage,
       showLoadingSpinner,
+      t,
       toolbarText,
     ]
   );
