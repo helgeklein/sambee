@@ -130,6 +130,10 @@ fn build_router(state: Arc<AppState>) -> Router {
             axum::routing::get(handlers::browse_resolve_activation),
         )
         .route("/api/browse/{drive}/item", axum::routing::delete(handlers::browse_delete))
+        .route(
+            "/api/browse/{drive}/empty-directory",
+            axum::routing::delete(handlers::browse_delete_empty_directory),
+        )
         .route("/api/browse/{drive}/rename", axum::routing::post(handlers::browse_rename))
         .route("/api/browse/{drive}/create", axum::routing::post(handlers::browse_create))
         .merge(transfer_routes().with_state::<Arc<AppState>>(()))

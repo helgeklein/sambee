@@ -3,9 +3,9 @@
  * Tests for keyboard navigation, search/filter, sorting, settings, and refresh
  */
 
-import { createEvent, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, createEvent, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import api from "../../services/api";
 import { authSession } from "../../services/authSession";
 import { RECENT_DIRECTORIES_CHANGED_EVENT } from "../../services/recentDirectoriesSync";
@@ -47,6 +47,37 @@ const cancelledTransferResult = {
   effects: { source: "unchanged", destination: "unchanged" },
 } as const;
 
+const regularTransferTestItems = [
+  {
+    name: "Documents",
+    path: "Documents",
+    type: FileType.FILE,
+    size: 1024,
+    modified_at: "2024-01-13T10:00:00Z",
+    is_readable: true,
+    is_hidden: false,
+  },
+  {
+    name: "Pictures",
+    path: "Pictures",
+    type: FileType.FILE,
+    size: 2048,
+    modified_at: "2024-01-14T10:00:00Z",
+    is_readable: true,
+    is_hidden: false,
+  },
+];
+
+const setupRegularFileTransferListing = () => {
+  vi.mocked(api.listDirectory).mockImplementation((_connectionId, path) =>
+    Promise.resolve(
+      path === "" || path === "/"
+        ? { path: "", items: regularTransferTestItems, total: regularTransferTestItems.length }
+        : { path, items: [], total: 0 }
+    )
+  );
+};
+
 // Mock the API module
 vi.mock("../../services/api");
 
@@ -58,6 +89,8 @@ vi.mock("@tanstack/react-virtual", () => import("../../__mocks__/@tanstack/react
 describe("Browser Component - Interactions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(api.copyItem).mockReset();
+    vi.mocked(api.moveItem).mockReset();
     clearCurrentUserSettingsCache();
     authSession.setAuthenticated({ access_token: "fake-token", token_type: "bearer" }, false);
     localStorage.removeItem("selectedConnectionId");
@@ -65,6 +98,11 @@ describe("Browser Component - Interactions", () => {
 
     // Use mock factory for successful API responses
     setupSuccessfulApiMocks(api as unknown as ApiMock);
+  });
+
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
   });
 
   describe("Settings", () => {
@@ -276,7 +314,7 @@ describe("Browser Component - Interactions", () => {
       });
       await user.click(within(rightPane).getByRole("button", { name: /folder: documents/i }));
       await waitFor(() => {
-        expect(within(rightPane).getByText("readme.txt")).toBeInTheDocument();
+        expect(within(rightPane).getByText("report.pdf")).toBeInTheDocument();
       });
 
       await user.click(within(rightPane).getByTestId("virtual-list"));
@@ -413,6 +451,7 @@ describe("Browser Component - Interactions", () => {
 
     it("closes the copy dialog when an in-progress transfer is cancelled", async () => {
       const user = userEvent.setup();
+      setupRegularFileTransferListing();
       vi.mocked(api.copyItem).mockImplementationOnce((...args) => {
         const signal = args[6]?.signal;
         return new Promise<typeof cancelledTransferResult>((resolve) => {
@@ -438,6 +477,7 @@ describe("Browser Component - Interactions", () => {
 
     it("shows retained-source warnings alongside later batch errors", async () => {
       const user = userEvent.setup();
+      setupRegularFileTransferListing();
       vi.mocked(api.copyItem)
         .mockResolvedValueOnce({
           status: "completed_with_source_retained",
@@ -461,8 +501,7 @@ describe("Browser Component - Interactions", () => {
 
       const listContainer = (await screen.findAllByTestId("virtual-list"))[0];
       await user.click(listContainer);
-      await user.keyboard("{Insert}");
-      await user.keyboard("{Insert}");
+      await user.keyboard("{Control>}a{/Control}");
       await user.keyboard("{F5}");
       await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Copy" }));
 
@@ -470,8 +509,9 @@ describe("Browser Component - Interactions", () => {
       expect(await screen.findByText("Content transfer failed: transport")).toBeInTheDocument();
     });
 
-    it("offers only safe file conflict actions when replacement is unavailable", async () => {
+    it("offers all regular-file conflict actions when replacement is available", async () => {
       const user = userEvent.setup();
+      setupRegularFileTransferListing();
       const conflict: ConflictInfo = {
         incoming_file: {
           name: "Documents",
@@ -508,11 +548,13 @@ describe("Browser Component - Interactions", () => {
       await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Copy" }));
       expect(await screen.findByRole("radio", { name: "Skip" })).toBeInTheDocument();
       expect(screen.getByRole("radio", { name: "Rename" })).toBeInTheDocument();
-      expect(screen.queryByRole("radio", { name: "Overwrite" })).not.toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Overwrite" })).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Overwrite only older" })).toBeInTheDocument();
     });
 
     it("reopens resolution when a renamed copy target also exists", async () => {
       const user = userEvent.setup();
+      setupRegularFileTransferListing();
       const firstConflict: ConflictInfo = {
         incoming_file: {
           name: "Documents",

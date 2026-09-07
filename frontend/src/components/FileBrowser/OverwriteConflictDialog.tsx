@@ -53,7 +53,7 @@ export interface OverwriteConflictDialogProps {
   /** Resolution choices the operation owner can honor for this conflict. */
   allowedActions: readonly ConflictResolution[];
   /** Whether the owner permits an all-remaining policy for a resolution. */
-  canApplyToAll?: (resolution: "skip" | "overwrite") => boolean;
+  canApplyToAll?: (resolution: "skip" | "overwrite" | "overwrite-older") => boolean;
   progress?: { current: number; total: number; conflictsSoFar: number };
   /** True while the operation owner persists the submitted decision. */
   isSubmitting?: boolean;
@@ -195,7 +195,7 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
     ? (validateItemName(renameDraft) ?? (renameDraft === existingTargetName ? S.ERROR_TARGET_NAME_UNCHANGED : null))
     : null;
   const canApplyToAll =
-    (resolution === "skip" || resolution === "overwrite") &&
+    (resolution === "skip" || resolution === "overwrite" || resolution === "overwrite-older") &&
     (ownerCanApplyToAll?.(resolution) ?? Boolean(progress && progress.current < progress.total));
   const canContinue = allowedActions.includes(resolution) && !targetNameError && !isSubmittingOrPending;
   const displayedError = error ?? (hasAvailableResolution ? null : S.ERROR_NO_RESOLUTION_AVAILABLE);

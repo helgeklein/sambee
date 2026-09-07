@@ -25,6 +25,7 @@ from app.models.connection import Connection, ConnectionScope
 from app.models.edit_lock import EditLock
 from app.models.file import ContentTransferEffects, ContentTransferResult, CopyMoveRequest, DirectoryListing, FileInfo, FileType
 from app.models.transfer_operation import TransferOperation, TransferOperationPhase
+from app.services.content_transfer import SourceDeleteError
 from app.services.preprocessor import PreprocessorFileTooLargeError
 
 
@@ -143,6 +144,7 @@ def test_move_uses_native_same_connection_rename(
         mock_instance.get_file_info.side_effect = [
             FileInfo(name="file.txt", path="docs/file.txt", type=FileType.FILE, size=1),
             FileNotFoundError("target does not exist"),
+            FileNotFoundError("target does not exist"),
         ]
         mock_backend.return_value = mock_instance
         response = client.post(
@@ -193,6 +195,170 @@ def test_cross_provider_stream_destination_stages_before_publishing(
     assert response.json()["status"] == "completed"
     assert response.json()["effects"] == {"source": "unchanged", "destination": "mutated"}
     mock_instance.stage_and_commit_new_file_from_stream.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "source_modified_at",
+    [None, datetime(2025, 1, 1, tzinfo=timezone.utc), datetime(2025, 1, 2, tzinfo=timezone.utc)],
+)
+def test_cross_provider_stream_replace_older_skips_a_missing_equal_or_older_source_without_consuming_body(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+    source_modified_at: datetime | None,
+):
+    existing_target = FileInfo(
+        name="report.txt",
+        path="incoming/report.txt",
+        type=FileType.FILE,
+        size=8,
+        modified_at=datetime(2025, 1, 2, tzinfo=timezone.utc),
+    )
+    parameters: dict[str, str | int] = {
+        "path": "incoming/report.txt",
+        "expected_size": 6,
+        "target_resolution_policy": "replace_older",
+    }
+    if source_modified_at is not None:
+        parameters["source_modified_at"] = source_modified_at.isoformat()
+
+    with patch("app.api.browser.SMBBackend") as mock_backend:
+        mock_instance = AsyncMock()
+        mock_backend.return_value = mock_instance
+        mock_instance.get_file_info.return_value = existing_target
+        response = client.post(
+            f"/api/browse/{test_connection.id}/transfer-stream",
+            params=parameters,
+            headers=auth_headers_user,
+            content=b"report",
+        )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "skipped"
+    mock_instance.stage_and_commit_new_file_from_stream.assert_not_awaited()
+
+
+def test_cross_provider_stream_replace_older_skips_a_malformed_source_timestamp_without_consuming_body(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+):
+    existing_target = FileInfo(
+        name="report.txt",
+        path="incoming/report.txt",
+        type=FileType.FILE,
+        size=8,
+        modified_at=datetime(2025, 1, 2, tzinfo=timezone.utc),
+    )
+
+    with patch("app.api.browser.SMBBackend") as mock_backend:
+        mock_instance = AsyncMock()
+        mock_backend.return_value = mock_instance
+        mock_instance.get_file_info.return_value = existing_target
+        response = client.post(
+            f"/api/browse/{test_connection.id}/transfer-stream",
+            params={
+                "path": "incoming/report.txt",
+                "expected_size": 6,
+                "target_resolution_policy": "replace_older",
+                "source_modified_at": "not-a-timestamp",
+            },
+            headers=auth_headers_user,
+            content=b"report",
+        )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "skipped"
+    mock_instance.stage_and_commit_new_file_from_stream.assert_not_awaited()
+
+
+def test_cross_provider_stream_replace_older_publishes_a_strictly_newer_source(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+):
+    source_modified_at = datetime(2025, 1, 3, tzinfo=timezone.utc)
+    existing_target = FileInfo(
+        name="report.txt",
+        path="incoming/report.txt",
+        type=FileType.FILE,
+        size=8,
+        modified_at=datetime(2025, 1, 2, tzinfo=timezone.utc),
+    )
+
+    async def stage_and_commit(path: str, stream, *, before_commit, **kwargs: object) -> int:
+        assert path == "incoming/report.txt"
+        assert b"".join([chunk async for chunk in stream]) == b"report"
+        assert kwargs["source_mtime"] == source_modified_at
+        assert kwargs["overwrite"] is True
+        assert await before_commit() is True
+        return 6
+
+    with patch("app.api.browser.SMBBackend") as mock_backend:
+        mock_instance = AsyncMock()
+        mock_backend.return_value = mock_instance
+        mock_instance.get_file_info.side_effect = [existing_target, existing_target]
+        mock_instance.stage_and_commit_new_file_from_stream.side_effect = stage_and_commit
+        response = client.post(
+            f"/api/browse/{test_connection.id}/transfer-stream",
+            params={
+                "path": "incoming/report.txt",
+                "expected_size": 6,
+                "target_resolution_policy": "replace_older",
+                "source_modified_at": source_modified_at.isoformat(),
+            },
+            headers=auth_headers_user,
+            content=b"report",
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "completed",
+        "effects": {"source": "unchanged", "destination": "mutated"},
+        "replaced": True,
+        "error": None,
+    }
+
+
+def test_cross_provider_stream_replace_older_reports_a_target_type_change_at_final_commit(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+):
+    source_modified_at = datetime(2025, 1, 3, tzinfo=timezone.utc)
+    existing_file = FileInfo(
+        name="report.txt",
+        path="incoming/report.txt",
+        type=FileType.FILE,
+        size=8,
+        modified_at=datetime(2025, 1, 2, tzinfo=timezone.utc),
+    )
+    replacement_directory = FileInfo(name="report.txt", path="incoming/report.txt", type=FileType.DIRECTORY)
+
+    async def stage_and_commit(_path: str, stream, *, before_commit, **_kwargs: object) -> int:
+        assert b"".join([chunk async for chunk in stream]) == b"report"
+        await before_commit()
+        raise AssertionError("The SMB stage must not promote after a target type conflict")
+
+    with patch("app.api.browser.SMBBackend") as mock_backend:
+        mock_instance = AsyncMock()
+        mock_backend.return_value = mock_instance
+        mock_instance.get_file_info.side_effect = [existing_file, replacement_directory]
+        mock_instance.stage_and_commit_new_file_from_stream.side_effect = stage_and_commit
+        response = client.post(
+            f"/api/browse/{test_connection.id}/transfer-stream",
+            params={
+                "path": "incoming/report.txt",
+                "expected_size": 6,
+                "target_resolution_policy": "replace_older",
+                "source_modified_at": source_modified_at.isoformat(),
+            },
+            headers=auth_headers_user,
+            content=b"report",
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Destination already exists: incoming/report.txt"
 
 
 def test_cross_provider_stream_destination_rejects_empty_path_before_smb_work(
@@ -281,6 +447,13 @@ def test_durable_transfer_operation_replays_preparation_and_persists_execution_r
         modified_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
         stable_id="source-file-id",
     )
+    destination_info = FileInfo(
+        name="report.txt",
+        path="incoming/report.txt",
+        type=FileType.FILE,
+        size=6,
+        modified_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+    )
     idempotency_key = str(uuid.uuid4())
     payload = {
         "protocol_version": "v1",
@@ -289,7 +462,7 @@ def test_durable_transfer_operation_replays_preparation_and_persists_execution_r
         "source_connection_id": str(source_connection.id),
         "source_path": "reports/report.txt",
         "destination_path": "incoming/report.txt",
-        "target_resolution_policy": "ask",
+        "target_resolution_policy": "replace",
     }
     with patch("app.api.browser.SMBBackend") as mock_backend:
         prepared_source = AsyncMock()
@@ -308,7 +481,7 @@ def test_durable_transfer_operation_replays_preparation_and_persists_execution_r
             return 6
 
         execution_source.read_file = lambda _path: source_chunks()
-        destination.get_file_info.side_effect = FileNotFoundError("missing target")
+        destination.get_file_info.return_value = destination_info
         destination.stage_and_commit_new_file_from_stream.side_effect = stage_and_commit
         mock_backend.side_effect = [prepared_source, execution_source, destination]
 
@@ -336,6 +509,7 @@ def test_durable_transfer_operation_replays_preparation_and_persists_execution_r
     assert replayed.status_code == 200
     assert replayed.json()["id"] == operation_id
     assert executed.json()["status"] == "completed"
+    assert executed.json()["replaced"] is True
     assert status.json()["phase"] == "completed"
     assert status.json()["bytes_transferred"] == 6
     assert status.json()["result"]["status"] == "completed"
@@ -394,6 +568,99 @@ def test_durable_transfer_operation_rejects_a_source_changed_after_preparation(
         },
     }
     destination.stage_and_commit_new_file_from_stream.assert_not_awaited()
+
+
+def test_cross_connection_move_source_retention_preserves_replacement_fact(
+    client: TestClient,
+    auth_headers_user: dict,
+    multiple_connections: list[Connection],
+):
+    source_connection, destination_connection = multiple_connections[:2]
+    source_backend = AsyncMock()
+    destination_backend = AsyncMock()
+
+    with (
+        patch("app.api.browser.SMBBackend", side_effect=[source_backend, destination_backend]),
+        patch(
+            "app.api.browser.cross_connection_move",
+            new_callable=AsyncMock,
+            side_effect=SourceDeleteError("source retention", destination_mutated=True, replaced=True),
+        ),
+    ):
+        response = client.post(
+            f"/api/browse/{source_connection.id}/move",
+            headers=auth_headers_user,
+            json={
+                "idempotency_key": str(uuid.uuid4()),
+                "source_path": "reports/report.txt",
+                "dest_path": "incoming/report.txt",
+                "dest_connection_id": str(destination_connection.id),
+                "target_resolution_policy": "replace",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "completed_with_source_retained",
+        "effects": {"source": "unchanged", "destination": "mutated"},
+        "replaced": True,
+        "error": {"code": "source_delete_failed", "detail": "source retention"},
+    }
+
+
+def test_durable_transfer_operation_source_retention_preserves_replacement_fact(
+    client: TestClient,
+    auth_headers_user: dict,
+    multiple_connections: list[Connection],
+):
+    source_connection, destination_connection = multiple_connections[:2]
+    source_info = FileInfo(
+        name="report.txt",
+        path="reports/report.txt",
+        type=FileType.FILE,
+        size=6,
+        modified_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        stable_id="source-file-id",
+    )
+    prepared_source = AsyncMock()
+    prepared_source.get_file_info.return_value = source_info
+    execution_source = AsyncMock()
+    execution_source.get_file_info.return_value = source_info
+    destination = AsyncMock()
+
+    with (
+        patch("app.api.browser.SMBBackend", side_effect=[prepared_source, execution_source, destination]),
+        patch(
+            "app.api.browser.cross_connection_move",
+            new_callable=AsyncMock,
+            side_effect=SourceDeleteError("source retention", destination_mutated=True, replaced=True),
+        ),
+    ):
+        prepared = client.post(
+            f"/api/browse/{destination_connection.id}/transfer-operations",
+            headers=auth_headers_user,
+            json={
+                "protocol_version": "v1",
+                "idempotency_key": str(uuid.uuid4()),
+                "kind": "move",
+                "source_connection_id": str(source_connection.id),
+                "source_path": "reports/report.txt",
+                "destination_path": "incoming/report.txt",
+                "target_resolution_policy": "replace",
+            },
+        )
+        executed = client.post(
+            f"/api/browse/{destination_connection.id}/transfer-operations/{prepared.json()['id']}/execute",
+            headers=auth_headers_user,
+        )
+
+    assert prepared.status_code == 200
+    assert executed.json() == {
+        "status": "completed_with_source_retained",
+        "effects": {"source": "unchanged", "destination": "mutated"},
+        "replaced": True,
+        "error": {"code": "source_delete_failed", "detail": "source retention"},
+    }
 
 
 def test_durable_transfer_operation_cancels_before_provider_execution(
@@ -2793,6 +3060,7 @@ class TestCopyItem:
             FileNotFoundError("target does not exist"),
             FileInfo(name="file.txt", path="docs/file.txt", type=FileType.FILE, size=1, stable_id="source-file"),
             FileInfo(name="file.txt", path="docs/file.txt", type=FileType.FILE, size=1, stable_id="source-file"),
+            FileNotFoundError("target does not exist"),
             FileInfo(name="file.txt", path="docs/file.txt", type=FileType.FILE, size=1, stable_id="source-file"),
         ]
 
@@ -2820,41 +3088,25 @@ class TestCopyItem:
         mock_instance.copy_item.assert_not_called()
         mock_instance.disconnect.assert_called_once()
 
-    def test_copy_directory_success(
+    def test_copy_directory_is_rejected(
         self,
         client: TestClient,
         auth_headers_admin: dict,
         test_connection: Connection,
         mock_smb_backend,
     ):
-        """Test copying a directory returns 204."""
-        mock_class, mock_instance = mock_smb_backend
-        mock_instance.copy_item.return_value = None
-        mock_instance.get_file_info.side_effect = [
-            FileInfo(name="photos", path="photos", type=FileType.DIRECTORY),
-            FileNotFoundError("target does not exist"),
-        ]
+        """Directory trees are coordinated by the frontend, not this file route."""
+        _mock_class, mock_instance = mock_smb_backend
+        mock_instance.get_file_info.return_value = FileInfo(name="photos", path="photos", type=FileType.DIRECTORY)
 
-        with patch(
-            "app.api.browser.cross_connection_copy",
-            AsyncMock(return_value=(0, FileInfo(name="photos", path="photos", type=FileType.DIRECTORY))),
-        ) as staged_copy:
-            response = client.post(
-                f"/api/browse/{test_connection.id}/copy",
-                headers=auth_headers_admin,
-                json={"idempotency_key": str(uuid.uuid4()), "source_path": "photos", "dest_path": "photos-backup"},
-            )
-
-        assert response.status_code == 200
-        assert response.json()["status"] == "completed"
-        staged_copy.assert_awaited_once_with(
-            mock_instance,
-            mock_instance,
-            "photos",
-            "photos-backup",
-            target_resolution_policy=None,
-            cancellation=None,
+        response = client.post(
+            f"/api/browse/{test_connection.id}/copy",
+            headers=auth_headers_admin,
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "photos", "dest_path": "photos-backup"},
         )
+
+        assert response.status_code == 422
+        assert "Directory transfers" in response.json()["detail"]
         mock_instance.copy_item.assert_not_called()
 
     def test_copy_replays_a_factual_result_for_the_same_idempotency_key(
@@ -2877,6 +3129,7 @@ class TestCopyItem:
             FileNotFoundError("target does not exist"),
             source_info,
             source_info,
+            FileNotFoundError("target does not exist"),
             source_info,
         ]
 
@@ -3176,14 +3429,14 @@ class TestCopyItem:
         assert mock_instance.get_file_info.call_count == observations_after_first
         mock_instance.copy_item.assert_not_called()
 
-    def test_copy_skip_existing_directory_does_not_call_native_mutation(
+    def test_copy_skip_directory_is_rejected_without_native_mutation(
         self,
         client: TestClient,
         auth_headers_user: dict,
         test_connection: Connection,
         mock_smb_backend,
     ):
-        """Skip applies to the directory root before recursive copy begins."""
+        """Directory roots are rejected before the obsolete recursive copy path."""
         _mock_class, mock_instance = mock_smb_backend
         mock_instance.get_file_info.side_effect = [
             FileInfo(name="source", path="source", type=FileType.DIRECTORY),
@@ -3201,8 +3454,8 @@ class TestCopyItem:
             },
         )
 
-        assert response.status_code == 200
-        assert response.json()["status"] == "skipped"
+        assert response.status_code == 422
+        assert "Directory transfers" in response.json()["detail"]
         mock_instance.copy_item.assert_not_called()
 
     def test_copy_server_error(
@@ -3437,7 +3690,11 @@ class TestMoveItem:
         """A regular-file move uses the native same-connection rename."""
         mock_class, mock_instance = mock_smb_backend
         source_info = FileInfo(name="file.txt", path="docs/file.txt", type=FileType.FILE, size=1, stable_id="source-file")
-        mock_instance.get_file_info.side_effect = [source_info, FileNotFoundError("target does not exist")]
+        mock_instance.get_file_info.side_effect = [
+            source_info,
+            FileNotFoundError("target does not exist"),
+            FileNotFoundError("target does not exist"),
+        ]
 
         response = client.post(
             f"/api/browse/{test_connection.id}/move",
@@ -3452,19 +3709,16 @@ class TestMoveItem:
         mock_instance.move_item.assert_awaited_once_with("docs/file.txt", "archive/file.txt", overwrite=False)
         mock_instance.disconnect.assert_called_once()
 
-    def test_move_directory_success(
+    def test_move_directory_is_rejected(
         self,
         client: TestClient,
         auth_headers_admin: dict,
         test_connection: Connection,
         mock_smb_backend,
     ):
-        """A directory move uses the native same-connection rename."""
-        mock_class, mock_instance = mock_smb_backend
-        mock_instance.get_file_info.side_effect = [
-            FileInfo(name="old-folder", path="old-folder", type=FileType.DIRECTORY),
-            FileNotFoundError("target does not exist"),
-        ]
+        """Directory trees are coordinated by the frontend, not this file route."""
+        _mock_class, mock_instance = mock_smb_backend
+        mock_instance.get_file_info.return_value = FileInfo(name="old-folder", path="old-folder", type=FileType.DIRECTORY)
 
         response = client.post(
             f"/api/browse/{test_connection.id}/move",
@@ -3472,10 +3726,9 @@ class TestMoveItem:
             json={"idempotency_key": str(uuid.uuid4()), "source_path": "old-folder", "dest_path": "new-folder"},
         )
 
-        assert response.status_code == 200
-        assert response.json()["status"] == "completed"
-        assert response.json()["effects"] == {"source": "mutated", "destination": "mutated"}
-        mock_instance.move_item.assert_awaited_once_with("old-folder", "new-folder", overwrite=False)
+        assert response.status_code == 422
+        assert "Directory transfers" in response.json()["detail"]
+        mock_instance.move_item.assert_not_called()
 
     def test_move_without_auth(self, client: TestClient, test_connection: Connection):
         """Test that moving requires authentication."""
@@ -3620,7 +3873,7 @@ class TestMoveItem:
         mock_instance.get_file_info.side_effect = [
             FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file"),
             FileNotFoundError("target does not exist"),
-            FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file"),
+            FileNotFoundError("target does not exist"),
         ]
 
         response = client.post(
@@ -3643,7 +3896,7 @@ class TestMoveItem:
         mock_instance.get_file_info.side_effect = [
             FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file"),
             FileNotFoundError("target does not exist"),
-            FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file"),
+            FileNotFoundError("target does not exist"),
         ]
 
         response = client.post(

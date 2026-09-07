@@ -84,8 +84,6 @@ export interface CrossBackendTransferOptions {
   onProgress?: (bytesTransferred: number, totalBytes: number | null) => void;
 }
 
-type IncompleteContentTransferResult = Exclude<ContentTransferResult, { status: "completed" }>;
-
 function supportsStreamUploadRequestBodies(): boolean {
   if (typeof Request === "undefined" || typeof ReadableStream === "undefined") return false;
 
@@ -1407,6 +1405,16 @@ class ApiService {
     });
   }
 
+  /** Remove a directory only when it contains no entries. */
+  async removeEmptyDirectory(connectionId: string, path: string): Promise<void> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    await client.delete(`/browse/${segment}/empty-directory`, {
+      ...extraConfig,
+      params: { path },
+    });
+  }
+
   /**
    * Rename a file or directory.
    *
@@ -1532,15 +1540,12 @@ class ApiService {
   ): Promise<ContentTransferResult> {
     const sourceInfo = await this.getFileInfo(sourceConnectionId, sourcePath);
     if (sourceInfo.type === "directory") {
-      return this.transferDirectoryAcrossBackends(
-        kind,
-        sourceConnectionId,
-        sourcePath,
-        destinationConnectionId,
-        destinationPath,
-        targetResolutionPolicy,
-        options
-      );
+      return {
+        status: "failed",
+        replaced: false,
+        effects: { source: "unchanged", destination: "unchanged" },
+        error: { code: "unavailable", reason: "unsupported" },
+      };
     }
     if (sourceInfo.type !== "file") {
       return {
@@ -1576,7 +1581,8 @@ class ApiService {
       };
     }
     const expectedSize = sourceInfo.size;
-    const destinationUrl = `${getBaseUrl(destinationConnectionId)}/browse/${getBrowseSegment(destinationConnectionId)}/transfer-stream?path=${encodeURIComponent(destinationPath)}&target_resolution_policy=${encodeURIComponent(targetResolutionPolicy)}&expected_size=${expectedSize}`;
+    const sourceModifiedAt = sourceInfo.modified_at ? `&source_modified_at=${encodeURIComponent(sourceInfo.modified_at)}` : "";
+    const destinationUrl = `${getBaseUrl(destinationConnectionId)}/browse/${getBrowseSegment(destinationConnectionId)}/transfer-stream?path=${encodeURIComponent(destinationPath)}&target_resolution_policy=${encodeURIComponent(targetResolutionPolicy)}&expected_size=${expectedSize}${sourceModifiedAt}`;
     const destinationHeaders = await this.getTransferFetchHeaders(destinationConnectionId);
     let bytesTransferred = 0;
     const relayStream = options.onProgress
@@ -1755,150 +1761,6 @@ class ApiService {
       throw new Error(`Download failed (${response.status}): ${response.statusText}`);
     }
     return response;
-  }
-
-  private async transferDirectoryAcrossBackends(
-    kind: "copy" | "move",
-    sourceConnectionId: string,
-    sourcePath: string,
-    destinationConnectionId: string,
-    destinationPath: string,
-    targetResolutionPolicy: TargetResolutionPolicy,
-    options: CrossBackendTransferOptions
-  ): Promise<ContentTransferResult> {
-    try {
-      const existingFile = await this.getFileInfo(destinationConnectionId, destinationPath);
-      if (targetResolutionPolicy === "skip") {
-        return { status: "skipped", replaced: false, effects: { source: "unchanged", destination: "unchanged" } };
-      }
-      throw this.createTransferConflictError(existingFile, await this.getFileInfo(sourceConnectionId, sourcePath));
-    } catch (error) {
-      if (error instanceof Error && "response" in error) {
-        throw error;
-      }
-      if (!axios.isAxiosError(error) || error.response?.status !== 404) {
-        throw error;
-      }
-    }
-    const separator = destinationPath.lastIndexOf("/");
-    const destinationParent = separator < 0 ? "" : destinationPath.slice(0, separator);
-    const targetName = separator < 0 ? destinationPath : destinationPath.slice(separator + 1);
-    if (!targetName) {
-      return {
-        status: "failed",
-        replaced: false,
-        effects: { source: "unchanged", destination: "unchanged" },
-        error: { code: "validation", reason: "invalid-name" },
-      };
-    }
-    const stagePath = [destinationParent, `.${targetName}.sambee-stage-${crypto.randomUUID()}`].filter(Boolean).join("/");
-    let stageCreated = false;
-    let committed = false;
-    try {
-      await this.createItem(destinationConnectionId, destinationParent, stagePath.split("/").pop() ?? "", "directory");
-      stageCreated = true;
-      const childFailure = await this.copyDirectoryContentsAcrossBackends(
-        sourceConnectionId,
-        sourcePath,
-        destinationConnectionId,
-        stagePath,
-        options
-      );
-      if (childFailure) {
-        try {
-          await this.deleteItem(destinationConnectionId, stagePath);
-        } catch {
-          return { status: "outcome_unknown", replaced: false, effects: { source: "unknown", destination: "unknown" } };
-        }
-        return childFailure;
-      }
-      await this.renameItem(destinationConnectionId, stagePath, targetName);
-      committed = true;
-      if (kind === "move") {
-        try {
-          await this.deleteItem(sourceConnectionId, sourcePath);
-          return { status: "completed", replaced: false, effects: { source: "mutated", destination: "mutated" } };
-        } catch (error) {
-          return {
-            status: "completed_with_source_retained",
-            replaced: false,
-            effects: { source: "unchanged", destination: "mutated" },
-            error: {
-              code: "source_delete_failed",
-              detail: `Destination was created but the original could not be removed: ${error instanceof Error ? error.message : "unknown error"}`,
-            },
-          };
-        }
-      }
-      return { status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } };
-    } catch (error) {
-      if (!committed && stageCreated) {
-        try {
-          await this.deleteItem(destinationConnectionId, stagePath);
-        } catch {
-          return { status: "outcome_unknown", replaced: false, effects: { source: "unknown", destination: "unknown" } };
-        }
-      }
-      if (options.signal?.aborted) {
-        return { status: "cancelled", replaced: false, effects: { source: "unchanged", destination: "unchanged" } };
-      }
-      if (axios.isAxiosError(error) && error.response?.status === 409) {
-        return {
-          status: "failed",
-          replaced: false,
-          effects: { source: "unchanged", destination: "unchanged" },
-          error: { code: "conflict", detail: "Destination already exists" },
-        };
-      }
-      return {
-        status: "failed",
-        replaced: false,
-        effects: { source: "unchanged", destination: "unchanged" },
-        error: { code: "transport", detail: error instanceof Error ? error.message : "Directory transfer failed" },
-      };
-    }
-  }
-
-  private async copyDirectoryContentsAcrossBackends(
-    sourceConnectionId: string,
-    sourcePath: string,
-    destinationConnectionId: string,
-    destinationPath: string,
-    options: CrossBackendTransferOptions
-  ): Promise<IncompleteContentTransferResult | null> {
-    if (options.signal?.aborted) {
-      return { status: "cancelled", replaced: false, effects: { source: "unchanged", destination: "unchanged" } };
-    }
-    const listing = await this.listDirectory(sourceConnectionId, sourcePath, { signal: options.signal });
-    for (const item of listing.items) {
-      const childSourcePath = [sourcePath, item.name].filter(Boolean).join("/");
-      const childDestinationPath = [destinationPath, item.name].filter(Boolean).join("/");
-      if (item.type === "directory") {
-        await this.createItem(destinationConnectionId, destinationPath, item.name, "directory");
-        const childFailure = await this.copyDirectoryContentsAcrossBackends(
-          sourceConnectionId,
-          childSourcePath,
-          destinationConnectionId,
-          childDestinationPath,
-          options
-        );
-        if (childFailure) return childFailure;
-        continue;
-      }
-      const result = await this.transferAcrossBackends(
-        "copy",
-        sourceConnectionId,
-        childSourcePath,
-        destinationConnectionId,
-        childDestinationPath,
-        "ask",
-        options
-      );
-      if (result.status !== "completed") {
-        return result;
-      }
-    }
-    return null;
   }
 
   /**
