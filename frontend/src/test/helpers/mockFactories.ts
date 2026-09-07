@@ -33,6 +33,18 @@ export interface ApiMock {
   recordRecentFile: Mock;
 }
 
+function setupStandardDirectoryListingMock(api: ApiMock): void {
+  api.listDirectory.mockImplementation((_connectionId: string, path: string) => {
+    if (path === "" || path === "/") {
+      return Promise.resolve(mockDirectoryListing);
+    }
+    if (path === "/Documents" || path === "Documents") {
+      return Promise.resolve(mockNestedDirectory);
+    }
+    return Promise.resolve(mockEmptyDirectory);
+  });
+}
+
 /**
  * Setup default successful API mocks
  * Common scenario: API calls succeed with standard test data
@@ -58,7 +70,7 @@ export function setupSuccessfulApiMocks(api: ApiMock): void {
   };
 
   api.getConnections.mockResolvedValue(mockConnections);
-  api.listDirectory.mockResolvedValue(mockDirectoryListing);
+  setupStandardDirectoryListingMock(api);
   api.listArchiveDirectory.mockResolvedValue({
     archive: { path: "archive.zip", size: 0 },
     path: "",
@@ -171,16 +183,7 @@ export function setupNavigationApiMocks(api: ApiMock): void {
 
   api.getConnections.mockResolvedValue(mockConnections);
   api.getCurrentUserSettings.mockResolvedValue(defaultUserSettings);
-
-  api.listDirectory.mockImplementation((_connectionId: string, path: string) => {
-    if (path === "" || path === "/") {
-      return Promise.resolve(mockDirectoryListing);
-    }
-    if (path === "/Documents" || path === "Documents") {
-      return Promise.resolve(mockNestedDirectory);
-    }
-    return Promise.resolve(mockEmptyDirectory);
-  });
+  setupStandardDirectoryListingMock(api);
 }
 
 /**

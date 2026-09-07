@@ -109,9 +109,10 @@ class SourceChangedError(RuntimeError):
 class SourceDeleteError(RuntimeError):
     """Raised after a destination commit when guarded source deletion fails."""
 
-    def __init__(self, message: str, *, destination_mutated: bool) -> None:
+    def __init__(self, message: str, *, destination_mutated: bool, replaced: bool = False) -> None:
         super().__init__(message)
         self.destination_mutated = destination_mutated
+        self.replaced = replaced
 
 
 class SourceDeletionOutcomeUnknown(RuntimeError):
@@ -183,7 +184,7 @@ async def resolve_regular_file_transfer(
     target_path: str,
     policy: TargetResolutionPolicy,
     observe_target: Callable[[], Awaitable[FileInfo]],
-    attempt_create: Callable[[], Awaitable[TMutationResult]],
+    attempt_create: Callable[[TargetResolutionDisposition], Awaitable[TMutationResult]],
     replacement_supported: bool,
 ) -> RegularFileTransferResolution:
     """Authorize at most two fresh create attempts for one regular file.
@@ -193,12 +194,15 @@ async def resolve_regular_file_transfer(
     surfaced as a refreshed conflict without invoking the attempt factory.
     """
 
-    async def make_fresh_attempt(_disposition: TargetResolutionDisposition) -> TargetMutationAttempt:
+    async def make_fresh_attempt(disposition: TargetResolutionDisposition) -> TargetMutationAttempt:
         try:
-            result = await attempt_create()
+            result = await attempt_create(disposition)
         except FileExistsError:
             return TargetMutationTargetExistsBeforeMutation()
-        return TargetMutationCommitted(result=result)
+        return TargetMutationCommitted(
+            result=result,
+            replaced=disposition == TargetResolutionDisposition.REPLACE_EXISTING,
+        )
 
     return await resolve_target_mutation_attempt(
         plan=ContentTransferPlan(

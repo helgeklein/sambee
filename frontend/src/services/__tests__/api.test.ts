@@ -339,7 +339,15 @@ describe("API Service", () => {
 
   it("relays a cross-provider regular file", async () => {
     mockAxiosInstance.get.mockResolvedValue({
-      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, size: 0, is_readable: true, is_hidden: false },
+      data: {
+        name: "source.txt",
+        path: "source.txt",
+        type: FileType.FILE,
+        size: 0,
+        modified_at: "2026-09-07T12:00:00Z",
+        is_readable: true,
+        is_hidden: false,
+      },
     } as AxiosResponse);
     const sourceResponse = new Response(new ReadableStream({ start: (controller) => controller.close() }));
     fetchMock.mockResolvedValueOnce(sourceResponse).mockResolvedValueOnce(
@@ -355,7 +363,7 @@ describe("API Service", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:3000/api/viewer/source/download?path=source.txt", expect.anything());
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      "http://localhost:3000/api/browse/destination/transfer-stream?path=target.txt&target_resolution_policy=ask&expected_size=0",
+      "http://localhost:3000/api/browse/destination/transfer-stream?path=target.txt&target_resolution_policy=ask&expected_size=0&source_modified_at=2026-09-07T12%3A00%3A00Z",
       expect.objectContaining({ body: expect.anything(), duplex: "half" })
     );
   });
@@ -629,124 +637,20 @@ describe("API Service", () => {
     });
   });
 
-  it("stages a cross-provider directory tree before publishing its final name", async () => {
-    mockAxiosInstance.get
-      .mockResolvedValueOnce({
-        data: { name: "source", path: "source", type: FileType.DIRECTORY, is_readable: true, is_hidden: false },
-      } as AxiosResponse)
-      .mockRejectedValueOnce({ isAxiosError: true, response: { status: 404 } })
-      .mockResolvedValueOnce({
-        data: {
-          path: "source",
-          items: [{ name: "nested", path: "source/nested", type: FileType.DIRECTORY }],
-        } satisfies DirectoryListing,
-      } as AxiosResponse)
-      .mockResolvedValueOnce({
-        data: {
-          path: "source/nested",
-          items: [{ name: "report.txt", path: "source/nested/report.txt", type: FileType.FILE }],
-        } satisfies DirectoryListing,
-      } as AxiosResponse)
-      .mockResolvedValueOnce({
-        data: { name: "report.txt", path: "source/nested/report.txt", type: FileType.FILE, size: 0, is_readable: true, is_hidden: false },
-      } as AxiosResponse);
-    mockAxiosInstance.post.mockResolvedValue({ data: {} } as AxiosResponse);
-    const sourceResponse = new Response(new ReadableStream({ start: (controller) => controller.close() }));
-    fetchMock.mockResolvedValueOnce(sourceResponse).mockResolvedValueOnce(
-      new Response(JSON.stringify({ status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } }), {
-        status: 200,
-      })
-    );
-
-    await expect(apiService.transferAcrossBackends("copy", "source", "source", "destination", "output/source")).resolves.toMatchObject({
-      status: "completed",
-    });
-
-    const postPaths = mockAxiosInstance.post.mock.calls.map(([path]) => path);
-    expect(postPaths).toEqual(["/browse/destination/create", "/browse/destination/create", "/browse/destination/rename"]);
-    expect(mockAxiosInstance.post.mock.calls[2]).toEqual([
-      "/browse/destination/rename",
-      expect.objectContaining({ path: expect.stringMatching(/^output\/\.source\.sambee-stage-/), new_name: "source" }),
-      expect.anything(),
-    ]);
-  });
-
-  it("preserves an unavailable directory child result after discarding its stage", async () => {
-    mockAxiosInstance.delete.mockResolvedValue({});
-    mockAxiosInstance.get
-      .mockResolvedValueOnce({
-        data: { name: "source", path: "source", type: FileType.DIRECTORY, is_readable: true, is_hidden: false },
-      } as AxiosResponse)
-      .mockRejectedValueOnce({ isAxiosError: true, response: { status: 404 } })
-      .mockResolvedValueOnce({
-        data: {
-          path: "source",
-          items: [{ name: "broken-link", path: "source/broken-link", type: FileType.FILE }],
-        } satisfies DirectoryListing,
-      } as AxiosResponse)
-      .mockResolvedValueOnce({
-        data: { name: "broken-link", path: "source/broken-link", type: FileType.FILE, is_readable: false, is_hidden: false },
-      } as AxiosResponse);
-    mockAxiosInstance.post.mockResolvedValue({ data: {} } as AxiosResponse);
+  it("rejects directory sources at the regular-file relay boundary", async () => {
+    mockAxiosInstance.get.mockResolvedValue({
+      data: { name: "source", path: "source", type: FileType.DIRECTORY, is_readable: true, is_hidden: false },
+    } as AxiosResponse);
 
     await expect(apiService.transferAcrossBackends("copy", "source", "source", "destination", "output/source")).resolves.toEqual({
       status: "failed",
       replaced: false,
       effects: { source: "unchanged", destination: "unchanged" },
-      error: { code: "unavailable", reason: "source_size_unknown" },
+      error: { code: "unavailable", reason: "unsupported" },
     });
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(mockAxiosInstance.delete).toHaveBeenCalledTimes(1);
-  });
-
-  it("deletes the source after publishing a cross-provider directory move", async () => {
-    mockAxiosInstance.delete.mockResolvedValue({});
-    mockAxiosInstance.get
-      .mockResolvedValueOnce({
-        data: { name: "source", path: "source", type: FileType.DIRECTORY, is_readable: true, is_hidden: false },
-      } as AxiosResponse)
-      .mockRejectedValueOnce({ isAxiosError: true, response: { status: 404 } })
-      .mockResolvedValueOnce({ data: { path: "source", items: [] } satisfies DirectoryListing } as AxiosResponse);
-    mockAxiosInstance.post.mockResolvedValue({ data: {} } as AxiosResponse);
-
-    await expect(apiService.transferAcrossBackends("move", "source", "source", "destination", "output/source")).resolves.toMatchObject({
-      status: "completed",
-      effects: { source: "mutated", destination: "mutated" },
-    });
-    expect(mockAxiosInstance.post).toHaveBeenLastCalledWith(
-      "/browse/destination/rename",
-      expect.objectContaining({ new_name: "source" }),
-      expect.anything()
-    );
-    expect(mockAxiosInstance.delete).toHaveBeenCalledWith("/browse/source/item", expect.objectContaining({ params: { path: "source" } }));
-  });
-
-  it("finishes source deletion when a directory move is cancelled after publication", async () => {
-    const abortController = new AbortController();
-    mockAxiosInstance.delete.mockResolvedValue({});
-    mockAxiosInstance.get
-      .mockResolvedValueOnce({
-        data: { name: "source", path: "source", type: FileType.DIRECTORY, is_readable: true, is_hidden: false },
-      } as AxiosResponse)
-      .mockRejectedValueOnce({ isAxiosError: true, response: { status: 404 } })
-      .mockResolvedValueOnce({ data: { path: "source", items: [] } satisfies DirectoryListing } as AxiosResponse);
-    mockAxiosInstance.post.mockImplementation(async (path: string) => {
-      if (path === "/browse/destination/rename") {
-        abortController.abort();
-      }
-      return { data: {} } as AxiosResponse;
-    });
-
-    await expect(
-      apiService.transferAcrossBackends("move", "source", "source", "destination", "output/source", "ask", {
-        signal: abortController.signal,
-      })
-    ).resolves.toMatchObject({
-      status: "completed",
-      effects: { source: "mutated", destination: "mutated" },
-    });
-    expect(mockAxiosInstance.delete).toHaveBeenCalledWith("/browse/source/item", expect.objectContaining({ params: { path: "source" } }));
+    expect(mockAxiosInstance.post).not.toHaveBeenCalled();
   });
 
   it("phase_10_stabilization_no_response_returns_unknown_without_retry", async () => {
