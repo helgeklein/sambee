@@ -64,6 +64,10 @@ The addition of ZIP archive inspection was the right opportunity to implement st
 
 Shortcuts (`.lnk` files), symlinks, and junctions on local drives now show the target path (pulled in asynchronously after the directory list has loaded; we don't want to give up on that snappy UI, after all). Paths are sensibly shortened to fit the available row width. When activated, file targets are opened whereas directory targets are navigated to.
 
+### File Copy and Move: Overwrite Options
+
+Copy and move operations can now overwrite an existing file or replace it only when the source is newer. The same choices work for batches and apply to all supported local and SMB transfers. Directories with the same name are merged safely, preserving destination-only content and resolving only conflicting files.
+
 ### Other Changes
 
 - Keyboard navigation: removed delay after entering a new directory
