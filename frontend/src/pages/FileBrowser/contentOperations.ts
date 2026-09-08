@@ -4,7 +4,7 @@ import { publishRecentFilesChanged } from "../../services/recentFilesSync";
 import type { StorageArchiveOperationCoordinator } from "../../services/storageArchiveOperations";
 import type { ContentTransferResult, StorageBackendRegistry, TargetResolutionPolicy } from "../../services/storageContracts";
 import { transferAcrossStorageBackends } from "../../services/storageTransferOperations";
-import { FileType, isApiError } from "../../types";
+import { type ConflictInfo, type DirectoryListing, type FileInfo, FileType, isApiError } from "../../types";
 import { startZipArchiveExtraction } from "./archiveExtractionExecution";
 import type {
   ArchiveExtractionExecution,
@@ -86,6 +86,20 @@ export interface TransferRequest {
   onProgress?: (bytesTransferred: number, totalBytes: number | null) => void;
 }
 
+export interface TransferTreeRequest extends TransferRequest {
+  onConflict: (
+    conflict: ConflictInfo,
+    allowedActions: readonly ("skip" | "overwrite" | "overwrite-older" | "rename")[],
+    progress: { completed: number; discovered: number }
+  ) => Promise<{
+    resolution: "skip" | "overwrite" | "overwrite-older" | "rename";
+    applyToAll: boolean;
+    targetName?: string;
+  } | null>;
+  onTreeProgress?: (completed: number, discovered: number) => void;
+  onPolicyChange?: (policy: TargetResolutionPolicy) => void;
+}
+
 export interface CreateContainerRequest {
   sources: readonly ContentItemHandle[];
   destination: ContentLocation;
@@ -109,6 +123,23 @@ export interface NativeOpenRequest {
 export interface NativeOpenResult {
   companionUri: string | null;
   resolvedDirectory: PhysicalLocation | null;
+}
+
+function normalizeDirectoryPath(path: string): string {
+  return path.replace(/^\/+|\/+$/g, "");
+}
+
+function validateDirectoryListing(path: string, listing: DirectoryListing): boolean {
+  const normalizedPath = normalizeDirectoryPath(path);
+  if (typeof listing.path === "string" && normalizeDirectoryPath(listing.path) !== normalizedPath) {
+    return false;
+  }
+  return listing.items.every((entry) => {
+    if (!entry.name || entry.name === "." || entry.name === ".." || /[\\/]/.test(entry.name)) {
+      return false;
+    }
+    return normalizeDirectoryPath(entry.path) === `${normalizedPath}/${entry.name}`.replace(/^\//, "");
+  });
 }
 
 const PERMANENT_RECENT_NATIVE_OPEN_FAILURE_CODES = new Set([
@@ -315,6 +346,290 @@ export async function executeTransfer(request: TransferRequest, environment: Con
     signal: request.signal,
   };
   return request.kind === "move" ? backend.moveWithinBackend(transfer) : backend.copyWithinBackend(transfer);
+}
+
+export async function executeTransferTree(
+  request: TransferTreeRequest,
+  environment: ContentOperationEnvironment
+): Promise<ContentTransferResult> {
+  if (!isPhysicalItem(request.source) || !isPhysicalLocation(request.destination)) {
+    return {
+      status: "failed",
+      replaced: false,
+      effects: { source: "unchanged", destination: "unchanged" },
+      error: { code: "unavailable", reason: "unsupported" },
+    };
+  }
+
+  const sourceRoot = request.source.path;
+  const rootName = request.targetName ?? sourceRoot.split("/").pop() ?? "";
+  let policy = request.targetResolutionPolicy ?? "ask";
+  let completed = 0;
+  let discovered = 0;
+  let sourceRetained = false;
+  let destinationMutated = false;
+  let sourceMutated = false;
+
+  const reportProgress = () => request.onTreeProgress?.(completed, discovered);
+  const isMissing = (error: unknown) => isApiError(error) && error.response?.status === 404;
+  const isConflict = (error: unknown) => isApiError(error) && error.response?.status === 409;
+  const getInfo = async (connectionId: string, path: string): Promise<FileInfo | null> => {
+    const resolved = environment.storageRegistry.resolveItem({ connectionId, path });
+    try {
+      return await environment.storageRegistry.getBackend(resolved.target).getInfo(resolved);
+    } catch (error) {
+      if (isMissing(error)) return null;
+      throw error;
+    }
+  };
+  const listDirectoryEntries = async (connectionId: string, parentPath: string): Promise<Map<string, FileInfo>> => {
+    const parent = environment.storageRegistry.resolveDirectory({ connectionId, path: parentPath });
+    const listing = await environment.storageRegistry.getBackend(parent.target).list(parent, { signal: request.signal });
+    return new Map(listing.items.map((item) => [item.name, item]));
+  };
+  const createDirectory = async (connectionId: string, parentPath: string, name: string) => {
+    const resolved = environment.storageRegistry.resolveDirectory({ connectionId, path: parentPath });
+    const result = await environment.storageRegistry
+      .getBackend(resolved.target)
+      .create(resolved, { name, kind: "directory", signal: request.signal });
+    if (result.status !== "completed") throw new Error(`Directory creation failed: ${result.status}`);
+    destinationMutated = true;
+  };
+  const partialEffects = () => ({
+    source: sourceMutated ? ("mutated" as const) : ("unchanged" as const),
+    destination: destinationMutated ? ("mutated" as const) : ("unchanged" as const),
+  });
+  const cancelledTreeResult = (): ContentTransferResult => ({ status: "cancelled", replaced: false, effects: partialEffects() });
+  const recordChildEffects = (result: ContentTransferResult) => {
+    sourceMutated ||= result.effects.source === "mutated";
+    destinationMutated ||= result.effects.destination === "mutated";
+  };
+  const preservePartialEffects = (result: ContentTransferResult): ContentTransferResult => {
+    if (result.status === "outcome_unknown") return result;
+    return { ...result, effects: partialEffects() };
+  };
+  const decide = async (
+    incoming: FileInfo,
+    existing: FileInfo,
+    actions: readonly ("skip" | "overwrite" | "overwrite-older" | "rename")[]
+  ) => {
+    const decision = await request.onConflict({ incoming_file: incoming, existing_file: existing }, actions, { completed, discovered });
+    if (decision?.applyToAll && decision.resolution !== "rename") {
+      policy = targetResolutionPolicyForTreeDecision(decision.resolution);
+      request.onPolicyChange?.(policy);
+    }
+    return decision;
+  };
+  const decideTypeMismatch = async (incoming: FileInfo, existing: FileInfo) => {
+    if (policy === "skip") return { resolution: "skip" as const };
+    return decide(incoming, existing, ["skip", "rename"]);
+  };
+  const prepareDirectoryTarget = async (
+    incoming: FileInfo,
+    parentPath: string,
+    initialName: string,
+    destinationEntries: Map<string, FileInfo>
+  ) => {
+    let targetName = initialName;
+    while (true) {
+      const targetPath = `${parentPath}/${targetName}`.replace(/^\//, "");
+      const existing = destinationEntries.get(targetName) ?? null;
+      if (existing?.type === FileType.DIRECTORY) return { status: "ready" as const, path: targetPath };
+      if (existing?.type === FileType.FILE) {
+        const decision = await decideTypeMismatch(incoming, existing);
+        if (!decision) return { status: "cancelled" as const };
+        if (decision.resolution === "skip") return { status: "skipped" as const };
+        targetName = decision.targetName ?? targetName;
+        continue;
+      }
+      try {
+        await createDirectory(request.destination.connectionId, parentPath, targetName);
+        destinationEntries.set(targetName, { ...incoming, name: targetName, path: targetPath });
+        return { status: "ready" as const, path: targetPath };
+      } catch (error) {
+        if (!isConflict(error)) throw error;
+        destinationEntries = await listDirectoryEntries(request.destination.connectionId, parentPath);
+        const racedTarget = destinationEntries.get(targetName) ?? null;
+        if (racedTarget?.type === FileType.DIRECTORY) return { status: "ready" as const, path: targetPath };
+        if (racedTarget?.type === FileType.FILE) {
+          const decision = await decideTypeMismatch(incoming, racedTarget);
+          if (!decision) return { status: "cancelled" as const };
+          if (decision.resolution === "skip") return { status: "skipped" as const };
+          targetName = decision.targetName ?? targetName;
+        }
+      }
+    }
+  };
+  const transferFile = async (sourcePath: string, destinationParent: string, targetName: string): Promise<ContentTransferResult> => {
+    const source = physicalItemHandle(request.source.location.connectionId, sourcePath);
+    let currentTargetName = targetName;
+    let currentPolicy = policy;
+    while (true) {
+      try {
+        return await executeTransfer(
+          {
+            ...request,
+            source,
+            destination: physicalLocation(request.destination.connectionId, destinationParent),
+            targetName: currentTargetName,
+            targetResolutionPolicy: currentPolicy,
+          },
+          environment
+        );
+      } catch (error) {
+        if (!isApiError(error) || error.response?.status !== 409) throw error;
+        const conflict = error.response.data?.detail as ConflictInfo | undefined;
+        if (!conflict) throw error;
+        const allowedActions =
+          conflict.existing_file.type === FileType.DIRECTORY
+            ? (["skip", "rename"] as const)
+            : (["skip", "overwrite", "overwrite-older", "rename"] as const);
+        const decision = await decide(conflict.incoming_file, conflict.existing_file, allowedActions);
+        if (!decision) return { status: "cancelled", replaced: false, effects: { source: "unchanged", destination: "unchanged" } };
+        if (decision.resolution === "skip")
+          return { status: "skipped", replaced: false, effects: { source: "unchanged", destination: "unchanged" } };
+        currentTargetName = decision.resolution === "rename" ? (decision.targetName ?? currentTargetName) : currentTargetName;
+        currentPolicy = targetResolutionPolicyForTreeDecision(decision.resolution);
+      }
+    }
+  };
+  const walk = async (sourcePath: string, destinationPath: string): Promise<ContentTransferResult | null> => {
+    const sourceDirectory = environment.storageRegistry.resolveDirectory({
+      connectionId: request.source.location.connectionId,
+      path: sourcePath,
+    });
+    const listing = await environment.storageRegistry.getBackend(sourceDirectory.target).list(sourceDirectory, { signal: request.signal });
+    if (!validateDirectoryListing(sourcePath, listing)) {
+      logger.warn("Directory transfer received an invalid source listing", { sourcePath }, "browser");
+      return {
+        status: "failed",
+        replaced: false,
+        effects: partialEffects(),
+        error: { code: "validation", reason: "invalid-directory-listing" },
+      };
+    }
+    const destinationEntries = await listDirectoryEntries(request.destination.connectionId, destinationPath);
+    for (const entry of listing.items) {
+      if (request.signal?.aborted) return cancelledTreeResult();
+      discovered += 1;
+      reportProgress();
+      const childSourcePath = `${sourcePath}/${entry.name}`.replace(/^\//, "");
+      const existing = destinationEntries.get(entry.name) ?? null;
+      if (entry.type === FileType.DIRECTORY) {
+        const target = await prepareDirectoryTarget(entry, destinationPath, entry.name, destinationEntries);
+        if (target.status === "cancelled") return cancelledTreeResult();
+        if (target.status === "skipped") {
+          completed += 1;
+          reportProgress();
+          continue;
+        }
+        const nested = await walk(childSourcePath, target.path);
+        if (nested) return nested;
+      } else {
+        let targetName = entry.name;
+        if (existing?.type === FileType.DIRECTORY) {
+          const decision = await decideTypeMismatch(entry, existing);
+          if (!decision) return cancelledTreeResult();
+          if (decision.resolution === "skip") {
+            completed += 1;
+            reportProgress();
+            continue;
+          }
+          targetName = decision.targetName ?? targetName;
+        }
+        const result = await transferFile(childSourcePath, destinationPath, targetName);
+        recordChildEffects(result);
+        if (result.status === "outcome_unknown") return result;
+        if (result.status === "completed_with_source_retained") {
+          sourceRetained = true;
+        } else if (result.status !== "completed" && result.status !== "skipped") {
+          return preservePartialEffects(result);
+        }
+      }
+      completed += 1;
+      reportProgress();
+    }
+    if (request.kind === "move") {
+      const sourceDirectory = environment.storageRegistry.resolveItem({
+        connectionId: request.source.location.connectionId,
+        path: sourcePath,
+      });
+      const removal = await environment.storageRegistry.getBackend(sourceDirectory.target).removeEmptyDirectory(sourceDirectory);
+      if (removal.status === "not_empty") sourceRetained = true;
+      else sourceMutated = true;
+    }
+    return null;
+  };
+
+  const sourceInfo = await getInfo(request.source.location.connectionId, sourceRoot);
+  if (!sourceInfo)
+    return {
+      status: "failed",
+      replaced: false,
+      effects: { source: "unchanged", destination: "unchanged" },
+      error: { code: "unavailable", reason: "missing-target" },
+    };
+  if (sourceInfo.type !== FileType.DIRECTORY) {
+    return {
+      status: "failed",
+      replaced: false,
+      effects: { source: "unchanged", destination: "unchanged" },
+      error: { code: "source_changed", detail: "Directory source changed before transfer began" },
+    };
+  }
+  const rootDestinationPath = `${request.destination.path}/${rootName}`.replace(/^\//, "");
+  const normalizedSourceRoot = normalizeDirectoryPath(sourceRoot);
+  const normalizedRootDestination = normalizeDirectoryPath(rootDestinationPath);
+  if (
+    request.source.location.connectionId === request.destination.connectionId &&
+    (normalizedRootDestination === normalizedSourceRoot || normalizedRootDestination.startsWith(`${normalizedSourceRoot}/`))
+  ) {
+    return {
+      status: "failed",
+      replaced: false,
+      effects: { source: "unchanged", destination: "unchanged" },
+      error: { code: "validation", reason: "target-inside-source" },
+    };
+  }
+  const rootExisting = await getInfo(request.destination.connectionId, rootDestinationPath);
+  const rootDestinationEntries = new Map(rootExisting ? [[rootName, rootExisting]] : []);
+  const rootTarget = await prepareDirectoryTarget(sourceInfo, request.destination.path, rootName, rootDestinationEntries);
+  if (rootTarget.status === "cancelled") return cancelledTreeResult();
+  if (rootTarget.status === "skipped")
+    return { status: "skipped", replaced: false, effects: { source: "unchanged", destination: "unchanged" } };
+  const result = await walk(sourceRoot, rootTarget.path);
+  return result ?? completedTreeResult(request.kind, sourceRetained, destinationMutated, sourceMutated);
+}
+
+function completedTreeResult(
+  kind: "copy" | "move",
+  sourceRetained: boolean,
+  destinationMutated: boolean,
+  sourceMutated: boolean
+): ContentTransferResult {
+  if (kind === "move" && sourceRetained) {
+    return {
+      status: "completed_with_source_retained",
+      replaced: false,
+      effects: { source: sourceMutated ? "mutated" : "unchanged", destination: destinationMutated ? "mutated" : "unchanged" },
+      error: { code: "source_delete_failed", detail: "Some source directories still contain skipped or concurrently created entries." },
+    };
+  }
+  return {
+    status: "completed",
+    replaced: false,
+    effects: {
+      source: kind === "move" && sourceMutated ? "mutated" : "unchanged",
+      destination: destinationMutated ? "mutated" : "unchanged",
+    },
+  };
+}
+
+function targetResolutionPolicyForTreeDecision(resolution: "skip" | "overwrite" | "overwrite-older" | "rename"): TargetResolutionPolicy {
+  if (resolution === "skip") return "skip";
+  if (resolution === "overwrite") return "replace";
+  if (resolution === "overwrite-older") return "replace_older";
+  return "ask";
 }
 
 export function areSameContentLocations(left: ContentLocation, right: ContentLocation): boolean {

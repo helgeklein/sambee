@@ -124,6 +124,8 @@ export interface StorageCreateRequest {
   signal?: AbortSignal;
 }
 
+export type StorageEmptyDirectoryRemovalResult = { status: "removed" } | { status: "not_empty" };
+
 export interface SameBackendTransferRequest {
   source: ResolvedStorageItemLocation;
   destination: ResolvedStorageDirectoryLocation;
@@ -144,7 +146,7 @@ export type ContentTransferResult =
   | {
       status: "completed_with_source_retained";
       replaced: boolean;
-      effects: { source: "unchanged"; destination: "mutated" };
+      effects: { source: "unchanged" | "mutated"; destination: "unchanged" | "mutated" };
       error: { code: "source_delete_failed"; detail: string };
     }
   | { status: "outcome_unknown"; replaced: false; effects: { source: "unknown"; destination: "unknown" } }
@@ -153,7 +155,7 @@ export type ContentTransferResult =
 
 export type StorageOperationError =
   | { code: "unavailable"; reason: "read-only" | "unpaired" | "unsupported" | "missing-target" | "source_size_unknown" }
-  | { code: "validation"; reason: "heterogeneous-source-target" | "invalid-name" }
+  | { code: "validation"; reason: "heterogeneous-source-target" | "invalid-directory-listing" | "invalid-name" | "target-inside-source" }
   | { code: "stale-capability"; expectedRevision: number; actualRevision: number }
   | { code: "conflict"; detail: string }
   | { code: "source_changed"; detail: string }
@@ -243,6 +245,7 @@ export interface StorageBackend {
   create(destination: ResolvedStorageDirectoryLocation, request: StorageCreateRequest): Promise<StorageOperationResult>;
   rename(item: ResolvedStorageItemLocation, name: string): Promise<StorageOperationResult>;
   remove(item: ResolvedStorageItemLocation): Promise<StorageOperationResult>;
+  removeEmptyDirectory(item: ResolvedStorageItemLocation): Promise<StorageEmptyDirectoryRemovalResult>;
   copyWithinBackend(request: SameBackendTransferRequest): Promise<ContentTransferResult>;
   moveWithinBackend(request: SameBackendTransferRequest): Promise<ContentTransferResult>;
   resolveActivation?(item: ResolvedStorageItemLocation): Promise<StorageActivationResult>;

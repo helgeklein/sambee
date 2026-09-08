@@ -1154,6 +1154,42 @@ class SMBBackend(StorageBackend):
             raise
         except Exception as e:
             error_str = str(e)
+            if "0xc0000056" in error_str or "DeletePending" in type(e).__name__:
+                logger.info(f"Item already being deleted (STATUS_DELETE_PENDING): path='{path}'")
+                return
+            logger.error(
+                f"Failed to delete '{path}': {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            raise
+
+    async def remove_empty_directory(self, path: str) -> None:
+        """Remove one empty directory without recursively deleting its contents."""
+
+        smb_path = self._build_smb_path(path)
+        try:
+            pool = await get_connection_pool()
+            async with pool.get_connection(
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                share_name=self.share_name,
+                connection_cache=self._connection_cache,
+            ):
+                await self._run_blocking_smb_call(
+                    "remove empty directory",
+                    lambda: smbclient.rmdir(smb_path, **self._smb_auth_kwargs()),
+                    SMB_DELETE_TIMEOUT_SECONDS,
+                    smb_path=smb_path,
+                )
+        except OSError as error:
+            error_text = str(error)
+            if "0xc0000034" in error_text or "No such file" in error_text:
+                raise FileNotFoundError(f"Path not found: {path}") from error
+            raise
+        except Exception as e:
+            error_str = str(e)
             # smbprotocol may raise non-OSError exceptions that still
             # carry the NTSTATUS code in their message.
             if "0xc0000056" in error_str or "DeletePending" in type(e).__name__:
@@ -1416,8 +1452,8 @@ class SMBBackend(StorageBackend):
         Args:
             source_path: Relative path of the item to copy.
             dest_path: Relative destination path (full path including name).
-            overwrite: Retained for compatibility. Replacement is not supported
-                until the caller can provide a guarded commit primitive.
+            overwrite: Replace an existing regular destination through an
+                atomic SMB rename.
 
         Raises:
             FileNotFoundError: If the source path does not exist.
@@ -1525,8 +1561,7 @@ class SMBBackend(StorageBackend):
         Args:
             source_path: Relative path of the item to move.
             dest_path: Relative destination path (full path including name).
-            overwrite: Retained for compatibility. Replacement is not supported
-                until the caller can provide a guarded commit primitive.
+            overwrite: Replace an existing regular destination atomically.
 
         Raises:
             FileNotFoundError: If the source path does not exist.
@@ -1559,12 +1594,16 @@ class SMBBackend(StorageBackend):
                     10.0,
                     smb_path=smb_dst,
                 )
-                if exists:
+                if exists and not overwrite:
                     raise FileExistsError(f"Destination already exists: {dest_path}")
 
                 await self._run_blocking_smb_operation(
-                    "move",
-                    lambda: smbclient.rename(smb_src, smb_dst, **self._smb_auth_kwargs()),
+                    "replace move destination" if overwrite else "move",
+                    lambda: (
+                        smbclient.renames(smb_src, smb_dst, **self._smb_auth_kwargs())
+                        if overwrite
+                        else smbclient.rename(smb_src, smb_dst, **self._smb_auth_kwargs())
+                    ),
                     30.0,
                     smb_path=smb_src,
                 )
@@ -1743,16 +1782,17 @@ class SMBBackend(StorageBackend):
         path: str,
         stream: AsyncIterator[bytes],
         *,
-        before_commit: Callable[[], Awaitable[None]],
+        before_commit: Callable[[], Awaitable[bool | None]],
         on_progress: ProgressCallback | None = None,
         source_mtime: datetime | None = None,
         overwrite: bool = False,
     ) -> int:
         """Publish a streamed file through a private sibling stage.
 
-        SMB rename is a no-replace operation. Writing a unique stage first
-        therefore leaves the visible destination unchanged if reading,
-        writing, source validation, flushing, or final publication fails.
+        Writing a unique stage leaves the visible destination unchanged if
+        reading, writing, source validation, flushing, or final publication
+        fails. Existing regular targets are atomically replaced only after
+        the complete stage has been closed and validated.
         """
 
         target_path = self._normalize_relative_path(path)
@@ -1840,17 +1880,12 @@ class SMBBackend(StorageBackend):
                         smb_path=smb_stage_path,
                     )
 
-                await before_commit()
-                if overwrite:
-                    await self._run_blocking_smb_operation(
-                        "replace transfer destination",
-                        lambda: smbclient.remove(smb_path, **self._smb_auth_kwargs()),
-                        SMB_DELETE_TIMEOUT_SECONDS,
-                        smb_path=smb_path,
-                    )
+                final_overwrite = await before_commit()
+                commit_with_replacement = overwrite if final_overwrite is None else final_overwrite
+                commit_stage = smbclient.renames if commit_with_replacement else smbclient.rename
                 await self._run_blocking_smb_operation(
-                    "commit transfer stage",
-                    lambda: smbclient.rename(smb_stage_path, smb_path, **self._smb_auth_kwargs()),
+                    "replace transfer destination" if commit_with_replacement else "commit transfer stage",
+                    lambda: commit_stage(smb_stage_path, smb_path, **self._smb_auth_kwargs()),
                     SMB_FILE_OPEN_TIMEOUT_SECONDS,
                     smb_path=smb_path,
                 )

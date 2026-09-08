@@ -170,7 +170,7 @@ describe("OverwriteConflictDialog", () => {
     await waitFor(() => expect(screen.getByRole("radio", { name: S.BUTTON_SKIP })).toHaveFocus());
   });
 
-  it("reserves the bulk-choice slot when a resolution cannot apply to all", async () => {
+  it("shows the bulk-choice control for Overwrite only older", async () => {
     const user = userEvent.setup();
     render(<OverwriteConflictDialog {...defaultProps} progress={{ current: 1, total: 3, conflictsSoFar: 1 }} />);
 
@@ -179,8 +179,8 @@ describe("OverwriteConflictDialog", () => {
 
     await user.click(screen.getByRole("radio", { name: S.BUTTON_OVERWRITE_ONLY_OLDER }));
 
-    expect(bulkChoiceSlot).toHaveStyle({ visibility: "hidden" });
-    expect(screen.queryByRole("checkbox", { name: S.APPLY_TO_ALL })).not.toBeInTheDocument();
+    expect(bulkChoiceSlot).toHaveStyle({ visibility: "visible" });
+    expect(screen.getByRole("checkbox", { name: S.APPLY_TO_ALL })).toBeInTheDocument();
   });
 
   it("clears bulk scope when the resolution changes", async () => {
@@ -216,17 +216,17 @@ describe("OverwriteConflictDialog", () => {
     expect(onResolve).toHaveBeenCalledWith({ resolution: "rename", applyToAll: false, targetName: "renamed.txt" });
   });
 
-  it("submits Overwrite only older without showing a bulk checkbox", async () => {
+  it("submits Overwrite only older with a bulk decision", async () => {
     const onResolve = vi.fn();
     const user = userEvent.setup();
     render(<OverwriteConflictDialog {...defaultProps} onResolve={onResolve} progress={{ current: 1, total: 3, conflictsSoFar: 1 }} />);
 
     await user.click(screen.getByRole("radio", { name: S.BUTTON_OVERWRITE_ONLY_OLDER }));
 
-    expect(screen.queryByRole("checkbox", { name: S.APPLY_TO_ALL })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: S.APPLY_TO_ALL }));
     await user.click(screen.getByRole("button", { name: S.BUTTON_CONTINUE }));
 
-    expect(onResolve).toHaveBeenCalledWith({ resolution: "overwrite-older", applyToAll: false, targetName: undefined });
+    expect(onResolve).toHaveBeenCalledWith({ resolution: "overwrite-older", applyToAll: true, targetName: undefined });
   });
 
   it("renders only owner-supported resolution choices", () => {

@@ -1,4 +1,4 @@
-import type { EditLockInfo } from "../types";
+import { type EditLockInfo, isApiError } from "../types";
 import api from "./api";
 import { assertLocalPreviewSupported } from "./previewPolicy";
 import type {
@@ -15,6 +15,7 @@ import type {
   StorageBackendCapabilities,
   StorageCreateRequest,
   StorageEditStartResult,
+  StorageEmptyDirectoryRemovalResult,
   StorageListOptions,
   StorageNativeOpenOptions,
   StorageNativeOpenResult,
@@ -169,6 +170,19 @@ abstract class ApiStorageBackend implements StorageBackend {
     assertOwned(this.kind, item.resolvedTarget);
     await api.deleteItem(connectionId(item.target), item.path);
     return COMPLETED;
+  }
+  async removeEmptyDirectory(item: ResolvedStorageItemLocation): Promise<StorageEmptyDirectoryRemovalResult> {
+    assertOwned(this.kind, item.resolvedTarget);
+    try {
+      await api.removeEmptyDirectory(connectionId(item.target), item.path);
+      return { status: "removed" };
+    } catch (error) {
+      const detail = isApiError(error) ? error.response?.data?.detail : null;
+      if (error.response?.status === 409 && typeof detail === "string" && detail.startsWith("Directory is not empty:")) {
+        return { status: "not_empty" };
+      }
+      throw error;
+    }
   }
   async copyWithinBackend(request: SameBackendTransferRequest): Promise<ContentTransferResult> {
     return this.transfer(request, false);

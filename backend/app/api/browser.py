@@ -79,11 +79,12 @@ from app.services.content_transfer import (
     resolve_regular_file_transfer,
 )
 from app.services.cross_connection import (
-    DirectoryTransferError,
+    RegularFileTransferRequiredError,
     TransferCancelled,
     copy_regular_file_to_missing_target,
     cross_connection_copy,
     cross_connection_move,
+    final_target_policy_check,
 )
 from app.services.history_common import LOCAL_DRIVE_PREFIX, normalize_recent_history_path
 from app.services.lock_manager import remove_expired_file_locks
@@ -103,7 +104,7 @@ from app.services.recent_files import (
     search_recent_files,
     should_record_recent_file,
 )
-from app.services.target_resolution import TargetResolutionDisposition, TargetResolutionPolicy
+from app.services.target_resolution import TargetResolutionDisposition, TargetResolutionPolicy, TargetSnapshot, resolve_target_mutation
 from app.storage.smb import SMBBackend
 
 router = APIRouter()
@@ -1260,6 +1261,20 @@ async def upload_file(
         )
 
 
+def _parse_transfer_stream_source_modified_at(value: str | None) -> datetime | None:
+    """Return a UTC RFC 3339 timestamp, treating malformed values as unavailable."""
+
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+        return None
+    return parsed
+
+
 @router.post("/{connection_id}/transfer-stream", response_model=ContentTransferResult)
 async def stream_transfer_to_new_item(
     connection_id: uuid.UUID,
@@ -1267,6 +1282,7 @@ async def stream_transfer_to_new_item(
     path: str = Query(..., description="New destination path on the share"),
     expected_size: int = Query(..., ge=0, description="Expected source byte count"),
     target_resolution_policy: TargetResolutionPolicy = Query(TargetResolutionPolicy.ASK),
+    source_modified_at: str | None = Query(None, description="Observed RFC 3339 UTC source modification time"),
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> ContentTransferResult:
@@ -1284,6 +1300,7 @@ async def stream_transfer_to_new_item(
     set_user(current_user.username)
     connection = _get_connection_or_404(session, current_user, connection_id)
     require_connection_write_access(current_user, connection, action="transfer_destination", path=target_path)
+    parsed_source_modified_at = _parse_transfer_stream_source_modified_at(source_modified_at)
 
     received_size = 0
 
@@ -1299,12 +1316,33 @@ async def stream_transfer_to_new_item(
                     )
                 yield chunk
 
-    async def before_commit() -> None:
+    class SkipDestinationCommit(Exception):
+        """Stop staged publication when replace-older no longer authorizes it."""
+
+    committed_replaced = False
+
+    async def before_commit() -> bool:
+        nonlocal committed_replaced
         if received_size != expected_size:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Transfer source size mismatch: expected {expected_size} bytes but received {received_size} bytes",
             )
+        try:
+            current_target = await backend.get_file_info(target_path)
+        except FileNotFoundError:
+            current_target = None
+        disposition = resolve_target_mutation(
+            target_resolution_policy,
+            parsed_source_modified_at,
+            TargetSnapshot.missing() if current_target is None else TargetSnapshot.from_file_info(current_target),
+        )
+        if disposition == TargetResolutionDisposition.SKIP:
+            raise SkipDestinationCommit()
+        if disposition == TargetResolutionDisposition.AWAIT_COLLISION:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Destination already exists: {target_path}")
+        committed_replaced = disposition == TargetResolutionDisposition.REPLACE_EXISTING
+        return committed_replaced
 
     backend = build_smb_backend(connection, backend_factory=SMBBackend)
     try:
@@ -1314,17 +1352,24 @@ async def stream_transfer_to_new_item(
                 existing_target = await backend.get_file_info(target_path)
             except FileNotFoundError:
                 existing_target = None
-            if existing_target is not None:
-                if target_resolution_policy == TargetResolutionPolicy.SKIP:
-                    return ContentTransferResult(
-                        status="skipped",
-                        effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
-                    )
+            disposition = resolve_target_mutation(
+                target_resolution_policy,
+                parsed_source_modified_at,
+                TargetSnapshot.missing() if existing_target is None else TargetSnapshot.from_file_info(existing_target),
+            )
+            if disposition == TargetResolutionDisposition.SKIP:
+                return ContentTransferResult(
+                    status="skipped",
+                    effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
+                )
+            if disposition == TargetResolutionDisposition.AWAIT_COLLISION:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Destination already exists: {target_path}")
             bytes_written = await backend.stage_and_commit_new_file_from_stream(
                 target_path,
                 request_stream(),
                 before_commit=before_commit,
+                source_mtime=parsed_source_modified_at,
+                overwrite=disposition == TargetResolutionDisposition.REPLACE_EXISTING,
             )
         finally:
             await disconnect_backend_safely(
@@ -1343,6 +1388,12 @@ async def stream_transfer_to_new_item(
         return ContentTransferResult(
             status="completed",
             effects=ContentTransferEffects(source="unchanged", destination="mutated"),
+            replaced=committed_replaced,
+        )
+    except SkipDestinationCommit:
+        return ContentTransferResult(
+            status="skipped",
+            effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
         )
     except FileExistsError:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Destination already exists: {target_path}") from None
@@ -1668,7 +1719,7 @@ async def execute_transfer_operation(
             check_cancellation()
 
         if operation.kind == "move":
-            bytes_written, _source_info = await cross_connection_move(
+            transfer_result = await cross_connection_move(
                 source_backend,
                 destination_backend,
                 operation.source_path,
@@ -1678,7 +1729,7 @@ async def execute_transfer_operation(
                 target_resolution_policy=TargetResolutionPolicy(operation.target_resolution_policy),
             )
         else:
-            bytes_written, _source_info = await cross_connection_copy(
+            transfer_result = await cross_connection_copy(
                 source_backend,
                 destination_backend,
                 operation.source_path,
@@ -1687,7 +1738,7 @@ async def execute_transfer_operation(
                 before_destination_commit=check_cancellation_before_commit,
                 target_resolution_policy=TargetResolutionPolicy(operation.target_resolution_policy),
             )
-        if bytes_written is None:
+        if transfer_result.bytes_written is None:
             result = ContentTransferResult(
                 status="skipped",
                 effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
@@ -1699,6 +1750,7 @@ async def execute_transfer_operation(
                     source="mutated" if operation.kind == "move" else "unchanged",
                     destination="mutated",
                 ),
+                replaced=transfer_result.replaced,
             )
         if operation.kind == "move" and result.status == "completed":
             _remove_from_directory_cache(operation.source_connection_id, operation.source_path)
@@ -1725,6 +1777,7 @@ async def execute_transfer_operation(
                 source="unchanged",
                 destination="mutated" if exc.destination_mutated else "unchanged",
             ),
+            replaced=exc.replaced,
             error=ContentTransferError(code="source_delete_failed", detail=str(exc)),
         )
     except SourceDeletionOutcomeUnknown:
@@ -1834,6 +1887,43 @@ async def delete_item(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete item: {str(e)}",
+        )
+
+
+@router.delete("/{connection_id}/empty-directory", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_empty_directory(
+    connection_id: uuid.UUID,
+    path: str = Query(..., description="Empty directory path to remove"),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> None:
+    """Remove an empty directory, returning 409 without deleting non-empty content."""
+
+    if not path or path.strip("/") == "":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete the share root")
+    connection = _get_connection_or_404(session, current_user, connection_id)
+    require_connection_write_access(current_user, connection, action="delete", path=path)
+    backend = build_smb_backend(connection, backend_factory=SMBBackend)
+    try:
+        await backend.connect()
+        info = await backend.get_file_info(path)
+        if info.type != FileType.DIRECTORY:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Target is not a directory: {path}")
+        await backend.remove_empty_directory(path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Item not found: {path}") from None
+    except OSError as error:
+        error_text = str(error).lower()
+        if "not empty" in error_text or "0xc0000101" in error_text:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Directory is not empty: {path}") from error
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to remove empty directory: {error}"
+        ) from error
+    finally:
+        await disconnect_backend_safely(
+            backend,
+            logger=logger,
+            context=f"remove empty directory: connection_id={connection_id}, path='{path}'",
         )
 
 
@@ -2202,33 +2292,21 @@ async def _resolve_direct_regular_file_transfer(
     source: str,
     dest: str,
     policy: TargetResolutionPolicy,
-    operation: Callable[[FileInfo], Awaitable[object]],
+    operation: Callable[[FileInfo, TargetResolutionDisposition], Awaitable[object]],
 ) -> TargetResolutionDisposition:
-    """Resolve one SMB regular-file transfer without unsafe replacement.
-
-    SMB guarded replacement is not yet available. The coordinator can safely
-    authorize exclusive creation and skips, while replacement returns the
-    normal refreshed conflict path without deleting the current target.
-    """
+    """Resolve one SMB regular-file transfer through guarded target promotion."""
 
     source_info = await backend.get_file_info(source)
     if source_info.type != FileType.FILE:
-        try:
-            await backend.get_file_info(dest)
-        except FileNotFoundError:
-            await operation(source_info)
-            return TargetResolutionDisposition.CREATE_NEW
-        if policy == TargetResolutionPolicy.SKIP:
-            return TargetResolutionDisposition.SKIP
-        return TargetResolutionDisposition.AWAIT_COLLISION
+        raise RegularFileTransferRequiredError("Directory transfers must be coordinated by the client")
 
     resolution = await resolve_regular_file_transfer(
         source=source_info,
         target_path=dest,
         policy=policy,
         observe_target=lambda: backend.get_file_info(dest),
-        attempt_create=lambda: operation(source_info),
-        replacement_supported=False,
+        attempt_create=lambda disposition: operation(source_info, disposition),
+        replacement_supported=True,
     )
     return resolution.disposition
 
@@ -2272,7 +2350,7 @@ async def copy_item(
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> ContentTransferResult:
-    """Copy a file or directory.
+    """Copy a regular file.
 
     Copies the source item to the destination path.  When
     ``dest_connection_id`` differs from the source connection, a
@@ -2323,17 +2401,7 @@ async def copy_item(
             await backend.connect()
             try:
 
-                async def copy_direct(source_info: FileInfo) -> object:
-                    if source_info.type != FileType.FILE:
-                        bytes_written, _ = await cross_connection_copy(
-                            backend,
-                            backend,
-                            source,
-                            dest,
-                            target_resolution_policy=None,
-                            cancellation=cancellation.is_set if cancellation is not None else None,
-                        )
-                        return bytes_written
+                async def copy_direct(source_info: FileInfo, disposition: TargetResolutionDisposition) -> object:
                     return await copy_regular_file_to_missing_target(
                         backend,
                         backend,
@@ -2341,6 +2409,9 @@ async def copy_item(
                         dest,
                         source_info,
                         cancellation=cancellation.is_set if cancellation is not None else None,
+                        overwrite=disposition == TargetResolutionDisposition.REPLACE_EXISTING,
+                        target_resolution_policy=policy,
+                        expected_disposition=disposition,
                     )
 
                 disposition = await _resolve_direct_regular_file_transfer(
@@ -2358,6 +2429,7 @@ async def copy_item(
                         source="unchanged",
                         destination="unchanged" if disposition == TargetResolutionDisposition.SKIP else "mutated",
                     ),
+                    replaced=disposition == TargetResolutionDisposition.REPLACE_EXISTING,
                 )
             finally:
                 await disconnect_backend_safely(
@@ -2405,19 +2477,10 @@ async def copy_item(
                 error=ContentTransferError(code="source_changed", detail=str(exc)),
             ),
         )
-    except DirectoryTransferError as exc:
-        return await _record_transfer_receipt(
-            current_user,
-            body,
-            ContentTransferResult(
-                status="failed",
-                effects=ContentTransferEffects(
-                    source="unchanged",
-                    destination="mutated" if exc.destination_mutated else "unchanged",
-                ),
-                error=ContentTransferError(code="transport", detail=str(exc)),
-            ),
-        )
+    except RegularFileTransferRequiredError as exc:
+        unsupported = HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
+        await _record_transfer_http_error(current_user, body, unsupported)
+        raise unsupported
     except FileNotFoundError:
         missing_source = HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -2481,7 +2544,7 @@ async def move_item(
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> ContentTransferResult:
-    """Move an item within one SMB connection using its native rename primitive."""
+    """Move a regular file within one SMB connection using staged replacement."""
 
     set_user(current_user.username)
 
@@ -2515,10 +2578,22 @@ async def move_item(
         try:
             policy = TargetResolutionPolicy(body.normalized_target_resolution_policy)
 
-            async def move_direct(source_info: FileInfo) -> object:
+            async def move_direct(source_info: FileInfo, disposition: TargetResolutionDisposition) -> object:
                 if cancellation is not None and cancellation.is_set():
                     raise TransferCancelled("Transfer cancelled before source move")
-                await backend.move_item(source, dest, overwrite=False)
+                await final_target_policy_check(
+                    source=source_info,
+                    dest=backend,
+                    dest_path=dest,
+                    policy=policy,
+                    expected_disposition=disposition,
+                    before_destination_commit=None,
+                )()
+                await backend.move_item(
+                    source,
+                    dest,
+                    overwrite=disposition == TargetResolutionDisposition.REPLACE_EXISTING,
+                )
                 return None
 
             disposition = await _resolve_direct_regular_file_transfer(
@@ -2543,6 +2618,7 @@ async def move_item(
                 source="unchanged" if disposition == TargetResolutionDisposition.SKIP else "mutated",
                 destination="unchanged" if disposition == TargetResolutionDisposition.SKIP else "mutated",
             ),
+            replaced=disposition == TargetResolutionDisposition.REPLACE_EXISTING,
         )
         if disposition != TargetResolutionDisposition.SKIP:
             _remove_from_directory_cache(str(connection_id), source)
@@ -2555,6 +2631,10 @@ async def move_item(
             body,
             ContentTransferResult(status="cancelled", effects=ContentTransferEffects(source="unchanged", destination="unchanged")),
         )
+    except RegularFileTransferRequiredError as exc:
+        unsupported = HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
+        await _record_transfer_http_error(current_user, body, unsupported)
+        raise unsupported
     except FileNotFoundError:
         missing_source = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Source not found: {source}")
         await _record_transfer_http_error(current_user, body, missing_source)
@@ -2666,7 +2746,7 @@ async def _cross_connection_copy(
             pass  # No running event loop — skip this broadcast
 
     try:
-        bytes_written, _source_snapshot = await cross_connection_copy(
+        transfer_result = await cross_connection_copy(
             source_backend,
             dest_backend,
             source_path,
@@ -2676,7 +2756,7 @@ async def _cross_connection_copy(
             target_resolution_policy=target_resolution_policy,
             cancellation=cancellation,
         )
-        if bytes_written is None:
+        if transfer_result.bytes_written is None:
             return ContentTransferResult(
                 status="skipped",
                 effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
@@ -2699,6 +2779,7 @@ async def _cross_connection_copy(
         return ContentTransferResult(
             status="completed",
             effects=ContentTransferEffects(source="unchanged", destination="mutated"),
+            replaced=transfer_result.replaced,
         )
 
     finally:
@@ -2732,7 +2813,7 @@ async def _cross_connection_move(
     await dest_backend.connect()
     try:
         try:
-            bytes_written, _source_info = await cross_connection_move(
+            transfer_result = await cross_connection_move(
                 source_backend,
                 dest_backend,
                 source_path,
@@ -2747,6 +2828,7 @@ async def _cross_connection_move(
             return ContentTransferResult(
                 status="completed_with_source_retained",
                 effects=ContentTransferEffects(source="unchanged", destination="mutated"),
+                replaced=error.replaced,
                 error=ContentTransferError(code="source_delete_failed", detail=str(error)),
             )
         except SourceDeletionOutcomeUnknown:
@@ -2754,7 +2836,7 @@ async def _cross_connection_move(
                 status="outcome_unknown",
                 effects=ContentTransferEffects(source="unknown", destination="unknown"),
             )
-        if bytes_written is None:
+        if transfer_result.bytes_written is None:
             return ContentTransferResult(
                 status="skipped",
                 effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
@@ -2764,6 +2846,7 @@ async def _cross_connection_move(
         return ContentTransferResult(
             status="completed",
             effects=ContentTransferEffects(source="mutated", destination="mutated"),
+            replaced=transfer_result.replaced,
         )
     finally:
         await disconnect_backend_safely(

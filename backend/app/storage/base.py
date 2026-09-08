@@ -333,15 +333,18 @@ class StorageBackend(ABC):
         path: str,
         stream: AsyncIterator[bytes],
         *,
-        before_commit: Callable[[], Awaitable[None]],
+        before_commit: Callable[[], Awaitable[bool | None]],
         on_progress: ProgressCallback | None = None,
         source_mtime: datetime | None = None,
+        overwrite: bool = False,
     ) -> int:
-        """Stage one stream and atomically publish it only to a missing target.
+        """Stage one stream and atomically publish it to a target.
 
         Implementations must own and clean up the private stage on every
-        failure. A target appearance during final publication raises
-        ``FileExistsError`` without modifying the visible target.
+        failure. When *overwrite* is ``False``, a target appearance during
+        final publication raises ``FileExistsError`` without modifying it.
+        When it is ``True``, implementations replace an existing regular
+        target through their guarded promotion primitive.
         """
 
         pass
