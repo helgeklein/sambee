@@ -66,8 +66,8 @@ use super::links::{resolve_activation_target, LinkResolutionError};
 use super::models::*;
 use super::pairing::{PairingInitiateError, PairingState};
 use super::target_resolution::{
-    resolve_target_mutation_attempt, ContentTransferPlan, TargetMutationAttempt, TargetResolutionDisposition, TargetResolutionPolicy,
-    TargetSnapshot,
+    resolve_target_mutation, resolve_target_mutation_attempt, ContentTransferPlan, TargetMutationAttempt, TargetResolutionDisposition,
+    TargetResolutionPolicy, TargetSnapshot,
 };
 use super::AppState;
 
@@ -990,6 +990,33 @@ pub async fn browse_delete(Path(drive): Path<String>, Query(query): Query<Browse
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// `DELETE /api/browse/{drive}/empty-directory` — remove one empty directory.
+pub async fn browse_delete_empty_directory(Path(drive): Path<String>, Query(query): Query<BrowseQuery>) -> Result<StatusCode, ApiError> {
+    let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let relative = normalize_drive_relative_path(&drive, query.path.as_deref().unwrap_or(""))?;
+    if relative.is_empty() {
+        return Err(ApiError::BadRequest("Cannot delete the drive root".to_string()));
+    }
+    let directory = resolve_safe_path(&base_path, &drive, &relative)?;
+    let metadata = tokio::fs::symlink_metadata(&directory)
+        .await
+        .map_err(|error| map_io_error(error, &directory))?;
+    if !metadata.is_dir() {
+        return Err(ApiError::conflict_message(format!(
+            "Target is not a directory: {}",
+            directory.display()
+        )));
+    }
+    match tokio::fs::remove_dir(&directory).await {
+        Ok(()) => Ok(StatusCode::NO_CONTENT),
+        Err(error) if error.kind() == std::io::ErrorKind::DirectoryNotEmpty => Err(ApiError::conflict_message(format!(
+            "Directory is not empty: {}",
+            directory.display()
+        ))),
+        Err(error) => Err(map_io_error(error, &directory)),
+    }
+}
+
 #[derive(Deserialize)]
 pub struct RenameRequest {
     pub path: String,
@@ -1185,21 +1212,6 @@ fn source_changed_transfer_result(destination_mutated: bool) -> ContentTransferR
         error: Some(ContentTransferError {
             code: "source_changed",
             detail: "Source changed before destination commit".to_string(),
-        }),
-    }
-}
-
-fn directory_copy_failed_transfer_result(error: std::io::Error) -> ContentTransferResult {
-    ContentTransferResult {
-        status: "failed",
-        effects: ContentTransferEffects {
-            source: "unchanged",
-            destination: "mutated",
-        },
-        replaced: false,
-        error: Some(ContentTransferError {
-            code: "transport",
-            detail: format!("Directory copy failed after creating the destination: {error}"),
         }),
     }
 }
@@ -1514,10 +1526,7 @@ pub async fn browse_cancel_transfer_attempt(Path((_drive, attempt_id)): Path<(St
     StatusCode::NO_CONTENT
 }
 
-/// `POST /api/browse/{drive}/copy` — copy a file or directory.
-///
-/// Returns a factual transfer result. Replacement remains unavailable until guarded local
-/// replacement is proven with concurrent-target tests.
+/// `POST /api/browse/{drive}/copy` — copy one regular file.
 ///
 /// Supports cross-drive copy when `dest_connection_id` specifies a
 /// different local drive (e.g. copying from drive C to drive D).
@@ -1564,68 +1573,48 @@ async fn execute_browse_copy(
 
     let source_meta = tokio::fs::metadata(&source).await.map_err(|e| map_io_error(e, &source))?;
 
-    if source_meta.is_file() {
-        let resolution =
-            match resolve_local_regular_file_transfer(&source, &dest, &source_meta, copy_move_target_policy(body)?, cancellation).await {
-                Ok(resolution) => resolution,
-                Err(LocalTransferWriteError::Io(error)) => return Err(map_io_error(error, &source)),
-                Err(LocalTransferWriteError::SourceChanged) => return Ok(source_changed_transfer_result(false)),
-                Err(LocalTransferWriteError::Cancelled) => return Ok(cancelled_transfer_result()),
-            };
-        if resolution.disposition == TargetResolutionDisposition::CreateNew {
-            debug_assert!(
-                resolution.result.is_some(),
-                "a committed target mutation must return its stage result"
-            );
-        }
-        if resolution.disposition == TargetResolutionDisposition::AwaitCollision && resolution.target == TargetSnapshot::Missing {
-            return Err(ApiError::Internal(
-                "Target disappeared during the final collision observation; retry the transfer with a new idempotency key".to_string(),
-            ));
-        }
-        match resolution.disposition {
-            TargetResolutionDisposition::Skip => return Ok(skipped_transfer_result()),
-            TargetResolutionDisposition::CreateNew => {
-                log::info!("Copied: {} -> {}", source.display(), dest.display());
-                return Ok(ContentTransferResult {
-                    replaced: resolution.replaced,
-                    ..completed_transfer_result("unchanged", "mutated")
-                });
-            }
-            TargetResolutionDisposition::ReplaceExisting | TargetResolutionDisposition::AwaitCollision => {
-                return Err(build_conflict_error(&source, &dest, &body.source_path, &body.dest_path).await);
-            }
-        }
-    } else if dest.exists() {
-        if copy_move_target_policy(body)? == TargetResolutionPolicy::Skip {
-            return Ok(skipped_transfer_result());
-        }
-        return Err(build_conflict_error(&source, &dest, &body.source_path, &body.dest_path).await);
+    if !source_meta.is_file() {
+        return Err(ApiError::BadRequest(
+            "Directory transfers must be coordinated by the client".to_string(),
+        ));
     }
 
-    if source_meta.is_dir() {
-        match copy_directory_exclusively(&source, &dest, cancellation).await {
-            Ok(()) => {}
-            Err(DirectoryCopyError::TargetExists) => {
+    let resolution =
+        match resolve_local_regular_file_transfer(&source, &dest, &source_meta, copy_move_target_policy(body)?, cancellation).await {
+            Ok(resolution) => resolution,
+            Err(LocalTransferWriteError::Io(error)) => return Err(map_io_error(error, &source)),
+            Err(LocalTransferWriteError::SourceChanged) => return Ok(source_changed_transfer_result(false)),
+            Err(LocalTransferWriteError::Cancelled) => return Ok(cancelled_transfer_result()),
+            Err(LocalTransferWriteError::TargetChanged) => {
                 return Err(build_conflict_error(&source, &dest, &body.source_path, &body.dest_path).await);
             }
-            Err(DirectoryCopyError::Failed {
-                error,
-                destination_mutated: true,
-            }) => return Ok(directory_copy_failed_transfer_result(error)),
-            Err(DirectoryCopyError::Failed {
-                error,
-                destination_mutated: false,
-            }) if error.kind() == std::io::ErrorKind::Interrupted => return Ok(cancelled_transfer_result()),
-            Err(DirectoryCopyError::Failed {
-                error,
-                destination_mutated: false,
-            }) => return Err(map_io_error(error, &source)),
-        }
+            Err(LocalTransferWriteError::OutcomeUnknown) => return Ok(outcome_unknown_transfer_result()),
+        };
+    if matches!(
+        resolution.disposition,
+        TargetResolutionDisposition::CreateNew | TargetResolutionDisposition::ReplaceExisting
+    ) {
+        debug_assert!(
+            resolution.result.is_some(),
+            "a committed target mutation must return its stage result"
+        );
     }
-
-    log::info!("Copied: {} -> {}", source.display(), dest.display());
-    Ok(completed_transfer_result("unchanged", "mutated"))
+    if resolution.disposition == TargetResolutionDisposition::AwaitCollision && resolution.target == TargetSnapshot::Missing {
+        return Err(ApiError::Internal(
+            "Target disappeared during the final collision observation; retry the transfer with a new idempotency key".to_string(),
+        ));
+    }
+    match resolution.disposition {
+        TargetResolutionDisposition::Skip => Ok(skipped_transfer_result()),
+        TargetResolutionDisposition::CreateNew | TargetResolutionDisposition::ReplaceExisting => {
+            log::info!("Copied: {} -> {}", source.display(), dest.display());
+            Ok(ContentTransferResult {
+                replaced: resolution.replaced,
+                ..completed_transfer_result("unchanged", "mutated")
+            })
+        }
+        TargetResolutionDisposition::AwaitCollision => Err(build_conflict_error(&source, &dest, &body.source_path, &body.dest_path).await),
+    }
 }
 
 /// `POST /api/browse/{drive}/move` — move an item within its local drive.
@@ -1664,6 +1653,14 @@ async fn execute_browse_move(
     }
     let base_path = drives::resolve_drive_path(drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
     let (dest_drive, dest_base) = resolve_dest_drive(drive, &body.dest_connection_id)?;
+    validate_copy_move_paths(&body.source_path, &body.dest_path)?;
+    let source = resolve_safe_path(&base_path, drive, &body.source_path)?;
+    let source_meta = tokio::fs::metadata(&source).await.map_err(|error| map_io_error(error, &source))?;
+    if !source_meta.is_file() {
+        return Err(ApiError::BadRequest(
+            "Directory transfers must be coordinated by the client".to_string(),
+        ));
+    }
     if base_path != dest_base {
         let copy_result = execute_browse_copy(drive, body, cancellation).await?;
         if copy_result.status != "completed" {
@@ -1672,15 +1669,7 @@ async fn execute_browse_move(
         if cancellation.is_some_and(|active| active.load(Ordering::Acquire)) {
             return Ok(completed_with_source_retained_transfer_result());
         }
-        let source = resolve_safe_path(&base_path, drive, &body.source_path)?;
-        let source_metadata = tokio::fs::symlink_metadata(&source)
-            .await
-            .map_err(|error| map_io_error(error, &source))?;
-        let delete_result = if source_metadata.file_type().is_dir() {
-            tokio::fs::remove_dir_all(&source).await
-        } else {
-            tokio::fs::remove_file(&source).await
-        };
+        let delete_result = tokio::fs::remove_file(&source).await;
         return Ok(match delete_result {
             Ok(()) => ContentTransferResult {
                 replaced: copy_result.replaced,
@@ -1699,25 +1688,41 @@ async fn execute_browse_move(
         });
     }
 
-    validate_copy_move_paths(&body.source_path, &body.dest_path)?;
-    let source = resolve_safe_path(&base_path, drive, &body.source_path)?;
     let dest = resolve_safe_path_for_new(&dest_base, &dest_drive, &body.dest_path)?;
-    if dest.exists() {
-        if copy_move_target_policy(body)? == TargetResolutionPolicy::Skip {
-            return Ok(skipped_transfer_result());
+    let resolution =
+        match resolve_local_regular_file_transfer(&source, &dest, &source_meta, copy_move_target_policy(body)?, cancellation).await {
+            Ok(resolution) => resolution,
+            Err(LocalTransferWriteError::Io(error)) => return Err(map_io_error(error, &source)),
+            Err(LocalTransferWriteError::SourceChanged) => return Ok(source_changed_transfer_result(false)),
+            Err(LocalTransferWriteError::Cancelled) => return Ok(cancelled_transfer_result()),
+            Err(LocalTransferWriteError::TargetChanged) => {
+                return Err(build_conflict_error(&source, &dest, &body.source_path, &body.dest_path).await);
+            }
+            Err(LocalTransferWriteError::OutcomeUnknown) => return Ok(outcome_unknown_transfer_result()),
+        };
+    match resolution.disposition {
+        TargetResolutionDisposition::Skip => return Ok(skipped_transfer_result()),
+        TargetResolutionDisposition::AwaitCollision => {
+            return Err(build_conflict_error(&source, &dest, &body.source_path, &body.dest_path).await);
         }
-        return Err(build_conflict_error(&source, &dest, &body.source_path, &body.dest_path).await);
+        TargetResolutionDisposition::CreateNew | TargetResolutionDisposition::ReplaceExisting => {}
     }
-    if let Some(parent) = dest.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|error| map_io_error(error, parent))?;
+    if cancellation.is_some_and(|active| active.load(Ordering::Acquire)) {
+        return Ok(completed_with_source_retained_transfer_result());
     }
-    tokio::fs::rename(&source, &dest)
-        .await
-        .map_err(|error| map_io_error(error, &source))?;
-    log::info!("Moved: {} -> {}", source.display(), dest.display());
-    Ok(completed_transfer_result("mutated", "mutated"))
+    Ok(match tokio::fs::remove_file(&source).await {
+        Ok(()) => ContentTransferResult {
+            replaced: resolution.replaced,
+            ..completed_transfer_result("mutated", "mutated")
+        },
+        Err(error) => {
+            log::warn!("Copied '{}' but could not remove the original: {error}", source.display());
+            ContentTransferResult {
+                replaced: resolution.replaced,
+                ..completed_with_source_retained_transfer_result()
+            }
+        }
+    })
 }
 
 #[derive(Deserialize)]
@@ -1725,13 +1730,14 @@ pub struct StreamTransferQuery {
     path: String,
     target_resolution_policy: Option<String>,
     expected_size: u64,
+    source_modified_at: Option<String>,
 }
 
 /// `POST /api/browse/{drive}/transfer-stream` — publish a streamed new file.
 ///
 /// This endpoint owns only destination mutation. It writes request bytes to a
-/// private sibling stage and publishes through exclusive creation, leaving an
-/// existing target and an interrupted relay untouched.
+/// private sibling stage and publishes through the requested target policy,
+/// leaving an interrupted relay without partial output.
 pub async fn browse_stream_transfer(
     Path(drive): Path<String>,
     Query(query): Query<StreamTransferQuery>,
@@ -1745,35 +1751,81 @@ pub async fn browse_stream_transfer(
         .ok_or_else(|| ApiError::BadRequest("Transfer destination is invalid".to_string()))?;
     validate_name(name)?;
     let target_policy = parse_target_resolution_policy(query.target_resolution_policy.as_deref())?;
-    match tokio::fs::symlink_metadata(&destination).await {
-        Ok(_) => match target_policy {
-            TargetResolutionPolicy::Skip => return Ok(Json(skipped_transfer_result())),
-            _ => return Err(ApiError::conflict_message(format!("Destination already exists: {}", query.path))),
-        },
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+    let source_modified_at = parse_stream_source_modified_at(query.source_modified_at.as_deref());
+    let target_metadata = match tokio::fs::symlink_metadata(&destination).await {
+        Ok(metadata) => Some(metadata),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => return Err(map_io_error(error, &destination)),
+    };
+    let disposition = resolve_target_mutation(target_policy, source_modified_at, target_snapshot(target_metadata.as_ref()));
+    match disposition {
+        TargetResolutionDisposition::Skip => return Ok(Json(skipped_transfer_result())),
+        TargetResolutionDisposition::AwaitCollision => {
+            return Err(ApiError::conflict_message(format!("Destination already exists: {}", query.path)));
+        }
+        TargetResolutionDisposition::CreateNew | TargetResolutionDisposition::ReplaceExisting => {}
     }
 
-    match stage_local_request_body(&destination, body, query.expected_size).await {
-        Ok(bytes_written) => {
+    match stage_local_request_body_with_target_policy(
+        &destination,
+        body,
+        query.expected_size,
+        disposition == TargetResolutionDisposition::ReplaceExisting,
+        Some((target_policy, source_modified_at)),
+    )
+    .await
+    {
+        Ok((bytes_written, replaced)) => {
             log::info!(
                 "Published cross-provider transfer destination: {} ({} bytes)",
                 destination.display(),
                 bytes_written
             );
             Ok(Json(ContentTransferResult {
+                replaced,
                 ..completed_transfer_result("unchanged", "mutated")
             }))
         }
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+        Err(LocalTransferWriteError::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(Json(skipped_transfer_result())),
+        Err(LocalTransferWriteError::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists => {
             Err(ApiError::conflict_message(format!("Destination already exists: {}", query.path)))
         }
-        Err(error) if error.kind() == std::io::ErrorKind::InvalidData => Err(ApiError::UnprocessableContent(error.to_string())),
-        Err(error) => Err(map_io_error(error, &destination)),
+        Err(LocalTransferWriteError::TargetChanged) => {
+            Err(ApiError::conflict_message(format!("Destination already exists: {}", query.path)))
+        }
+        Err(LocalTransferWriteError::OutcomeUnknown) => Ok(Json(outcome_unknown_transfer_result())),
+        Err(LocalTransferWriteError::Io(error)) if error.kind() == std::io::ErrorKind::InvalidData => {
+            Err(ApiError::UnprocessableContent(error.to_string()))
+        }
+        Err(LocalTransferWriteError::Io(error)) => Err(map_io_error(error, &destination)),
+        Err(LocalTransferWriteError::SourceChanged | LocalTransferWriteError::Cancelled) => Err(ApiError::Internal(
+            "Unexpected local transfer state while publishing a stream".to_string(),
+        )),
     }
 }
 
-async fn stage_local_request_body(destination: &FsPath, mut body: Body, expected_size: u64) -> Result<u64, std::io::Error> {
+#[cfg(test)]
+async fn stage_local_request_body(
+    destination: &FsPath,
+    body: Body,
+    expected_size: u64,
+    replace_existing: bool,
+) -> Result<u64, std::io::Error> {
+    Ok(
+        stage_local_request_body_with_target_policy(destination, body, expected_size, replace_existing, None)
+            .await
+            .map_err(LocalTransferWriteError::into_io_error)?
+            .0,
+    )
+}
+
+async fn stage_local_request_body_with_target_policy(
+    destination: &FsPath,
+    mut body: Body,
+    expected_size: u64,
+    replace_existing: bool,
+    target_policy: Option<(TargetResolutionPolicy, Option<DateTime<Utc>>)>,
+) -> Result<(u64, bool), LocalTransferWriteError> {
     let parent = destination
         .parent()
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Transfer target has no parent"))?;
@@ -1784,33 +1836,56 @@ async fn stage_local_request_body(destination: &FsPath, mut body: Body, expected
     tokio::fs::create_dir_all(parent).await?;
     let stage = parent.join(format!(".{target_name}.sambee-stage-{}", uuid::Uuid::new_v4()));
 
-    let result = async {
+    let result: Result<(u64, bool), LocalTransferWriteError> = async {
         let mut output = OpenOptions::new().write(true).create_new(true).open(&stage).await?;
         let mut bytes_written = 0;
         while let Some(frame) = body.frame().await {
             let frame = frame.map_err(|error| std::io::Error::other(format!("Transfer request body failed: {error}")))?;
             if let Ok(data) = frame.into_data() {
                 if data.len() as u64 > expected_size.saturating_sub(bytes_written) {
-                    return Err(std::io::Error::new(
+                    return Err(LocalTransferWriteError::Io(std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
                         format!("Transfer source size mismatch: expected {expected_size} bytes but received more"),
-                    ));
+                    )));
                 }
                 output.write_all(&data).await?;
                 bytes_written += data.len() as u64;
             }
         }
         if bytes_written != expected_size {
-            return Err(std::io::Error::new(
+            return Err(LocalTransferWriteError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!("Transfer source size mismatch: expected {expected_size} bytes but received {bytes_written} bytes"),
-            ));
+            )));
         }
         output.flush().await?;
         output.sync_data().await?;
         drop(output);
-        tokio::fs::hard_link(&stage, destination).await?;
-        Ok(bytes_written)
+        let target_metadata = match tokio::fs::symlink_metadata(destination).await {
+            Ok(metadata) => Some(metadata),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error.into()),
+        };
+        let final_replace_existing = match target_policy {
+            Some((policy, source_modified_at)) => {
+                match resolve_target_mutation(policy, source_modified_at, target_snapshot(target_metadata.as_ref())) {
+                    TargetResolutionDisposition::CreateNew => false,
+                    TargetResolutionDisposition::ReplaceExisting => true,
+                    TargetResolutionDisposition::Skip => {
+                        return Err(LocalTransferWriteError::Io(std::io::Error::new(
+                            std::io::ErrorKind::WouldBlock,
+                            "Transfer policy skips the current destination",
+                        )));
+                    }
+                    TargetResolutionDisposition::AwaitCollision => {
+                        return Err(LocalTransferWriteError::Io(std::io::Error::from(std::io::ErrorKind::AlreadyExists)));
+                    }
+                }
+            }
+            None => replace_existing,
+        };
+        let outcome = promote_staged_local_file_with_recovery(&stage, destination, final_replace_existing).await?;
+        Ok((bytes_written, outcome.replaced()))
     }
     .await;
 
@@ -5873,6 +5948,13 @@ fn parse_target_resolution_policy(target_resolution_policy: Option<&str>) -> Res
     })
 }
 
+fn parse_stream_source_modified_at(value: Option<&str>) -> Option<DateTime<Utc>> {
+    value
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        .filter(|timestamp| timestamp.offset().local_minus_utc() == 0)
+        .map(|timestamp| timestamp.with_timezone(&Utc))
+}
+
 fn copy_move_target_policy(body: &CopyMoveRequest) -> Result<TargetResolutionPolicy, ApiError> {
     let resolved = if body.target_resolution_policy.is_none() && body.overwrite.unwrap_or(false) {
         TargetResolutionPolicy::Replace
@@ -5903,6 +5985,46 @@ enum LocalTransferWriteError {
     Io(std::io::Error),
     SourceChanged,
     Cancelled,
+    TargetChanged,
+    OutcomeUnknown,
+}
+
+impl LocalTransferWriteError {
+    #[cfg(test)]
+    fn into_io_error(self) -> std::io::Error {
+        match self {
+            Self::Io(error) => error,
+            Self::SourceChanged => std::io::Error::other("Transfer source changed during publication"),
+            Self::Cancelled => std::io::Error::new(std::io::ErrorKind::Interrupted, "Transfer cancelled"),
+            Self::TargetChanged => std::io::Error::from(std::io::ErrorKind::AlreadyExists),
+            Self::OutcomeUnknown => std::io::Error::other("Transfer destination outcome is unknown"),
+        }
+    }
+}
+
+impl From<std::io::Error> for LocalTransferWriteError {
+    fn from(error: std::io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+enum LocalPromotionError {
+    Io(std::io::Error),
+    TargetDisappeared,
+    OutcomeUnknown,
+}
+
+#[derive(Clone, Copy)]
+enum LocalPromotionOutcome {
+    Created,
+    Replaced,
+}
+
+impl LocalPromotionOutcome {
+    fn replaced(self) -> bool {
+        matches!(self, Self::Replaced)
+    }
 }
 
 async fn copy_local_file_contents(input: &mut File, output: &mut File, cancellation: Option<&AtomicBool>) -> Result<(), std::io::Error> {
@@ -5933,7 +6055,7 @@ async fn resolve_local_regular_file_transfer(
         ContentTransferPlan {
             source_modified_at: expected_source.modified().ok().map(DateTime::<Utc>::from),
             policy,
-            replacement_supported: false,
+            replacement_supported: true,
         },
         || async {
             match tokio::fs::symlink_metadata(dest).await {
@@ -5942,11 +6064,12 @@ async fn resolve_local_regular_file_transfer(
                 Err(error) => Err(LocalTransferWriteError::Io(error)),
             }
         },
-        |_disposition| async {
-            match copy_regular_file_exclusively(source, dest, expected_source, cancellation).await {
-                Ok(()) => Ok(TargetMutationAttempt::Committed {
+        |disposition| async move {
+            let replacing = disposition == TargetResolutionDisposition::ReplaceExisting;
+            match copy_regular_file_exclusively(source, dest, expected_source, policy, cancellation, replacing).await {
+                Ok(outcome) => Ok(TargetMutationAttempt::Committed {
                     result: (),
-                    replaced: false,
+                    replaced: outcome.replaced(),
                 }),
                 Err(LocalTransferWriteError::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                     Ok(TargetMutationAttempt::TargetExistsBeforeMutation)
@@ -5962,8 +6085,10 @@ async fn copy_regular_file_exclusively(
     source: &std::path::Path,
     dest: &std::path::Path,
     expected_source: &std::fs::Metadata,
+    policy: TargetResolutionPolicy,
     cancellation: Option<&AtomicBool>,
-) -> Result<(), LocalTransferWriteError> {
+    replace_existing: bool,
+) -> Result<LocalPromotionOutcome, LocalTransferWriteError> {
     let parent = dest.parent().ok_or_else(|| {
         LocalTransferWriteError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -6009,8 +6134,25 @@ async fn copy_regular_file_exclusively(
         if !same_regular_file_snapshot(&opened_source, &current_source) {
             return Err(LocalTransferWriteError::SourceChanged);
         }
-        tokio::fs::hard_link(&stage, dest).await.map_err(LocalTransferWriteError::Io)?;
-        Ok(())
+        let target_metadata = match tokio::fs::symlink_metadata(dest).await {
+            Ok(metadata) => Some(metadata),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(LocalTransferWriteError::Io(error)),
+        };
+        let final_disposition = resolve_target_mutation(
+            policy,
+            expected_source.modified().ok().map(DateTime::<Utc>::from),
+            target_snapshot(target_metadata.as_ref()),
+        );
+        let expected_disposition = if replace_existing {
+            TargetResolutionDisposition::ReplaceExisting
+        } else {
+            TargetResolutionDisposition::CreateNew
+        };
+        if final_disposition != expected_disposition {
+            return Err(LocalTransferWriteError::Io(std::io::Error::from(std::io::ErrorKind::AlreadyExists)));
+        }
+        promote_staged_local_file_with_recovery(&stage, dest, replace_existing).await
     }
     .await;
 
@@ -6020,6 +6162,97 @@ async fn copy_regular_file_exclusively(
         }
     }
     result
+}
+
+async fn promote_staged_local_file_with_recovery(
+    stage: &FsPath,
+    destination: &FsPath,
+    replace_existing: bool,
+) -> Result<LocalPromotionOutcome, LocalTransferWriteError> {
+    match promote_staged_local_file(stage, destination, replace_existing).await {
+        Ok(()) if replace_existing => Ok(LocalPromotionOutcome::Replaced),
+        Ok(()) => Ok(LocalPromotionOutcome::Created),
+        Err(LocalPromotionError::TargetDisappeared) if replace_existing => {
+            match promote_staged_local_file(stage, destination, false).await {
+                Ok(()) => Ok(LocalPromotionOutcome::Created),
+                Err(LocalPromotionError::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    Err(LocalTransferWriteError::TargetChanged)
+                }
+                Err(error) => Err(map_local_promotion_error(error, destination).await),
+            }
+        }
+        Err(error) => Err(map_local_promotion_error(error, destination).await),
+    }
+}
+
+async fn map_local_promotion_error(error: LocalPromotionError, destination: &FsPath) -> LocalTransferWriteError {
+    match error {
+        LocalPromotionError::Io(error) => match tokio::fs::symlink_metadata(destination).await {
+            Ok(metadata) if !metadata.is_file() => LocalTransferWriteError::TargetChanged,
+            Ok(_) => LocalTransferWriteError::Io(error),
+            Err(observation_error) if observation_error.kind() == std::io::ErrorKind::NotFound => LocalTransferWriteError::Io(error),
+            Err(_) => LocalTransferWriteError::OutcomeUnknown,
+        },
+        LocalPromotionError::TargetDisappeared => LocalTransferWriteError::TargetChanged,
+        LocalPromotionError::OutcomeUnknown => LocalTransferWriteError::OutcomeUnknown,
+    }
+}
+
+#[cfg(unix)]
+async fn promote_staged_local_file(stage: &FsPath, destination: &FsPath, replace_existing: bool) -> Result<(), LocalPromotionError> {
+    if replace_existing {
+        tokio::fs::rename(stage, destination).await.map_err(LocalPromotionError::Io)
+    } else {
+        rename_noreplace(stage, destination).await.map_err(LocalPromotionError::Io)
+    }
+}
+
+#[cfg(windows)]
+async fn promote_staged_local_file(stage: &FsPath, destination: &FsPath, replace_existing: bool) -> Result<(), LocalPromotionError> {
+    if !replace_existing {
+        return tokio::fs::hard_link(stage, destination).await.map_err(LocalPromotionError::Io);
+    }
+
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::{HRESULT, PCWSTR};
+    use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND};
+    use windows::Win32::Storage::FileSystem::{ReplaceFileW, REPLACEFILE_WRITE_THROUGH};
+
+    let stage = stage.to_path_buf();
+    let destination = destination.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let stage_wide = stage.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+        let destination_wide = destination.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+        unsafe {
+            ReplaceFileW(
+                PCWSTR(destination_wide.as_ptr()),
+                PCWSTR(stage_wide.as_ptr()),
+                PCWSTR::null(),
+                REPLACEFILE_WRITE_THROUGH,
+                None,
+                None,
+            )
+        }
+        .map_err(|error| error.code())
+    })
+    .await
+    .map_err(|_| LocalPromotionError::OutcomeUnknown)?
+    .map_err(|code| {
+        if code == HRESULT::from_win32(ERROR_FILE_NOT_FOUND.0) || code == HRESULT::from_win32(ERROR_PATH_NOT_FOUND.0) {
+            LocalPromotionError::TargetDisappeared
+        } else {
+            LocalPromotionError::Io(std::io::Error::other(format!("ReplaceFileW failed: {code}")))
+        }
+    })
+}
+
+#[cfg(all(not(unix), not(windows)))]
+async fn promote_staged_local_file(stage: &FsPath, destination: &FsPath, replace_existing: bool) -> Result<(), LocalPromotionError> {
+    if replace_existing {
+        tokio::fs::rename(stage, destination).await.map_err(LocalPromotionError::Io)
+    } else {
+        tokio::fs::hard_link(stage, destination).await.map_err(LocalPromotionError::Io)
+    }
 }
 
 #[cfg(unix)]
@@ -6039,37 +6272,24 @@ fn same_regular_file_snapshot(expected: &std::fs::Metadata, current: &std::fs::M
     expected.is_file() && current.is_file() && expected.len() == current.len() && expected.modified().ok() == current.modified().ok()
 }
 
-enum DirectoryCopyError {
-    TargetExists,
-    Failed { error: std::io::Error, destination_mutated: bool },
-}
-
-async fn discard_directory_stage(stage: &FsPath) -> Result<(), std::io::Error> {
-    match tokio::fs::remove_dir_all(stage).await {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error),
-    }
-}
-
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-async fn rename_directory_noreplace(source: &FsPath, destination: &FsPath) -> Result<(), std::io::Error> {
+async fn rename_noreplace(source: &FsPath, destination: &FsPath) -> Result<(), std::io::Error> {
     let source = source.to_path_buf();
     let destination = destination.to_path_buf();
-    tokio::task::spawn_blocking(move || rename_directory_noreplace_sync(&source, &destination))
+    tokio::task::spawn_blocking(move || rename_noreplace_sync(&source, &destination))
         .await
-        .map_err(|error| std::io::Error::other(format!("Directory promotion task failed: {error}")))?
+        .map_err(|error| std::io::Error::other(format!("No-replace promotion task failed: {error}")))?
 }
 
 #[cfg(target_os = "linux")]
-fn rename_directory_noreplace_sync(source: &FsPath, destination: &FsPath) -> Result<(), std::io::Error> {
+fn rename_noreplace_sync(source: &FsPath, destination: &FsPath) -> Result<(), std::io::Error> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
 
     let source = CString::new(source.as_os_str().as_bytes())
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Directory stage path contains a null byte"))?;
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Stage path contains a null byte"))?;
     let destination = CString::new(destination.as_os_str().as_bytes())
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Directory destination path contains a null byte"))?;
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Destination path contains a null byte"))?;
     let result = unsafe {
         libc::renameat2(
             libc::AT_FDCWD,
@@ -6087,14 +6307,14 @@ fn rename_directory_noreplace_sync(source: &FsPath, destination: &FsPath) -> Res
 }
 
 #[cfg(target_os = "macos")]
-fn rename_directory_noreplace_sync(source: &FsPath, destination: &FsPath) -> Result<(), std::io::Error> {
+fn rename_noreplace_sync(source: &FsPath, destination: &FsPath) -> Result<(), std::io::Error> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
 
     let source = CString::new(source.as_os_str().as_bytes())
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Directory stage path contains a null byte"))?;
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Stage path contains a null byte"))?;
     let destination = CString::new(destination.as_os_str().as_bytes())
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Directory destination path contains a null byte"))?;
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Destination path contains a null byte"))?;
     let result = unsafe { libc::renamex_np(source.as_ptr(), destination.as_ptr(), libc::RENAME_EXCL) };
     if result == 0 {
         Ok(())
@@ -6104,147 +6324,24 @@ fn rename_directory_noreplace_sync(source: &FsPath, destination: &FsPath) -> Res
 }
 
 #[cfg(windows)]
-async fn rename_directory_noreplace(source: &FsPath, destination: &FsPath) -> Result<(), std::io::Error> {
+async fn rename_noreplace(source: &FsPath, destination: &FsPath) -> Result<(), std::io::Error> {
     // Windows rename fails when the destination already exists.
     tokio::fs::rename(source, destination).await
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-async fn rename_directory_noreplace(_source: &FsPath, _destination: &FsPath) -> Result<(), std::io::Error> {
+async fn rename_noreplace(_source: &FsPath, _destination: &FsPath) -> Result<(), std::io::Error> {
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
-        "The local platform does not provide a no-replace directory rename",
+        "The local platform does not provide a no-replace rename",
     ))
-}
-
-/// Copy one directory through a private sibling stage before publishing it.
-async fn copy_directory_exclusively(
-    src: &std::path::Path,
-    dst: &std::path::Path,
-    cancellation: Option<&AtomicBool>,
-) -> Result<(), DirectoryCopyError> {
-    if cancellation.is_some_and(|active| active.load(Ordering::Acquire)) {
-        return Err(DirectoryCopyError::Failed {
-            error: std::io::Error::new(std::io::ErrorKind::Interrupted, "Transfer cancelled"),
-            destination_mutated: false,
-        });
-    }
-    let parent = dst.parent().ok_or_else(|| DirectoryCopyError::Failed {
-        error: std::io::Error::new(std::io::ErrorKind::InvalidInput, "Directory target has no parent"),
-        destination_mutated: false,
-    })?;
-    tokio::fs::create_dir_all(parent)
-        .await
-        .map_err(|error| DirectoryCopyError::Failed {
-            error,
-            destination_mutated: false,
-        })?;
-    match tokio::fs::symlink_metadata(dst).await {
-        Ok(_) => return Err(DirectoryCopyError::TargetExists),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(DirectoryCopyError::Failed {
-                error,
-                destination_mutated: false,
-            });
-        }
-    }
-    let target_name = dst
-        .file_name()
-        .and_then(|value| value.to_str())
-        .ok_or_else(|| DirectoryCopyError::Failed {
-            error: std::io::Error::new(std::io::ErrorKind::InvalidInput, "Directory target name is not valid UTF-8"),
-            destination_mutated: false,
-        })?;
-    let stage = parent.join(format!(".{target_name}.sambee-stage-{}", uuid::Uuid::new_v4()));
-    match tokio::fs::create_dir(&stage).await {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Err(DirectoryCopyError::TargetExists),
-        Err(error) => {
-            return Err(DirectoryCopyError::Failed {
-                error,
-                destination_mutated: false,
-            });
-        }
-    }
-    if let Err(error) = copy_dir_contents(src, &stage, cancellation).await {
-        return match discard_directory_stage(&stage).await {
-            Ok(()) => Err(DirectoryCopyError::Failed {
-                error,
-                destination_mutated: false,
-            }),
-            Err(cleanup_error) => Err(DirectoryCopyError::Failed {
-                error: std::io::Error::other(format!(
-                    "Directory copy failed: {error}; the private stage '{}' could not be removed: {cleanup_error}",
-                    stage.display()
-                )),
-                destination_mutated: true,
-            }),
-        };
-    }
-    match rename_directory_noreplace(&stage, dst).await {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => match discard_directory_stage(&stage).await {
-            Ok(()) => Err(DirectoryCopyError::TargetExists),
-            Err(cleanup_error) => Err(DirectoryCopyError::Failed {
-                error: std::io::Error::other(format!(
-                    "Directory target appeared during promotion and private stage '{}' could not be removed: {cleanup_error}",
-                    stage.display()
-                )),
-                destination_mutated: true,
-            }),
-        },
-        Err(error) => {
-            let target_exists = tokio::fs::symlink_metadata(dst).await.is_ok();
-            match discard_directory_stage(&stage).await {
-                Ok(()) if target_exists => Err(DirectoryCopyError::TargetExists),
-                Ok(()) => Err(DirectoryCopyError::Failed {
-                    error,
-                    destination_mutated: false,
-                }),
-                Err(cleanup_error) => Err(DirectoryCopyError::Failed {
-                    error: std::io::Error::other(format!(
-                        "Directory promotion failed: {error}; private stage '{}' could not be removed: {cleanup_error}",
-                        stage.display()
-                    )),
-                    destination_mutated: true,
-                }),
-            }
-        }
-    }
-}
-
-/// Recursively populate an already exclusively owned directory.
-async fn copy_dir_contents(src: &std::path::Path, dst: &std::path::Path, cancellation: Option<&AtomicBool>) -> Result<(), std::io::Error> {
-    let mut entries = tokio::fs::read_dir(src).await?;
-    while let Some(entry) = entries.next_entry().await? {
-        if cancellation.is_some_and(|active| active.load(Ordering::Acquire)) {
-            return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "Transfer cancelled"));
-        }
-        let entry_type = entry.file_type().await?;
-        let src_child = entry.path();
-        let dst_child = dst.join(entry.file_name());
-
-        if entry_type.is_dir() {
-            tokio::fs::create_dir(&dst_child).await?;
-            Box::pin(copy_dir_contents(&src_child, &dst_child, cancellation)).await?;
-        } else {
-            let mut input = File::open(&src_child).await?;
-            let mut output = OpenOptions::new().write(true).create_new(true).open(&dst_child).await?;
-            copy_local_file_contents(&mut input, &mut output, cancellation).await?;
-            output.flush().await?;
-            output.sync_data().await?;
-        }
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        archive_creation_response, archive_execution_response, browse_list_archive, build_file_info, build_pair_status_response,
-        classify_link_target, complete_transfer_receipt, copy_directory_exclusively, copy_regular_file_exclusively, execute_archive_relay,
+        archive_creation_response, archive_execution_response, browse_list_archive, browse_stream_transfer, build_file_info,
+        build_pair_status_response, classify_link_target, complete_transfer_receipt, copy_regular_file_exclusively, execute_archive_relay,
         extract_local_archive_to_smb_destination_live, extract_smb_archive_to_local_live, inspection_resolver_call_count,
         is_retryable_live_archive_stream_failure, map_local_archive_error, normalize_drive_relative_path, normalize_windows_display_path,
         replay_transfer_outcome, reserve_transfer_receipt, reset_inspection_resolver_call_count, resolve_companion_archive_topology,
@@ -6254,8 +6351,8 @@ mod tests {
         transfer_receipt_error, validate_editor_write_target, viewer_archive_member, write_local_archive_member_chunk,
         ArchiveCreationAdapterBinding, ArchiveCreationMemberCompletion, ArchiveCreationRelay, ArchiveExtractionRelay, ArchiveListQuery,
         ArchiveMemberQuery, ArchiveRelayBinding, ArchiveRelayFailure, ArchiveRelayTransport, CompanionArchiveCreationPlan,
-        CompanionArchiveExtractionPlan, CopyMoveRequest, DirectoryCopyError, FixtureArchiveCreationInvocation, LocalTransferWriteError,
-        TransferCancellationReservation, TransferReceiptLookup, TransferReceiptOutcome, TransferReceiptReservation,
+        CompanionArchiveExtractionPlan, CopyMoveRequest, FixtureArchiveCreationInvocation, LocalPromotionOutcome, LocalTransferWriteError,
+        StreamTransferQuery, TransferCancellationReservation, TransferReceiptLookup, TransferReceiptOutcome, TransferReceiptReservation,
         ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS, INSPECTION_RESOLVER_TEST_LOCK,
     };
     use crate::server::archive::{
@@ -6275,10 +6372,12 @@ mod tests {
         ArchiveContractVersion, ArchiveCreationResponse, FileType, LinkKind, LinkTargetState, LinkTargetType, PublicPairingStatus,
     };
     use crate::server::pairing::PairingState;
+    use crate::server::target_resolution::TargetResolutionPolicy;
     use axum::body::{to_bytes, Body};
     use axum::extract::{Path, Query, State};
     use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
     use axum::response::IntoResponse;
+    use chrono::{DateTime, Utc};
     use std::collections::{HashSet, VecDeque};
     use std::fs;
     use std::io::Write;
@@ -6431,11 +6530,119 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn directory_copy_is_rejected_before_destination_mutation() {
+        let source_directory = tempfile::tempdir().expect("source directory should be created");
+        let destination_directory = tempfile::tempdir().expect("destination directory should be created");
+        let source_drive = format!("source-{}", uuid::Uuid::new_v4());
+        let destination_drive = format!("destination-{}", uuid::Uuid::new_v4());
+        super::drives::register_test_drive_path(source_drive.clone(), source_directory.path().to_path_buf());
+        super::drives::register_test_drive_path(destination_drive.clone(), destination_directory.path().to_path_buf());
+        tokio::fs::create_dir(source_directory.path().join("documents"))
+            .await
+            .expect("source directory should be written");
+
+        let result = super::execute_browse_copy(
+            &source_drive,
+            &CopyMoveRequest {
+                source_path: "documents".to_string(),
+                dest_path: "incoming/documents".to_string(),
+                dest_connection_id: Some(format!("local-drive:{destination_drive}")),
+                target_resolution_policy: Some("ask".to_string()),
+                overwrite: None,
+                idempotency_key: uuid::Uuid::new_v4().to_string(),
+                transfer_attempt_id: None,
+            },
+            None,
+        )
+        .await;
+
+        assert!(matches!(result, Err(ApiError::BadRequest(message)) if message.contains("Directory transfers")));
+        assert!(!destination_directory.path().join("incoming/documents").exists());
+    }
+
+    #[tokio::test]
+    async fn directory_copy_rejects_every_policy_before_existing_target_handling() {
+        let source_directory = tempfile::tempdir().expect("source directory should be created");
+        let destination_directory = tempfile::tempdir().expect("destination directory should be created");
+        let source_drive = format!("source-{}", uuid::Uuid::new_v4());
+        let destination_drive = format!("destination-{}", uuid::Uuid::new_v4());
+        super::drives::register_test_drive_path(source_drive.clone(), source_directory.path().to_path_buf());
+        super::drives::register_test_drive_path(destination_drive.clone(), destination_directory.path().to_path_buf());
+        let source = source_directory.path().join("documents");
+        let destination = destination_directory.path().join("incoming/documents");
+        tokio::fs::create_dir(&source).await.expect("source directory should be written");
+        tokio::fs::create_dir_all(&destination)
+            .await
+            .expect("existing destination directory should be written");
+        tokio::fs::write(destination.join("retained.txt"), b"existing")
+            .await
+            .expect("existing destination content should be written");
+
+        for policy in ["ask", "skip", "replace", "replace_older"] {
+            let result = super::execute_browse_copy(
+                &source_drive,
+                &CopyMoveRequest {
+                    source_path: "documents".to_string(),
+                    dest_path: "incoming/documents".to_string(),
+                    dest_connection_id: Some(format!("local-drive:{destination_drive}")),
+                    target_resolution_policy: Some(policy.to_string()),
+                    overwrite: None,
+                    idempotency_key: uuid::Uuid::new_v4().to_string(),
+                    transfer_attempt_id: None,
+                },
+                None,
+            )
+            .await;
+
+            assert!(matches!(result, Err(ApiError::BadRequest(message)) if message.contains("Directory transfers")));
+        }
+
+        assert!(source.exists());
+        assert_eq!(
+            tokio::fs::read(destination.join("retained.txt"))
+                .await
+                .expect("existing destination content should be retained"),
+            b"existing"
+        );
+    }
+
+    #[tokio::test]
+    async fn directory_move_is_rejected_before_source_or_destination_mutation() {
+        let source_directory = tempfile::tempdir().expect("source directory should be created");
+        let destination_directory = tempfile::tempdir().expect("destination directory should be created");
+        let source_drive = format!("source-{}", uuid::Uuid::new_v4());
+        let destination_drive = format!("destination-{}", uuid::Uuid::new_v4());
+        super::drives::register_test_drive_path(source_drive.clone(), source_directory.path().to_path_buf());
+        super::drives::register_test_drive_path(destination_drive.clone(), destination_directory.path().to_path_buf());
+        let source = source_directory.path().join("documents");
+        tokio::fs::create_dir(&source).await.expect("source directory should be written");
+
+        let result = super::execute_browse_move(
+            &source_drive,
+            &CopyMoveRequest {
+                source_path: "documents".to_string(),
+                dest_path: "incoming/documents".to_string(),
+                dest_connection_id: Some(format!("local-drive:{destination_drive}")),
+                target_resolution_policy: Some("ask".to_string()),
+                overwrite: None,
+                idempotency_key: uuid::Uuid::new_v4().to_string(),
+                transfer_attempt_id: None,
+            },
+            None,
+        )
+        .await;
+
+        assert!(matches!(result, Err(ApiError::BadRequest(message)) if message.contains("Directory transfers")));
+        assert!(source.exists());
+        assert!(!destination_directory.path().join("incoming/documents").exists());
+    }
+
+    #[tokio::test]
     async fn local_streamed_destination_publishes_only_after_complete_body() {
         let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
         let target = directory.path().join("target.txt");
 
-        let bytes_written = super::stage_local_request_body(&target, Body::from("streamed content"), 16)
+        let bytes_written = super::stage_local_request_body(&target, Body::from("streamed content"), 16, false)
             .await
             .expect("streamed destination should publish");
 
@@ -6445,12 +6652,165 @@ mod tests {
         assert_eq!(entries, 1);
     }
 
+    #[test]
+    fn recovered_create_promotion_is_not_reported_as_a_replacement() {
+        assert!(!LocalPromotionOutcome::Created.replaced());
+        assert!(LocalPromotionOutcome::Replaced.replaced());
+    }
+
+    #[tokio::test]
+    async fn local_streamed_destination_skips_replace_older_without_source_mtime() {
+        let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
+        let target = directory.path().join("target.txt");
+        tokio::fs::write(&target, b"existing").await.expect("target should be written");
+
+        let error = super::stage_local_request_body_with_target_policy(
+            &target,
+            Body::from("incoming"),
+            8,
+            true,
+            Some((TargetResolutionPolicy::ReplaceOlder, None)),
+        )
+        .await
+        .expect_err("missing source mtime must skip an existing target");
+
+        assert!(matches!(error, LocalTransferWriteError::Io(error) if error.kind() == std::io::ErrorKind::WouldBlock));
+        assert_eq!(tokio::fs::read(&target).await.expect("target should remain"), b"existing");
+    }
+
+    #[tokio::test]
+    async fn streamed_transfer_handler_skips_existing_replace_older_without_source_mtime() {
+        let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
+        let drive = format!("stream-skip-{}", uuid::Uuid::new_v4());
+        super::drives::register_test_drive_path(drive.clone(), directory.path().to_path_buf());
+        let target = directory.path().join("target.txt");
+        tokio::fs::write(&target, b"existing").await.expect("target should be written");
+
+        let response = browse_stream_transfer(
+            Path(drive),
+            Query(StreamTransferQuery {
+                path: "target.txt".to_string(),
+                target_resolution_policy: Some("replace_older".to_string()),
+                expected_size: 8,
+                source_modified_at: None,
+            }),
+            Body::from("incoming"),
+        )
+        .await
+        .expect("missing source timestamp should skip rather than fail");
+
+        assert_eq!(response.0.status, "skipped");
+        assert_eq!(tokio::fs::read(&target).await.expect("target should remain"), b"existing");
+    }
+
+    #[tokio::test]
+    async fn streamed_transfer_handler_skips_existing_replace_older_with_a_malformed_source_timestamp() {
+        let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
+        let drive = format!("stream-malformed-timestamp-{}", uuid::Uuid::new_v4());
+        super::drives::register_test_drive_path(drive.clone(), directory.path().to_path_buf());
+        let target = directory.path().join("target.txt");
+        tokio::fs::write(&target, b"existing").await.expect("target should be written");
+
+        let response = browse_stream_transfer(
+            Path(drive),
+            Query(StreamTransferQuery {
+                path: "target.txt".to_string(),
+                target_resolution_policy: Some("replace_older".to_string()),
+                expected_size: 8,
+                source_modified_at: Some("not-a-timestamp".to_string()),
+            }),
+            Body::from("incoming"),
+        )
+        .await
+        .expect("malformed source timestamp should skip rather than fail");
+
+        assert_eq!(response.0.status, "skipped");
+        assert_eq!(tokio::fs::read(&target).await.expect("target should remain"), b"existing");
+    }
+
+    #[tokio::test]
+    async fn streamed_transfer_handler_replace_older_requires_a_strictly_newer_source() {
+        let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
+        let drive = format!("stream-replace-older-{}", uuid::Uuid::new_v4());
+        super::drives::register_test_drive_path(drive.clone(), directory.path().to_path_buf());
+        let target = directory.path().join("target.txt");
+        tokio::fs::write(&target, b"existing").await.expect("target should be written");
+        let target_mtime = DateTime::<Utc>::from(
+            tokio::fs::metadata(&target)
+                .await
+                .expect("target metadata should be readable")
+                .modified()
+                .expect("target modification time should be readable"),
+        );
+
+        for source_modified_at in [target_mtime - chrono::Duration::seconds(1), target_mtime] {
+            let response = browse_stream_transfer(
+                Path(drive.clone()),
+                Query(StreamTransferQuery {
+                    path: "target.txt".to_string(),
+                    target_resolution_policy: Some("replace_older".to_string()),
+                    expected_size: 8,
+                    source_modified_at: Some(source_modified_at.to_rfc3339()),
+                }),
+                Body::from("incoming"),
+            )
+            .await
+            .expect("older or equal source should be skipped rather than fail");
+
+            assert_eq!(response.0.status, "skipped");
+            assert_eq!(tokio::fs::read(&target).await.expect("target should remain"), b"existing");
+        }
+
+        let response = browse_stream_transfer(
+            Path(drive),
+            Query(StreamTransferQuery {
+                path: "target.txt".to_string(),
+                target_resolution_policy: Some("replace_older".to_string()),
+                expected_size: 8,
+                source_modified_at: Some((target_mtime + chrono::Duration::seconds(1)).to_rfc3339()),
+            }),
+            Body::from("incoming"),
+        )
+        .await
+        .expect("newer source should replace the target");
+
+        assert_eq!(response.0.status, "completed");
+        assert!(response.0.replaced);
+        assert_eq!(tokio::fs::read(&target).await.expect("target should be replaced"), b"incoming");
+    }
+
+    #[tokio::test]
+    async fn streamed_transfer_handler_reports_a_replaced_target() {
+        let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
+        let drive = format!("stream-replace-{}", uuid::Uuid::new_v4());
+        super::drives::register_test_drive_path(drive.clone(), directory.path().to_path_buf());
+        let target = directory.path().join("target.txt");
+        tokio::fs::write(&target, b"existing").await.expect("target should be written");
+
+        let response = browse_stream_transfer(
+            Path(drive),
+            Query(StreamTransferQuery {
+                path: "target.txt".to_string(),
+                target_resolution_policy: Some("replace".to_string()),
+                expected_size: 8,
+                source_modified_at: None,
+            }),
+            Body::from("incoming"),
+        )
+        .await
+        .expect("replacement should succeed");
+
+        assert_eq!(response.0.status, "completed");
+        assert!(response.0.replaced);
+        assert_eq!(tokio::fs::read(&target).await.expect("target should be replaced"), b"incoming");
+    }
+
     #[tokio::test]
     async fn local_streamed_destination_discards_a_truncated_body() {
         let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
         let target = directory.path().join("target.txt");
 
-        let error = super::stage_local_request_body(&target, Body::from("short"), 16)
+        let error = super::stage_local_request_body(&target, Body::from("short"), 16, false)
             .await
             .expect_err("truncated body must not publish a destination");
 
@@ -6465,7 +6825,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
         let target = directory.path().join("target.txt");
 
-        let error = super::stage_local_request_body(&target, Body::from("too long"), 3)
+        let error = super::stage_local_request_body(&target, Body::from("too long"), 3, false)
             .await
             .expect_err("oversized body must not publish a destination");
 
@@ -6490,7 +6850,7 @@ mod tests {
         tokio::fs::rename(&replacement, &source).await.expect("source should be replaced");
 
         assert!(matches!(
-            copy_regular_file_exclusively(&source, &target, &expected, None).await,
+            copy_regular_file_exclusively(&source, &target, &expected, TargetResolutionPolicy::Ask, None, false).await,
             Err(LocalTransferWriteError::SourceChanged)
         ));
         assert!(!target.exists());
@@ -6506,7 +6866,7 @@ mod tests {
         let cancellation = AtomicBool::new(true);
 
         assert!(matches!(
-            copy_regular_file_exclusively(&source, &target, &expected, Some(&cancellation)).await,
+            copy_regular_file_exclusively(&source, &target, &expected, TargetResolutionPolicy::Ask, Some(&cancellation), false).await,
             Err(LocalTransferWriteError::Cancelled)
         ));
         assert!(!target.exists());
@@ -6517,30 +6877,6 @@ mod tests {
                 .file_name()
                 .to_string_lossy()
                 .starts_with(".target.txt.sambee-stage-")));
-    }
-
-    #[tokio::test]
-    async fn local_staged_directory_copy_cancellation_leaves_target_absent() {
-        let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
-        let source = directory.path().join("source");
-        let target = directory.path().join("target");
-        tokio::fs::create_dir(&source).await.expect("source directory should be created");
-        tokio::fs::write(source.join("child.txt"), b"content")
-            .await
-            .expect("source child should be written");
-        let cancellation = AtomicBool::new(true);
-
-        let error = copy_directory_exclusively(&source, &target, Some(&cancellation))
-            .await
-            .expect_err("cancelled directory transfer must not publish a target");
-        assert!(matches!(
-            error,
-            DirectoryCopyError::Failed {
-                destination_mutated: false,
-                error,
-            } if error.kind() == std::io::ErrorKind::Interrupted
-        ));
-        assert!(!target.exists());
     }
 
     #[tokio::test]
@@ -6561,55 +6897,6 @@ mod tests {
 
         assert_eq!(status, StatusCode::NO_CONTENT);
         assert!(reservation.is_cancelled());
-    }
-
-    #[tokio::test]
-    async fn local_directory_copy_rejects_an_existing_root_without_merging_children() {
-        let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
-        let source = directory.path().join("source");
-        let target = directory.path().join("target");
-        tokio::fs::create_dir(&source).await.expect("source directory should be created");
-        tokio::fs::write(source.join("new.txt"), b"new")
-            .await
-            .expect("source child should be written");
-        tokio::fs::create_dir(&target)
-            .await
-            .expect("existing target directory should be created");
-        tokio::fs::write(target.join("existing.txt"), b"existing")
-            .await
-            .expect("target child should be written");
-
-        let error = copy_directory_exclusively(&source, &target, None)
-            .await
-            .expect_err("existing root must be a collision");
-        assert!(matches!(error, DirectoryCopyError::TargetExists));
-        assert_eq!(
-            tokio::fs::read(target.join("existing.txt"))
-                .await
-                .expect("existing child should remain"),
-            b"existing"
-        );
-        assert!(!target.join("new.txt").exists());
-    }
-
-    #[tokio::test]
-    async fn local_directory_copy_discards_its_private_stage_on_failure() {
-        let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
-        let source = directory.path().join("missing-source");
-        let target = directory.path().join("target");
-
-        let error = copy_directory_exclusively(&source, &target, None)
-            .await
-            .expect_err("missing source should fail after exclusive root creation");
-
-        assert!(matches!(
-            error,
-            DirectoryCopyError::Failed {
-                destination_mutated: false,
-                ..
-            }
-        ));
-        assert!(!target.exists());
     }
 
     fn relay_control_payload_example(name: &str) -> serde_json::Value {

@@ -8,12 +8,13 @@ from app.services.content_transfer import (
     ContentTransferPlan,
     RegularFileSourceSnapshot,
     SourceChangedError,
+    SourceDeleteError,
     TargetMutationCommitted,
     TargetMutationTargetExistsBeforeMutation,
     resolve_regular_file_transfer,
     resolve_target_mutation_attempt,
 )
-from app.services.cross_connection import DirectoryTransferError, TransferCancelled, cross_connection_copy, cross_connection_move
+from app.services.cross_connection import RegularFileTransferRequiredError, TransferCancelled, cross_connection_copy, cross_connection_move
 from app.services.target_resolution import TargetResolutionDisposition, TargetResolutionPolicy
 
 
@@ -91,6 +92,24 @@ class RetainedMoveSource(MemoryTransferBackend):
         return Reader()
 
 
+class TargetChangesBeforeCommitBackend(MemoryTransferBackend):
+    def __init__(self, files: dict[str, bytes], modified_at: datetime, updated_modified_at: datetime) -> None:
+        super().__init__(files, modified_at)
+        self.updated_modified_at = updated_modified_at
+
+    async def stage_and_commit_new_file_from_stream(
+        self, path: str, stream, *, before_commit, overwrite: bool = False, **_kwargs: object
+    ) -> int:
+        staged_content = b"".join([chunk async for chunk in stream])
+        self.modified_at = self.updated_modified_at
+        await before_commit()
+        if path in self.files and not overwrite:
+            raise FileExistsError(path)
+        self.write_count += 1
+        self.files[path] = staged_content
+        return len(staged_content)
+
+
 @pytest.mark.asyncio
 async def test_replace_older_skips_when_target_is_newer_without_attempting_write() -> None:
     now = datetime.now(timezone.utc)
@@ -98,7 +117,7 @@ async def test_replace_older_skips_when_target_is_newer_without_attempting_write
     target = file_info("target.txt", now + timedelta(seconds=1))
     attempt_count = 0
 
-    async def attempt_create() -> None:
+    async def attempt_create(_disposition: TargetResolutionDisposition) -> None:
         nonlocal attempt_count
         attempt_count += 1
 
@@ -116,13 +135,64 @@ async def test_replace_older_skips_when_target_is_newer_without_attempting_write
 
 
 @pytest.mark.asyncio
+async def test_replace_older_skips_when_target_becomes_newer_before_commit() -> None:
+    now = datetime.now(timezone.utc)
+    source = MemoryTransferBackend({"source.txt": b"new"}, now)
+    target = TargetChangesBeforeCommitBackend({"target.txt": b"old"}, now - timedelta(seconds=1), now + timedelta(seconds=1))
+
+    bytes_written, _ = await cross_connection_copy(
+        source,
+        target,
+        "source.txt",
+        "target.txt",
+        target_resolution_policy=TargetResolutionPolicy.REPLACE_OLDER,
+    )
+
+    assert bytes_written is None
+    assert target.files["target.txt"] == b"old"
+    assert target.write_count == 0
+
+
+@pytest.mark.asyncio
+async def test_cross_connection_copy_reports_factual_replacement() -> None:
+    now = datetime.now(timezone.utc)
+
+    class ReplacementBackend(MemoryTransferBackend):
+        async def stage_and_commit_new_file_from_stream(
+            self, path: str, stream, *, before_commit, overwrite: bool = False, **_kwargs: object
+        ) -> int:
+            staged_content = b"".join([chunk async for chunk in stream])
+            await before_commit()
+            if path in self.files and not overwrite:
+                raise FileExistsError(path)
+            self.write_count += 1
+            self.files[path] = staged_content
+            return len(staged_content)
+
+    source = MemoryTransferBackend({"source.txt": b"new"}, now)
+    target = ReplacementBackend({"target.txt": b"old"}, now - timedelta(seconds=1))
+
+    result = await cross_connection_copy(
+        source,
+        target,
+        "source.txt",
+        "target.txt",
+        target_resolution_policy=TargetResolutionPolicy.REPLACE,
+    )
+
+    assert result.replaced is True
+    assert result.bytes_written == len(b"new")
+    assert target.files["target.txt"] == b"new"
+
+
+@pytest.mark.asyncio
 async def test_replace_returns_refreshed_conflict_when_guarded_replacement_is_unavailable() -> None:
     now = datetime.now(timezone.utc)
     source = file_info("source.txt", now)
     target = file_info("target.txt", now - timedelta(seconds=1))
     attempt_count = 0
 
-    async def attempt_create() -> None:
+    async def attempt_create(_disposition: TargetResolutionDisposition) -> None:
         nonlocal attempt_count
         attempt_count += 1
 
@@ -149,7 +219,7 @@ async def test_late_create_collision_uses_one_fresh_retry() -> None:
     async def observe_target() -> FileInfo:
         raise FileNotFoundError
 
-    async def attempt_create() -> None:
+    async def attempt_create(_disposition: TargetResolutionDisposition) -> None:
         nonlocal attempt_count
         attempt_count += 1
         if attempt_count == 1:
@@ -177,7 +247,7 @@ async def test_successful_create_returns_the_single_committed_attempt_result() -
     async def observe_target() -> FileInfo:
         raise FileNotFoundError
 
-    async def attempt_create() -> int:
+    async def attempt_create(_disposition: TargetResolutionDisposition) -> int:
         nonlocal attempt_count
         attempt_count += 1
         return 42
@@ -350,7 +420,71 @@ async def test_skipped_regular_file_move_keeps_its_retained_source() -> None:
 
 
 @pytest.mark.asyncio
-async def test_skipped_directory_move_keeps_source_unchanged() -> None:
+async def test_unmanaged_move_source_keeps_a_skipped_transfer_skipped() -> None:
+    now = datetime.now(timezone.utc)
+    source = MemoryTransferBackend({"source.txt": b"content"}, now)
+    target = MemoryTransferBackend({"target.txt": b"existing"}, now)
+
+    async def unavailable_move_reader(_path: str):
+        raise NotImplementedError
+
+    source.open_move_source_reader = unavailable_move_reader  # type: ignore[attr-defined]
+
+    result = await cross_connection_move(
+        source,
+        target,
+        "source.txt",
+        "target.txt",
+        target_resolution_policy=TargetResolutionPolicy.SKIP,
+    )
+
+    assert result.bytes_written is None
+    assert result.replaced is False
+    assert source.files == {"source.txt": b"content"}
+    assert target.files == {"target.txt": b"existing"}
+
+
+@pytest.mark.asyncio
+async def test_unmanaged_move_source_retention_preserves_a_replacement_fact() -> None:
+    now = datetime.now(timezone.utc)
+
+    class ReplacementBackend(MemoryTransferBackend):
+        async def stage_and_commit_new_file_from_stream(
+            self, path: str, stream, *, before_commit, overwrite: bool = False, **_kwargs: object
+        ) -> int:
+            staged_content = b"".join([chunk async for chunk in stream])
+            await before_commit()
+            if path in self.files and not overwrite:
+                raise FileExistsError(path)
+            self.write_count += 1
+            self.files[path] = staged_content
+            return len(staged_content)
+
+    source = MemoryTransferBackend({"source.txt": b"content"}, now)
+    target = ReplacementBackend({"target.txt": b"existing"}, now - timedelta(seconds=1))
+
+    async def unavailable_move_reader(_path: str):
+        raise NotImplementedError
+
+    source.open_move_source_reader = unavailable_move_reader  # type: ignore[attr-defined]
+
+    with pytest.raises(SourceDeleteError) as error:
+        await cross_connection_move(
+            source,
+            target,
+            "source.txt",
+            "target.txt",
+            target_resolution_policy=TargetResolutionPolicy.REPLACE,
+        )
+
+    assert error.value.destination_mutated is True
+    assert error.value.replaced is True
+    assert source.files == {"source.txt": b"content"}
+    assert target.files == {"target.txt": b"content"}
+
+
+@pytest.mark.asyncio
+async def test_directory_move_is_rejected_without_mutating_either_side() -> None:
     now = datetime.now(timezone.utc)
 
     class DirectoryTransferBackend(MemoryTransferBackend):
@@ -380,16 +514,15 @@ async def test_skipped_directory_move_keeps_source_unchanged() -> None:
         )
     )
 
-    bytes_written, source_info = await cross_connection_move(
-        source,
-        target,
-        "source",
-        "target",
-        target_resolution_policy=TargetResolutionPolicy.SKIP,
-    )
+    with pytest.raises(RegularFileTransferRequiredError, match="Directory transfers"):
+        await cross_connection_move(
+            source,
+            target,
+            "source",
+            "target",
+            target_resolution_policy=TargetResolutionPolicy.SKIP,
+        )
 
-    assert bytes_written is None
-    assert source_info.path == "source"
     assert source.files == {"source": b"directory"}
     assert target.files == {"target": b"directory"}
 
@@ -422,7 +555,7 @@ async def test_source_change_before_staged_commit_leaves_target_unchanged() -> N
 
 
 @pytest.mark.asyncio
-async def test_directory_child_failure_discards_the_private_stage() -> None:
+async def test_directory_copy_is_rejected_without_creating_a_stage() -> None:
     now = datetime.now(timezone.utc)
 
     class DirectoryTransferBackend(MemoryTransferBackend):
@@ -467,15 +600,14 @@ async def test_directory_child_failure_discards_the_private_stage() -> None:
         )
     )
 
-    with pytest.raises(DirectoryTransferError, match="child target already exists") as error:
+    with pytest.raises(RegularFileTransferRequiredError, match="Directory transfers"):
         await cross_connection_copy(source, target, "source", "target")
 
-    assert not error.value.destination_mutated
     assert target.files == {}
 
 
 @pytest.mark.asyncio
-async def test_directory_move_deletes_source_after_destination_copy() -> None:
+async def test_directory_move_is_rejected_without_deleting_the_source() -> None:
     now = datetime.now(timezone.utc)
 
     class DirectoryTransferBackend(MemoryTransferBackend):
@@ -513,12 +645,11 @@ async def test_directory_move_deletes_source_after_destination_copy() -> None:
         )
     )
 
-    bytes_written, source_info = await cross_connection_move(source, target, "source", "target")
+    with pytest.raises(RegularFileTransferRequiredError, match="Directory transfers"):
+        await cross_connection_move(source, target, "source", "target")
 
-    assert bytes_written is None
-    assert source_info.path == "source"
-    assert source.files == {}
-    assert target.files == {"target": b"directory", "target/child.txt": b"content"}
+    assert source.files == {"source": b"directory", "source/child.txt": b"content"}
+    assert target.files == {}
 
 
 def test_source_snapshot_rejects_an_identity_that_appears_after_planning() -> None:

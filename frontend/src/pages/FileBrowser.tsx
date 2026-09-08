@@ -88,6 +88,7 @@ import {
   type ContentOperationExecution,
   cancelForegroundArchiveOperationOnPageHide,
   executeTransfer,
+  executeTransferTree,
   getCreateContainerAvailability,
   getLocationDisplayName,
   getTransferAvailability,
@@ -109,7 +110,7 @@ import type {
   PhysicalLocation,
   VirtualLocation,
 } from "./FileBrowser/contentProviders";
-import { physicalLocation, virtualLocation } from "./FileBrowser/contentProviders";
+import { isDirectory, physicalLocation, virtualLocation } from "./FileBrowser/contentProviders";
 import { FileBrowserPane } from "./FileBrowser/FileBrowserPane";
 import {
   readFileBrowserPaneModePreference,
@@ -142,9 +143,9 @@ const COMPANION_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
 
 const COMPANION_STATUS_QUERY_PARAM = "companion_status";
 const IGNORED_REALTIME_MESSAGE_TYPES = new Set(["subscribed", "unsubscribed", "pong"]);
-const COPY_MOVE_FILE_CONFLICT_ACTIONS: readonly ConflictResolution[] = ["skip", "rename"];
+const COPY_MOVE_FILE_CONFLICT_ACTIONS: readonly ConflictResolution[] = ["skip", "overwrite", "overwrite-older", "rename"];
 const COPY_MOVE_DIRECTORY_CONFLICT_ACTIONS: readonly ConflictResolution[] = ["skip", "rename"];
-type CopyMoveConflictPolicy = "ask" | "skip-all";
+type CopyMoveConflictPolicy = TargetResolutionPolicy;
 
 function parentPath(path: string): string {
   const separatorIndex = path.lastIndexOf("/");
@@ -167,6 +168,7 @@ export function getCopyMoveConflictActions(conflict: ConflictInfo | null): reado
 }
 
 export function targetResolutionPolicyForConflictResolution(resolution: ConflictResolution): TargetResolutionPolicy {
+  if (resolution === "skip") return "skip";
   if (resolution === "overwrite") return "replace";
   if (resolution === "overwrite-older") return "replace_older";
   return "ask";
@@ -535,6 +537,7 @@ const Browser: React.FC = () => {
   const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
   const [conflictInfo, setConflictInfo] = useState<ConflictInfo | null>(null);
   const [conflictProgress, setConflictProgress] = useState<{ current: number; total: number; conflictsSoFar: number } | undefined>();
+  const [treeConflictAllowsApplyToAll, setTreeConflictAllowsApplyToAll] = useState(false);
   /** Ref holding the resolve function of a Promise used to pause the processing loop while the conflict dialog is open. */
   const conflictResolveRef = React.useRef<((value: ConflictDecision | null) => void) | null>(null);
 
@@ -1876,6 +1879,7 @@ const Browser: React.FC = () => {
       setCopyMoveWarning(null);
       setCopyMoveTransferProgress(null);
       setCopyMoveProgress({ current: 0, total: copyMoveItems.length });
+      setTreeConflictAllowsApplyToAll(false);
       const abortController = new AbortController();
       copyMoveAbortControllerRef.current = abortController;
       const errors: string[] = [];
@@ -1897,8 +1901,46 @@ const Browser: React.FC = () => {
             setCopyMoveTransferProgress({ bytesTransferred, totalBytes, itemName: item.entry.name }),
         } as const;
         let targetName = destFileName;
-        const execute = (targetResolutionPolicy: TargetResolutionPolicy = "ask") =>
-          executeTransfer({ ...request, targetName, targetResolutionPolicy }, contentOperationEnvironment);
+        const requestConflictDecision = async (
+          conflict: ConflictInfo,
+          _allowedActions: readonly ConflictDecision["resolution"][],
+          treeProgress: { completed: number; discovered: number }
+        ) => {
+          conflictCount += 1;
+          setConflictInfo(conflict);
+          setConflictProgress({
+            current: treeProgress.completed,
+            total: Math.max(treeProgress.completed, treeProgress.discovered, 1),
+            conflictsSoFar: conflictCount,
+          });
+          setTreeConflictAllowsApplyToAll(true);
+          try {
+            return await new Promise<ConflictDecision | null>((resolve) => {
+              conflictResolveRef.current = resolve;
+              setConflictDialogOpen(true);
+            });
+          } finally {
+            setConflictDialogOpen(false);
+            setTreeConflictAllowsApplyToAll(false);
+          }
+        };
+        const execute = (targetResolutionPolicy: TargetResolutionPolicy = effectiveStrategy) =>
+          isDirectory(item)
+            ? executeTransferTree(
+                {
+                  ...request,
+                  targetName,
+                  targetResolutionPolicy,
+                  onConflict: requestConflictDecision,
+                  onTreeProgress: (completed, discovered) =>
+                    setCopyMoveProgress({ current: completed, total: Math.max(completed, discovered) }),
+                  onPolicyChange: (policy) => {
+                    effectiveStrategy = policy;
+                  },
+                },
+                contentOperationEnvironment
+              )
+            : executeTransfer({ ...request, targetName, targetResolutionPolicy }, contentOperationEnvironment);
         const applyTransferResult = (result: import("./services/storageContracts").ContentTransferResult) => {
           if (result.status === "completed" || result.status === "skipped") return;
           if (result.status === "completed_with_source_retained") {
@@ -1930,7 +1972,7 @@ const Browser: React.FC = () => {
           if (isApiError(error) && error.response?.status === 409) {
             const detail = error.response?.data?.detail;
             let conflict = typeof detail === "object" && detail !== null ? (detail as ConflictInfo) : null;
-            if (conflict && effectiveStrategy === "ask") {
+            if (conflict) {
               let resolutionHandled = false;
               while (conflict) {
                 conflictCount += 1;
@@ -1945,8 +1987,8 @@ const Browser: React.FC = () => {
                   operationCancelled = true;
                   break;
                 }
-                if (decision.applyToAll && decision.resolution === "skip") {
-                  effectiveStrategy = "skip-all";
+                if (decision.applyToAll && decision.resolution !== "rename") {
+                  effectiveStrategy = targetResolutionPolicyForConflictResolution(decision.resolution);
                 }
                 if (decision.resolution === "skip") {
                   resolutionHandled = true;
@@ -1966,7 +2008,7 @@ const Browser: React.FC = () => {
                 } catch (retryError) {
                   const retryDetail = isApiError(retryError) ? retryError.response?.data?.detail : null;
                   const retryConflict = typeof retryDetail === "object" && retryDetail !== null ? (retryDetail as ConflictInfo) : null;
-                  if (decision.resolution === "rename" && isApiError(retryError) && retryError.response?.status === 409 && retryConflict) {
+                  if (isApiError(retryError) && retryError.response?.status === 409 && retryConflict) {
                     conflict = retryConflict;
                     continue;
                   }
@@ -1984,10 +2026,6 @@ const Browser: React.FC = () => {
               if (resolutionHandled) {
                 continue;
               }
-            }
-
-            if (effectiveStrategy === "skip-all") {
-              continue;
             }
           }
 
@@ -3359,6 +3397,7 @@ const Browser: React.FC = () => {
         conflict={conflictInfo}
         operation={copyMoveMode}
         allowedActions={getCopyMoveConflictActions(conflictInfo)}
+        canApplyToAll={treeConflictAllowsApplyToAll ? () => true : undefined}
         progress={conflictProgress}
         sourcePath={
           conflictInfo && copyMoveItems[0]
