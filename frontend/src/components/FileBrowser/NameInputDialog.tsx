@@ -17,11 +17,19 @@
  * - Auto-focus on open and re-focus on new API errors
  */
 
-import { Alert, Box, Button, CircularProgress, TextField } from "@mui/material";
+import { Box, Button, CircularProgress, TextField } from "@mui/material";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
-import { SettingsFormGroup, SettingsFormRow, SettingsFormSurface, settingsFormOutlinedControlSx } from "../Settings/SettingsFormLayout";
+import {
+  DialogFieldFeedback,
+  DialogFormNotice,
+  dialogFormHelperTextSx,
+  SettingsFormGroup,
+  SettingsFormRow,
+  SettingsFormSurface,
+  settingsFormOutlinedControlSx,
+} from "../Settings/SettingsFormLayout";
 import { FILENAME_FIELD_PROPS, FILENAME_INPUT_PROPS, FILENAME_INPUT_SX } from "./filenameFieldProps";
 import { NAME_DIALOG_STRINGS, validateItemName } from "./nameDialogStrings";
 
@@ -46,6 +54,8 @@ interface NameInputDialogProps {
   submittingLabel: string;
   /** Optional content that replaces the form during an active operation. */
   submittingContent?: React.ReactNode;
+  /** Read-only operation context shown above the editable field. */
+  operationContext?: React.ReactNode;
   /** Whether an operation is in progress */
   isSubmitting: boolean;
   /** Whether cancellation of an active operation is in progress. */
@@ -86,6 +96,7 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
   submitLabel,
   submittingLabel,
   submittingContent,
+  operationContext,
   isSubmitting,
   isCancelling = false,
   onClose,
@@ -97,6 +108,7 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
   autoSelectRange,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
+  const cancelSubmittingRef = useRef<HTMLButtonElement>(null);
   const [value, setValue] = useState(initialValue);
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -138,6 +150,12 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
       selectText();
     }
   }, [apiError, open, selectText]);
+
+  useEffect(() => {
+    if (!open || !isSubmitting || !onCancelSubmitting) return;
+    const frame = requestAnimationFrame(() => cancelSubmittingRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [isSubmitting, onCancelSubmitting, open]);
 
   //
   // handleChange
@@ -194,6 +212,7 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
 
   const formContent = (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      {operationContext}
       <SettingsFormSurface>
         <SettingsFormGroup>
           <SettingsFormRow sx={{ display: { md: "block" } }}>
@@ -206,23 +225,16 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
               onKeyDown={handleKeyDown}
               disabled={isSubmitting}
               error={hasError}
-              helperText={validationError ?? " "}
+              helperText={<DialogFieldFeedback message={validationError} />}
               variant="outlined"
               {...FILENAME_FIELD_PROPS}
-              slotProps={{ htmlInput: FILENAME_INPUT_PROPS }}
+              slotProps={{ htmlInput: FILENAME_INPUT_PROPS, formHelperText: { sx: dialogFormHelperTextSx } }}
               sx={[settingsFormOutlinedControlSx, FILENAME_INPUT_SX]}
             />
           </SettingsFormRow>
         </SettingsFormGroup>
       </SettingsFormSurface>
-      <Alert
-        aria-hidden={!showApiError}
-        data-testid="name-input-api-error"
-        severity="error"
-        sx={{ visibility: showApiError ? "visible" : "hidden" }}
-      >
-        {apiError ?? " "}
-      </Alert>
+      <DialogFormNotice message={showApiError ? apiError : null} testId="name-input-api-error" />
     </Box>
   );
 
@@ -237,14 +249,14 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
       actions={
         isSubmitting && submittingContent ? (
           onCancelSubmitting ? (
-            <Button onClick={onCancelSubmitting} disabled={isCancelling}>
+            <Button ref={cancelSubmittingRef} onClick={onCancelSubmitting} disabled={isCancelling}>
               {cancelSubmittingLabel ?? NAME_DIALOG_STRINGS.BUTTON_CANCEL}
             </Button>
           ) : null
         ) : (
           <>
             {isSubmitting && onCancelSubmitting ? (
-              <Button onClick={onCancelSubmitting} disabled={isCancelling}>
+              <Button ref={cancelSubmittingRef} onClick={onCancelSubmitting} disabled={isCancelling}>
                 {cancelSubmittingLabel ?? NAME_DIALOG_STRINGS.BUTTON_CANCEL}
               </Button>
             ) : (
@@ -265,7 +277,14 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
       }
       maxWidth="sm"
     >
-      {isSubmitting && submittingContent ? submittingContent : formContent}
+      {isSubmitting && submittingContent ? (
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          {operationContext}
+          {submittingContent}
+        </Box>
+      ) : (
+        formContent
+      )}
     </ResponsiveFormDialog>
   );
 };

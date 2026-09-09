@@ -18,12 +18,12 @@ export const COPY_MOVE_STRINGS = {
     return translate("common.actions.move");
   },
 
-  // Prompts (action text — destination is shown separately)
-  PROMPT_COPY_MULTI(count: number) {
-    return translate("fileBrowser.copyMove.promptCopyMulti", { count });
+  // Outcome descriptions (destination is shown separately)
+  DESCRIPTION_COPY_MULTI(count: number) {
+    return translate("fileBrowser.copyMove.descriptionCopyMultiple", { count });
   },
-  PROMPT_MOVE_MULTI(count: number) {
-    return translate("fileBrowser.copyMove.promptMoveMulti", { count });
+  DESCRIPTION_MOVE_MULTI(count: number) {
+    return translate("fileBrowser.copyMove.descriptionMoveMultiple", { count });
   },
 
   // Labels

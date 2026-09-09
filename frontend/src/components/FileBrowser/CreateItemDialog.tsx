@@ -15,11 +15,11 @@
 
 import { Typography } from "@mui/material";
 import type React from "react";
-import { Trans } from "react-i18next";
+import { useTranslation } from "react-i18next";
 import { FileType } from "../../types";
 import { CREATE_ITEM_DIALOG_STRINGS } from "./createItemDialogStrings";
+import { DialogOperationContext } from "./DialogOperationContext";
 import { formatConnectionPath } from "./formatConnectionPath";
-import { InlineItemName } from "./InlineItemName";
 import NameInputDialog from "./NameInputDialog";
 
 // ============================================================================
@@ -59,16 +59,13 @@ const CreateItemDialog: React.FC<CreateItemDialogProps> = ({
   onConfirm,
   apiError,
 }) => {
+  const { t } = useTranslation();
   const isDirectory = itemType === FileType.DIRECTORY;
   const title = isDirectory ? CREATE_ITEM_DIALOG_STRINGS.TITLE_DIRECTORY : CREATE_ITEM_DIALOG_STRINGS.TITLE_FILE;
   const targetDirectory = formatConnectionPath(targetConnectionName, targetPath);
   const description = (
     <Typography variant="body2" sx={{ color: "text.secondary" }}>
-      <Trans
-        i18nKey={isDirectory ? "fileBrowser.createItem.promptDirectory" : "fileBrowser.createItem.promptFile"}
-        values={{ directory: targetDirectory }}
-        components={{ directory: <InlineItemName testId="create-item-prompt-directory" /> }}
-      />
+      {t(isDirectory ? "fileBrowser.createItem.descriptionDirectory" : "fileBrowser.createItem.descriptionFile")}
     </Typography>
   );
 
@@ -81,6 +78,11 @@ const CreateItemDialog: React.FC<CreateItemDialogProps> = ({
       initialValue=""
       submitLabel={CREATE_ITEM_DIALOG_STRINGS.BUTTON_CREATE}
       submittingLabel={CREATE_ITEM_DIALOG_STRINGS.BUTTON_CREATING}
+      operationContext={
+        <DialogOperationContext
+          entries={[{ label: t("fileBrowser.operationContext.destinationDirectory"), value: targetDirectory, kind: "path" }]}
+        />
+      }
       isSubmitting={isCreating}
       onClose={onClose}
       onConfirm={onConfirm}

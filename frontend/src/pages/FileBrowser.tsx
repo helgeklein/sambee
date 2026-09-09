@@ -21,16 +21,16 @@
 
 import { AppBar, Box, Container, Divider, Snackbar, Toolbar, Typography, useMediaQuery, useTheme } from "@mui/material";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Trans, useTranslation } from "react-i18next";
+import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArchiveExtractDialog, type ArchiveExtractionScope } from "../components/FileBrowser/ArchiveExtractDialog";
 import { ArchiveOperationProgress } from "../components/FileBrowser/ArchiveOperationProgress";
 import CopyMoveDialog, { type CopyMoveMode } from "../components/FileBrowser/CopyMoveDialog";
 import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
+import { DialogOperationContext } from "../components/FileBrowser/DialogOperationContext";
 import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
 import type { CompanionLifecycleStatus } from "../components/FileBrowser/FileBrowserAlerts";
 import { FileBrowserAlerts } from "../components/FileBrowser/FileBrowserAlerts";
-import { InlineItemName } from "../components/FileBrowser/InlineItemName";
 import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
 import NameInputDialog from "../components/FileBrowser/NameInputDialog";
 import {
@@ -3290,13 +3290,28 @@ const Browser: React.FC = () => {
         title={t("fileBrowser.archive.createTitle")}
         description={
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            <Trans
-              i18nKey="fileBrowser.archive.createPrompt"
-              count={archiveCreateContext?.sources.length ?? 0}
-              values={{ directory: archiveCreateContext?.destinationLabel ?? "" }}
-              components={{ directory: <InlineItemName testId="archive-create-prompt-directory" /> }}
-            />
+            {t("fileBrowser.archive.createDescription", { count: archiveCreateContext?.sources.length ?? 0 })}
           </Typography>
+        }
+        operationContext={
+          <DialogOperationContext
+            entries={[
+              ...(archiveCreateContext?.sources.length === 1
+                ? [
+                    {
+                      label: t("fileBrowser.operationContext.sourceItem"),
+                      value: fileName(archiveCreateContext.sources[0]!.path),
+                      kind: "fileName" as const,
+                    },
+                  ]
+                : []),
+              {
+                label: t("fileBrowser.operationContext.destinationDirectory"),
+                value: archiveCreateContext?.destinationLabel ?? "",
+                kind: "path",
+              },
+            ]}
+          />
         }
         inputLabel={t("fileBrowser.archive.nameLabel")}
         initialValue="archive.zip"
@@ -3316,7 +3331,7 @@ const Browser: React.FC = () => {
         apiError={archiveCreateError}
         extraValidate={(name) => (name.toLowerCase().endsWith(".zip") ? null : t("fileBrowser.archive.validationExtension"))}
         autoSelectRange={[0, "archive".length]}
-        submittingContent={<ArchiveOperationProgress currentItem={archiveCreateContext?.sources[0]?.path ?? ""} />}
+        submittingContent={<ArchiveOperationProgress operation="create" />}
       />
       <ArchiveExtractDialog
         archiveName={archiveExtractionContext?.archiveName ?? ""}

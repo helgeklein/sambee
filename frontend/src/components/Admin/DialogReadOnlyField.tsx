@@ -1,8 +1,8 @@
 import type { SxProps, Theme } from "@mui/material";
 import { TextField } from "@mui/material";
-import type { ChangeEventHandler, FocusEventHandler, Ref } from "react";
+import type { ChangeEventHandler, FocusEventHandler, ReactNode, Ref } from "react";
 import { DIALOG_FORM_SURFACE_CSS_VARIABLE, getModeAdjustedSurfaceColor } from "../../theme/palette";
-import { settingsFormOutlinedControlSx } from "../Settings/SettingsFormLayout";
+import { dialogFormHelperTextSx, settingsFormOutlinedControlSx } from "../Settings/SettingsFormLayout";
 
 interface DialogReadOnlyFieldProps {
   id?: string;
@@ -14,7 +14,7 @@ interface DialogReadOnlyFieldProps {
   onChange?: ChangeEventHandler<HTMLInputElement | HTMLTextAreaElement>;
   inputRef?: Ref<HTMLInputElement>;
   error?: boolean;
-  helperText?: string;
+  helperText?: ReactNode;
   autoFocus?: boolean;
   onFocus?: FocusEventHandler<HTMLInputElement | HTMLTextAreaElement>;
   size?: "small" | "medium";
@@ -71,6 +71,7 @@ export function DialogReadOnlyField({
           "aria-describedby": ariaDescribedBy,
           "aria-readonly": !editable,
         },
+        formHelperText: { sx: dialogFormHelperTextSx },
       }}
       sx={[
         settingsFormOutlinedControlSx,

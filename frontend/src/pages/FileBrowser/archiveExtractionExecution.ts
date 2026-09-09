@@ -34,12 +34,21 @@ function archiveExtractionSummary(checkpointJson: string | undefined): ArchiveEx
       filesExtracted: nonNegativeCounter(aggregate.files_extracted),
       directoriesCreated: nonNegativeCounter(aggregate.directories_created),
       extractedBytes: nonNegativeCounter(aggregate.extracted_bytes),
+      membersProcessed: nonNegativeCounter(aggregate.members_processed),
       filesSkipped: nonNegativeCounter(aggregate.members_skipped),
       filesReplaced: nonNegativeCounter(aggregate.files_replaced),
       partialMembers: 0,
     };
   } catch {
-    return { filesExtracted: 0, directoriesCreated: 0, extractedBytes: 0, filesSkipped: 0, filesReplaced: 0, partialMembers: 0 };
+    return {
+      filesExtracted: 0,
+      directoriesCreated: 0,
+      extractedBytes: 0,
+      membersProcessed: 0,
+      filesSkipped: 0,
+      filesReplaced: 0,
+      partialMembers: 0,
+    };
   }
 }
 
@@ -48,6 +57,7 @@ function responseExtractionSummary(result: {
     files_extracted: number;
     directories_created: number;
     extracted_bytes: number;
+    members_processed: number;
     members_skipped: number;
     files_replaced: number;
   };
@@ -57,6 +67,7 @@ function responseExtractionSummary(result: {
     filesExtracted: nonNegativeCounter(aggregate?.files_extracted),
     directoriesCreated: nonNegativeCounter(aggregate?.directories_created),
     extractedBytes: nonNegativeCounter(aggregate?.extracted_bytes),
+    membersProcessed: nonNegativeCounter(aggregate?.members_processed),
     filesSkipped: nonNegativeCounter(aggregate?.members_skipped),
     filesReplaced: nonNegativeCounter(aggregate?.files_replaced),
     partialMembers: 0,
@@ -67,6 +78,7 @@ function companionExtractionOutcome(result: {
   files_extracted: number;
   directories_created: number;
   extracted_bytes: number;
+  members_processed: number;
   members_skipped: number;
   files_replaced: number;
   phase?: string;

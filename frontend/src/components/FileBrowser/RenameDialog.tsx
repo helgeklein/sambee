@@ -16,9 +16,8 @@
 import { Typography } from "@mui/material";
 import type React from "react";
 import { useMemo } from "react";
-import { Trans } from "react-i18next";
+import { useTranslation } from "react-i18next";
 import { FileType } from "../../types";
-import { InlineItemName } from "./InlineItemName";
 import NameInputDialog from "./NameInputDialog";
 import { RENAME_DIALOG_STRINGS } from "./renameDialogStrings";
 
@@ -64,16 +63,13 @@ function getNameSelectionRange(name: string, isDirectory: boolean): [number, num
 // ============================================================================
 
 const RenameDialog: React.FC<RenameDialogProps> = ({ open, itemName, itemType, isRenaming, onClose, onConfirm, apiError }) => {
+  const { t } = useTranslation();
   const isDirectory = itemType === FileType.DIRECTORY;
   const title = isDirectory ? RENAME_DIALOG_STRINGS.TITLE_DIRECTORY : RENAME_DIALOG_STRINGS.TITLE_FILE;
   const autoSelectRange = useMemo(() => getNameSelectionRange(itemName, isDirectory), [itemName, isDirectory]);
   const description = (
     <Typography variant="body2" sx={{ color: "text.secondary" }}>
-      <Trans
-        i18nKey="fileBrowser.rename.prompt"
-        values={{ name: itemName }}
-        components={{ item: <InlineItemName testId="rename-prompt-item-name" /> }}
-      />
+      {t("fileBrowser.rename.description")}
     </Typography>
   );
 

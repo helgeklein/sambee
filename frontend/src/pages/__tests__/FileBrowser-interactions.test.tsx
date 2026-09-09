@@ -325,10 +325,10 @@ describe("Browser Component - Interactions", () => {
       fireEvent(document, event);
 
       expect(event.defaultPrevented).toBe(true);
-      const directory = await screen.findByTestId("archive-create-prompt-directory");
+      const directory = await screen.findByLabelText("Test Server 1:/");
       expect(directory).toHaveTextContent("Test Server 1:/");
-      expect(directory.tagName).toBe("CODE");
-      expect(directory.parentElement).toHaveTextContent("Create a ZIP archive in Test Server 1:/ from 1 selected item.");
+      expect(screen.getByText("Destination directory")).toBeInTheDocument();
+      expect(screen.getByText("Create a ZIP archive from 1 selected item in the destination directory.")).toBeInTheDocument();
 
       fireEvent.keyDown(document, { key: "Tab" });
       expect(localStorage.getItem("active-pane")).toBe("right");
@@ -607,8 +607,8 @@ describe("Browser Component - Interactions", () => {
       expect(targetName).toHaveValue("alternate.txt");
       await user.click(screen.getByRole("button", { name: "Continue" }));
 
-      expect(await screen.findByRole("textbox", { name: "Target name" })).toHaveValue("alternate.txt");
-      await user.click(screen.getByRole("radio", { name: "Rename" }));
+      await user.click(await screen.findByRole("radio", { name: "Rename" }));
+      expect(await screen.findByRole("textbox", { name: "Target name" })).toHaveValue("alternate (copy).txt");
       await user.click(screen.getByRole("button", { name: "Continue" }));
 
       await waitFor(() => expect(api.copyItem).toHaveBeenCalledTimes(3));
@@ -1067,7 +1067,8 @@ describe("Browser Component - Interactions", () => {
       fireEvent.keyDown(document, { key: "F9", altKey: true });
 
       const extractDialog = await screen.findByRole("dialog", { name: "Extract from ZIP Archive" });
-      expect(within(extractDialog).getByLabelText("Destination directory")).toHaveValue("Test Server 2:/");
+      expect(within(extractDialog).getByText("Destination directory")).toBeInTheDocument();
+      expect(within(extractDialog).getByLabelText("Test Server 2:/")).toHaveTextContent("Test Server 2:/");
       const locationBeforeTab = screen.getByTestId("router-location").textContent;
       fireEvent.keyDown(document, { key: "Tab" });
       expect(screen.getByTestId("router-location")).toHaveTextContent(locationBeforeTab ?? "");
@@ -1117,10 +1118,9 @@ describe("Browser Component - Interactions", () => {
       fireEvent.keyDown(document, { key: "F5" });
 
       const extractDialog = await screen.findByRole("dialog", { name: "Extract from ZIP Archive" });
-      expect(within(extractDialog).getByTestId("archive-extract-prompt-name")).toHaveTextContent("inside.txt");
-      const destination = within(extractDialog).getByLabelText("Destination directory");
-      expect(destination).toHaveValue("Test Server 2:/");
-      expect(destination).toHaveAttribute("readonly");
+      expect(within(extractDialog).getByLabelText("inside.txt")).toHaveTextContent("inside.txt");
+      expect(within(extractDialog).getByText("Destination directory")).toBeInTheDocument();
+      expect(within(extractDialog).getByLabelText("Test Server 2:/")).toHaveTextContent("Test Server 2:/");
       await user.click(within(extractDialog).getByRole("button", { name: "Extract" }));
 
       await waitFor(() => {

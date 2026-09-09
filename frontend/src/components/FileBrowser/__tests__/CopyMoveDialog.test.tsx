@@ -15,9 +15,10 @@
  * - Error message displayed when present
  */
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import i18n from "../../../i18n";
 import type { FileEntry } from "../../../types";
 import { FileType } from "../../../types";
 import CopyMoveDialog from "../CopyMoveDialog";
@@ -74,46 +75,66 @@ describe("CopyMoveDialog", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Close" })).toHaveFocus());
   });
 
-  it("shows single-item copy prompt with destination", () => {
+  it("shows single-item copy context with source and destination on separate lines", () => {
     const props = { ...defaultProps, files: [createFile("readme.txt")] };
     render(<CopyMoveDialog {...props} mode="copy" />);
-    const itemName = screen.getByTestId("copy-move-prompt-item-name");
-    const destination = screen.getByTestId("copy-move-prompt-destination");
+    const itemName = screen.getByLabelText("readme.txt");
+    const destination = screen.getByLabelText("My Server:/backup");
     expect(itemName).toHaveTextContent("readme.txt");
-    expect(itemName.tagName).toBe("CODE");
     expect(destination).toHaveTextContent("My Server:/backup");
-    expect(destination.tagName).toBe("CODE");
-    expect(itemName.parentElement).toHaveTextContent("readme.txt will be copied to My Server:/backup:");
-    expect(itemName.parentElement).not.toHaveTextContent('"readme.txt"');
-    expect(screen.queryByLabelText(S.LABEL_DESTINATION)).not.toBeInTheDocument();
+    expect(screen.getByText("Source item")).toBeInTheDocument();
+    expect(screen.getByText("Destination directory")).toBeInTheDocument();
     expect(screen.queryByTestId("LockOutlinedIcon")).not.toBeInTheDocument();
     expect(screen.getByLabelText(S.LABEL_FILENAME)).toHaveValue("readme.txt");
   });
 
   it("shows multi-item copy prompt with destination", () => {
     render(<CopyMoveDialog {...defaultProps} mode="copy" />);
-    expect(screen.getByText(S.PROMPT_COPY_MULTI(2))).toBeInTheDocument();
-    const destination = screen.getByLabelText(S.LABEL_DESTINATION);
-    expect(destination).toHaveValue("My Server:/backup");
-    expect(screen.queryByText(S.LABEL_DESTINATION)).not.toBeInTheDocument();
-    expect(destination).not.toHaveAttribute("wrap");
+    expect(screen.getByText(S.DESCRIPTION_COPY_MULTI(2))).toBeInTheDocument();
+    expect(screen.getByLabelText("My Server:/backup")).toHaveTextContent("My Server:/backup");
+    expect(screen.getByText("Destination directory")).toBeInTheDocument();
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
   });
 
   it("shows move single-item prompt with destination", () => {
     const props = { ...defaultProps, mode: "move" as const, files: [createFile("readme.txt")] };
     render(<CopyMoveDialog {...props} />);
-    expect(screen.getByTestId("copy-move-prompt-item-name").parentElement).toHaveTextContent(
-      "readme.txt will be moved to My Server:/backup:"
+    expect(screen.getByText("Move this item to the destination directory.")).toBeInTheDocument();
+    expect(screen.getByLabelText("readme.txt")).toHaveTextContent("readme.txt");
+    expect(screen.getByLabelText("My Server:/backup")).toHaveTextContent("My Server:/backup");
+  });
+
+  it("keeps mixed-direction identifiers outside a reordered translated outcome", async () => {
+    i18n.addResourceBundle(
+      "en-XA",
+      "translation",
+      {
+        fileBrowser: {
+          copyMove: { descriptionCopySingle: "انسخ العنصر إلى دليل الوجهة." },
+          operationContext: { sourceItem: "عنصر المصدر", destinationDirectory: "دليل الوجهة" },
+        },
+      },
+      true,
+      true
     );
-    expect(screen.getByTestId("copy-move-prompt-destination")).toHaveTextContent("My Server:/backup");
-    expect(screen.queryByLabelText(S.LABEL_DESTINATION)).not.toBeInTheDocument();
+    await i18n.changeLanguage("en-XA");
+
+    try {
+      const props = { ...defaultProps, files: [createFile("تقارير/annual-report.pdf")] };
+      render(<CopyMoveDialog {...props} mode="copy" />);
+
+      expect(screen.getByText("انسخ العنصر إلى دليل الوجهة.")).toBeInTheDocument();
+      expect(screen.getByText("عنصر المصدر")).toBeInTheDocument();
+      expect(screen.getByLabelText("تقارير/annual-report.pdf")).toHaveAttribute("dir", "auto");
+    } finally {
+      await i18n.changeLanguage("en");
+    }
   });
 
   it("shows the provider-provided root destination label", () => {
     render(<CopyMoveDialog {...defaultProps} destinationLabel="My Server:/" />);
-    expect(screen.getByText(S.PROMPT_COPY_MULTI(2))).toBeInTheDocument();
-    expect(screen.getByLabelText(S.LABEL_DESTINATION)).toHaveValue("My Server:/");
+    expect(screen.getByText(S.DESCRIPTION_COPY_MULTI(2))).toBeInTheDocument();
+    expect(screen.getByLabelText("My Server:/")).toHaveTextContent("My Server:/");
   });
 
   it("does not show editable destination path field for multi-item", () => {
@@ -205,6 +226,37 @@ describe("CopyMoveDialog", () => {
     expect(copyingBtn).toBeDisabled();
   });
 
+  it("moves focus to Cancel during processing", async () => {
+    render(<CopyMoveDialog {...defaultProps} isProcessing progress={{ current: 1, total: 2 }} />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: S.BUTTON_CANCEL })).toHaveFocus());
+  });
+
+  it("requests cancellation with Escape during processing", () => {
+    const onCancel = vi.fn();
+    render(<CopyMoveDialog {...defaultProps} isProcessing onCancel={onCancel} progress={{ current: 1, total: 2 }} />);
+
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("reserves one notice region when no form-level notice is active", () => {
+    render(<CopyMoveDialog {...defaultProps} />);
+
+    const region = screen.getByTestId("copy-move-notice-region");
+    expect(region.querySelectorAll(".MuiAlert-root")).toHaveLength(1);
+    expect(screen.queryByTestId("copy-move-notice")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("copy-move-warning")).not.toBeInTheDocument();
+  });
+
+  it("retains simultaneous terminal errors and warnings in one notice region", () => {
+    render(<CopyMoveDialog {...defaultProps} isTerminal error="Copy failed" warning="Source cleanup failed" />);
+
+    expect(screen.getByText("Copy failed")).toBeInTheDocument();
+    expect(screen.getByText("Source cleanup failed")).toBeInTheDocument();
+  });
+
   it("shows progress bar during processing", () => {
     render(<CopyMoveDialog {...defaultProps} isProcessing={true} progress={{ current: 1, total: 3 }} />);
     expect(screen.getByText(S.PROGRESS_COPY(1, 3))).toBeInTheDocument();
@@ -291,6 +343,7 @@ describe("CopyMoveDialog", () => {
     await user.type(fileNameInput, "readme.txt");
 
     expect(screen.getByText(S.ERROR_SAME_FILENAME)).toBeInTheDocument();
+    expect(screen.getByText(S.ERROR_SAME_FILENAME)).toHaveStyle({ overflow: "hidden", whiteSpace: "nowrap" });
     expect(fileNameInput).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByRole("button", { name: S.BUTTON_COPY })).toBeDisabled();
   });
@@ -328,7 +381,7 @@ describe("CopyMoveDialog", () => {
     render(<CopyMoveDialog {...props} />);
 
     expect(screen.getByRole("button", { name: S.BUTTON_COPY })).toBeEnabled();
-    expect(screen.getByTestId("copy-move-destination-error")).not.toBeVisible();
+    expect(screen.queryByTestId("copy-move-destination-error")).not.toBeInTheDocument();
   });
 
   it("shows error message when error prop is set", () => {

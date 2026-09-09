@@ -38,18 +38,16 @@ describe("CreateItemDialog", () => {
   it("renders with directory title when itemType is DIRECTORY", () => {
     render(<CreateItemDialog {...defaultProps} itemType={FileType.DIRECTORY} />);
     expect(screen.getByText(CREATE_ITEM_DIALOG_STRINGS.TITLE_DIRECTORY)).toBeInTheDocument();
-    const directory = screen.getByTestId("create-item-prompt-directory");
+    const directory = screen.getByLabelText("My Server:/documents");
     expect(directory).toHaveTextContent("My Server:/documents");
-    expect(directory.tagName).toBe("CODE");
-    expect(directory.parentElement).toHaveTextContent("A new directory will be created in My Server:/documents:");
+    expect(screen.getByText("Destination directory")).toBeInTheDocument();
+    expect(screen.getByText("Create the new directory in the destination directory.")).toBeInTheDocument();
   });
 
   it("renders with file title when itemType is FILE", () => {
     render(<CreateItemDialog {...defaultProps} itemType={FileType.FILE} />);
     expect(screen.getByText(CREATE_ITEM_DIALOG_STRINGS.TITLE_FILE)).toBeInTheDocument();
-    expect(screen.getByTestId("create-item-prompt-directory").parentElement).toHaveTextContent(
-      "A new file will be created in My Server:/documents:"
-    );
+    expect(screen.getByText("Create the new file in the destination directory.")).toBeInTheDocument();
   });
 
   it("renders with empty input field", async () => {

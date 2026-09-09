@@ -1,18 +1,25 @@
-import { Alert, Box, Button, TextField, Typography } from "@mui/material";
+import { Box, Button, TextField, Typography } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
-import { Trans, useTranslation } from "react-i18next";
+import { useTranslation } from "react-i18next";
 import type {
   ArchiveExtractionConflict,
   ArchiveExtractionConflictAction,
   ArchiveExtractionSummary,
 } from "../../pages/FileBrowser/contentProviders";
 import { type ConflictInfo, FileType } from "../../types";
-import { DialogReadOnlyField } from "../Admin/DialogReadOnlyField";
 import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
-import { SettingsFormGroup, SettingsFormRow, SettingsFormSurface, settingsFormOutlinedControlSx } from "../Settings/SettingsFormLayout";
+import {
+  DialogFieldFeedback,
+  DialogFormNotice,
+  dialogFormHelperTextSx,
+  SettingsFormGroup,
+  SettingsFormRow,
+  SettingsFormSurface,
+  settingsFormOutlinedControlSx,
+} from "../Settings/SettingsFormLayout";
 import { ArchiveMemberErrorResolver } from "./ArchiveMemberErrorResolver";
 import { ArchiveOperationProgress } from "./ArchiveOperationProgress";
-import { InlineItemName } from "./InlineItemName";
+import { DialogOperationContext } from "./DialogOperationContext";
 import { type ConflictDecision, type ConflictResolution, OverwriteResolutionDialog } from "./OverwriteConflictDialog";
 
 export type ArchiveExtractionScope = { kind: "archive" } | { kind: "members"; memberPaths: string[] };
@@ -57,12 +64,6 @@ function getItemName(path: string): string {
 function getParentPath(path: string): string {
   const separatorIndex = path.lastIndexOf("/");
   return separatorIndex < 0 ? "" : path.slice(0, separatorIndex);
-}
-
-function getMemberDisplayName(memberPath: string): string {
-  const normalizedPath = memberPath.replace(/\/+$/, "");
-  const separatorIndex = normalizedPath.lastIndexOf("/");
-  return normalizedPath.slice(separatorIndex + 1) || memberPath;
 }
 
 function joinDisplayPath(prefix: string | undefined, path: string): string {
@@ -153,6 +154,7 @@ export function ArchiveExtractDialog({
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const extractButtonRef = useRef<HTMLButtonElement>(null);
+  const cancelExtractionButtonRef = useRef<HTMLButtonElement>(null);
   const retryMemberButtonRef = useRef<HTMLButtonElement>(null);
   const [destinationPath, setDestinationPath] = useState(initialDestinationName);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -182,7 +184,7 @@ export function ArchiveExtractDialog({
       ? t("fileBrowser.archive.validationDestinationEmpty")
       : validationError === "unsafe"
         ? t("fileBrowser.archive.validationDestinationUnsafe")
-        : " ";
+        : null;
   const currentConflict = conflicts?.[0] ?? null;
   const awaitingConflictDecision = currentConflict !== null && onConflictDecision !== undefined;
   const selectedMemberPaths = extractionScope.kind === "members" ? extractionScope.memberPaths : [];
@@ -198,23 +200,13 @@ export function ArchiveExtractDialog({
   };
   const extractionDescription = (
     <Typography variant="body2" sx={{ color: "text.secondary" }}>
-      {memberError ? (
-        t("fileBrowser.archive.memberErrorPrompt")
-      ) : extractionScope.kind === "archive" ? (
-        <Trans
-          i18nKey="fileBrowser.archive.extractPrompt"
-          values={{ archive: archiveName }}
-          components={{ item: <InlineItemName testId="archive-extract-prompt-name" /> }}
-        />
-      ) : isSingleMemberExtraction ? (
-        <Trans
-          i18nKey="fileBrowser.archive.extractMemberPrompt"
-          values={{ member: getMemberDisplayName(selectedMemberPaths[0]!) }}
-          components={{ item: <InlineItemName testId="archive-extract-prompt-name" /> }}
-        />
-      ) : (
-        <Trans i18nKey="fileBrowser.archive.extractMembersPrompt" values={{ count: selectedMemberPaths.length }} />
-      )}
+      {memberError
+        ? t("fileBrowser.archive.memberErrorPrompt")
+        : extractionScope.kind === "archive"
+          ? t("fileBrowser.archive.extractDescriptionArchive")
+          : isSingleMemberExtraction
+            ? t("fileBrowser.archive.extractDescriptionMember")
+            : t("fileBrowser.archive.extractDescriptionMembers", { count: selectedMemberPaths.length })}
     </Typography>
   );
 
@@ -223,6 +215,12 @@ export function ArchiveExtractDialog({
     const frameId = requestAnimationFrame(() => retryMemberButtonRef.current?.focus());
     return () => cancelAnimationFrame(frameId);
   }, [isCancelling, isSubmittingConflictDecision, memberError]);
+
+  useEffect(() => {
+    if (!open || !isExtracting || awaitingConflictDecision || memberError || !onCancelExtraction) return;
+    const frameId = requestAnimationFrame(() => cancelExtractionButtonRef.current?.focus());
+    return () => cancelAnimationFrame(frameId);
+  }, [awaitingConflictDecision, isExtracting, memberError, onCancelExtraction, open]);
 
   if (awaitingConflictDecision && currentConflict && onConflictDecision) {
     const conflictResolutions = toConflictResolutions(allowedConflictActions);
@@ -289,7 +287,7 @@ export function ArchiveExtractDialog({
           </Box>
         ) : isExtracting ? (
           onCancelExtraction ? (
-            <Button onClick={onCancelExtraction} disabled={isCancelling}>
+            <Button ref={cancelExtractionButtonRef} onClick={onCancelExtraction} disabled={isCancelling}>
               {t("fileBrowser.archive.buttonCancelExtraction")}
             </Button>
           ) : null
@@ -304,16 +302,22 @@ export function ArchiveExtractDialog({
       }
     >
       <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        {isExtracting && !awaitingConflictDecision && !memberError ? (
-          <ArchiveOperationProgress
-            currentItem={archiveName}
-            completedMembers={progressSummary ? progressSummary.filesExtracted + progressSummary.directoriesCreated : undefined}
-            totalMembers={progressSummary?.totalMembers}
-            processedBytes={progressSummary?.extractedBytes}
-            totalBytes={progressSummary?.totalBytes}
+        {!memberError && !awaitingConflictDecision ? (
+          <DialogOperationContext
+            entries={[
+              ...(extractionScope.kind === "archive"
+                ? [{ label: t("fileBrowser.operationContext.archive"), value: archiveName, kind: "fileName" as const }]
+                : isSingleMemberExtraction
+                  ? [{ label: t("fileBrowser.operationContext.archiveMember"), value: selectedMemberPaths[0]!, kind: "path" as const }]
+                  : []),
+              { label: t("fileBrowser.operationContext.destinationDirectory"), value: destinationLabel ?? "", kind: "path" as const },
+            ]}
           />
         ) : null}
-        {error && !awaitingConflictDecision ? <Alert severity="error">{error}</Alert> : null}
+        {isExtracting && !awaitingConflictDecision && !memberError ? (
+          <ArchiveOperationProgress operation="extract" processedMembers={progressSummary?.membersProcessed} />
+        ) : null}
+        {!awaitingConflictDecision && !memberError ? <DialogFormNotice message={error} testId="archive-extract-notice" /> : null}
         {memberError ? (
           <ArchiveMemberErrorResolver key={`${memberError.memberPath}\u0000${memberError.targetPath}`} error={memberError} />
         ) : null}
@@ -324,7 +328,7 @@ export function ArchiveExtractDialog({
                 <TextField
                   inputRef={inputRef}
                   fullWidth
-                  label={t("fileBrowser.archive.destinationLabel")}
+                  label={t("fileBrowser.archive.destinationNameLabel")}
                   value={destinationPath}
                   onChange={(event) => {
                     setDestinationPath(event.target.value);
@@ -337,14 +341,13 @@ export function ArchiveExtractDialog({
                     }
                   }}
                   error={validationError !== null}
-                  helperText={validationMessage}
+                  helperText={<DialogFieldFeedback message={validationMessage} />}
+                  slotProps={{ formHelperText: { sx: dialogFormHelperTextSx } }}
                   sx={settingsFormOutlinedControlSx}
                 />
               </SettingsFormRow>
             </SettingsFormGroup>
           </SettingsFormSurface>
-        ) : !isExtracting && !awaitingConflictDecision ? (
-          <DialogReadOnlyField ariaLabel={t("fileBrowser.archive.destinationLabel")} value={destinationLabel ?? ""} showFormSurface />
         ) : null}
       </Box>
     </ResponsiveFormDialog>

@@ -56,6 +56,17 @@ describe("NameInputDialog", () => {
     expect(screen.getByLabelText("Name").closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).toBeInTheDocument();
   });
 
+  it("keeps a validation message to one line and exposes its full text on hover", async () => {
+    const user = userEvent.setup();
+    render(<NameInputDialog {...defaultProps} />);
+
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+    const feedback = screen.getByText(NAME_DIALOG_STRINGS.VALIDATION_EMPTY);
+    expect(feedback).toHaveStyle({ overflow: "hidden", whiteSpace: "nowrap" });
+    await user.hover(feedback);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(NAME_DIALOG_STRINGS.VALIDATION_EMPTY);
+  });
+
   it("reserves a hidden API error alert below the input", () => {
     render(<NameInputDialog {...defaultProps} />);
 
@@ -95,6 +106,12 @@ describe("NameInputDialog", () => {
     await user.click(screen.getByRole("button", { name: "Cancel archive creation" }));
 
     expect(onCancelSubmitting).toHaveBeenCalledOnce();
+  });
+
+  it("focuses the active-operation cancellation action while submitting", async () => {
+    render(<NameInputDialog {...defaultProps} isSubmitting cancelSubmittingLabel="Cancel archive creation" onCancelSubmitting={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel archive creation" })).toHaveFocus());
   });
 
   it("replaces the form with active-operation content while submitting", () => {

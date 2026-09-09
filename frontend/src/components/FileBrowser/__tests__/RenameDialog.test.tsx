@@ -33,10 +33,7 @@ describe("RenameDialog", () => {
     render(<RenameDialog {...defaultProps} />);
 
     expect(screen.getByText(RENAME_DIALOG_STRINGS.TITLE_FILE)).toBeInTheDocument();
-    const itemName = screen.getByTestId("rename-prompt-item-name");
-    expect(itemName).toHaveTextContent("readme.txt");
-    expect(itemName.tagName).toBe("CODE");
-    expect(itemName.parentElement).toHaveTextContent("readme.txt will be renamed to:");
+    expect(screen.getByText("Choose a new name for this item.")).toBeInTheDocument();
 
     await waitFor(() => {
       const input = screen.getByLabelText(RENAME_DIALOG_STRINGS.INPUT_LABEL);
