@@ -45,7 +45,10 @@ MAX_TEXT_EDITOR_MAX_FILE_SIZE_BYTES = 104_857_600
 VALID_THEME_MODES = {"light", "dark"}
 VALID_LANGUAGE_PREFERENCES = {DEFAULT_LANGUAGE_PREFERENCE, "en", "en-XA"}
 REGIONAL_LOCALE_PATTERN = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
-BUILT_IN_THEME_IDS_PATH = Path(__file__).resolve().parents[3] / "shared" / "built_in_theme_ids.json"
+BUILT_IN_THEME_IDS_PATHS = (
+    Path(__file__).resolve().parents[3] / "shared" / "built_in_theme_ids.json",
+    Path(__file__).resolve().parents[2] / "shared" / "built_in_theme_ids.json",
+)
 
 
 def _load_user_setting_map(user_id: uuid.UUID, session: Session) -> dict[str, str]:
@@ -308,13 +311,18 @@ def _delete_user_setting(*, user_id: uuid.UUID, key: UserSettingKey, session: Se
 
 
 def _built_in_theme_ids() -> set[str]:
-    try:
-        values = json.loads(BUILT_IN_THEME_IDS_PATH.read_text())
-    except (OSError, JSONDecodeError) as exc:
-        raise RuntimeError("The built-in theme manifest is unavailable or invalid") from exc
-    if not isinstance(values, list) or any(not isinstance(value, str) or not value for value in values):
-        raise RuntimeError("The built-in theme manifest is invalid")
-    return set(values)
+    for manifest_path in BUILT_IN_THEME_IDS_PATHS:
+        try:
+            values = json.loads(manifest_path.read_text())
+        except FileNotFoundError:
+            continue
+        except (OSError, JSONDecodeError) as exc:
+            raise RuntimeError("The built-in theme manifest is unavailable or invalid") from exc
+        if not isinstance(values, list) or any(not isinstance(value, str) or not value for value in values):
+            raise RuntimeError("The built-in theme manifest is invalid")
+        return set(values)
+
+    raise RuntimeError("The built-in theme manifest is unavailable")
 
 
 def _validate_custom_themes(custom_themes: list[dict[str, Any]]) -> list[dict[str, Any]]:

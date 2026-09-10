@@ -139,6 +139,7 @@ COPY --chown=vscode:vscode archive-contract/ ./archive-contract/
 COPY --chown=vscode:vscode companion/ ./companion/
 COPY --chown=vscode:vscode backend/ ./backend/
 COPY --chown=vscode:vscode archive_testdata/ ./archive_testdata/
+COPY --chown=vscode:vscode shared/ ./shared/
 COPY --chown=vscode:vscode VERSION ./VERSION
 COPY --chown=vscode:vscode .github/ ./.github/
 COPY --chown=vscode:vscode scripts/ ./scripts/
@@ -165,6 +166,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # The production image needs only the application package and startup guards.
 # Tests, development requirements, and backend-local configuration stay out.
 COPY --link backend/app ./app
+COPY --link shared ./shared
 COPY --link scripts/preflight-archive-v2-cutover scripts/reset-archive-v2-cutover-state ./scripts/
 RUN install -d -o sambee -g sambee /app/data
 

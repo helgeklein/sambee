@@ -1,11 +1,23 @@
+import json
+
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from app.core.user_setting_definitions import UserSettingKey
 from app.models.user_settings import UserSetting
+from app.services import user_settings
 
 
 class TestCurrentUserSettingsApi:
+    def test_loads_built_in_theme_ids_from_packaged_manifest_location(self, tmp_path, monkeypatch) -> None:
+        missing_manifest = tmp_path / "source" / "built_in_theme_ids.json"
+        packaged_manifest = tmp_path / "package" / "shared" / "built_in_theme_ids.json"
+        packaged_manifest.parent.mkdir(parents=True)
+        packaged_manifest.write_text(json.dumps(["sambee-light", "sambee-dark"]))
+        monkeypatch.setattr(user_settings, "BUILT_IN_THEME_IDS_PATHS", (missing_manifest, packaged_manifest))
+
+        assert user_settings._built_in_theme_ids() == {"sambee-dark", "sambee-light"}
+
     def test_user_gets_default_settings(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
         response = client.get("/api/auth/me/settings", headers=auth_headers_user)
 
