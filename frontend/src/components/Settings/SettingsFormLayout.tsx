@@ -1,9 +1,32 @@
-import { alpha, type ReactNode } from "@mui/material";
+import { Alert, type AlertColor, alpha, Box, type ReactNode, Tooltip } from "@mui/material";
+import { forwardRef } from "react";
 import { SettingsGroup } from "./SettingsGroup";
 
 interface SettingsFormSectionProps {
   title: ReactNode;
 }
+
+interface DialogFieldFeedbackProps {
+  message: string | null | undefined;
+}
+
+interface DialogFormNoticeProps {
+  message: string | null;
+  severity?: AlertColor;
+  testId?: string;
+}
+
+interface DialogFormNoticeRegionProps {
+  notices: readonly DialogFormNoticeProps[];
+  testId?: string;
+}
+
+const dialogFeedbackMessageSx = {
+  display: "block",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
 
 export function SettingsFormSection({ title }: SettingsFormSectionProps) {
   return (

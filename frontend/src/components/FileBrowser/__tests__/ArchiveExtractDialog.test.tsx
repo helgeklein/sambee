@@ -45,7 +45,7 @@ describe("ArchiveExtractDialog", () => {
   it("describes full archive extraction", () => {
     render(<ArchiveExtractDialog {...defaultProps} />);
 
-    expect(screen.getByText("fileBrowser.operationContext.archive")).toBeInTheDocument();
+    expect(screen.getByText("fileBrowser.operationContext.archive:")).toBeInTheDocument();
     expect(screen.getByLabelText("project.zip")).toHaveTextContent("project.zip");
     expect(screen.getByLabelText("Demo:/Archive")).toHaveTextContent("Demo:/Archive");
     expect(screen.getByLabelText("fileBrowser.archive.destinationNameLabel")).toHaveValue("project");
@@ -65,7 +65,7 @@ describe("ArchiveExtractDialog", () => {
     );
 
     expect(screen.getByLabelText("docs/readme.txt")).toHaveTextContent("docs/readme.txt");
-    expect(screen.getByText("fileBrowser.operationContext.archiveMember")).toBeInTheDocument();
+    expect(screen.getByText("fileBrowser.operationContext.archiveMember:")).toBeInTheDocument();
     expect(screen.getByLabelText("Demo:/Test")).toHaveTextContent("Demo:/Test");
     expect(screen.queryByLabelText("fileBrowser.archive.destinationNameLabel")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "fileBrowser.archive.extractTitle" })).toBeInTheDocument();

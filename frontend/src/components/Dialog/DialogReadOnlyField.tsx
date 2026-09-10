@@ -24,6 +24,12 @@ interface DialogReadOnlyFieldProps {
   sx?: SxProps<Theme>;
 }
 
+const dialogFormHelperTextSx = {
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
 /** Displays a selectable, optionally labelled value in a dialog without allowing edits. */
 export function DialogReadOnlyField({
   id,
