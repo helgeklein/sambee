@@ -804,66 +804,16 @@ describe("API Service", () => {
     });
 
     it("updateCurrentUserSettings() sends the update payload", async () => {
-      const updatedSettings: CurrentUserSettings = {
-        appearance: {
-          theme_id: "sambee-dark",
-          custom_themes: [
-            {
-              id: "custom-theme",
-              name: "Custom Theme",
-              mode: "light",
-              primary: { main: "#123456" },
-            },
-          ],
-        },
-        localization: {
-          language: "en",
-          regional_locale: "en-GB",
-        },
-        browser: {
-          quick_nav_include_dot_directories: true,
-          file_browser_view_mode: "details",
-          pane_mode: "dual",
-          selected_connection_id: "conn-123",
-          viewer_associations: {},
-        },
-        text_editor: {
-          max_file_size_bytes: 1048576,
-        },
-      };
+      const update = { field: "appearance.theme_id", value: "sambee-dark" } as const;
 
       mockAxiosInstance.put.mockResolvedValueOnce({
-        data: updatedSettings,
+        data: update,
       } as AxiosResponse);
 
-      const result = await apiService.updateCurrentUserSettings({
-        appearance: {
-          theme_id: "sambee-dark",
-          custom_themes: [
-            {
-              id: "custom-theme",
-              name: "Custom Theme",
-              mode: "light",
-              primary: { main: "#123456" },
-            },
-          ],
-        },
-      });
+      const result = await apiService.updateCurrentUserSettings(update);
 
-      expect(result).toEqual(updatedSettings);
-      expect(mockAxiosInstance.put).toHaveBeenCalledWith("/auth/me/settings", {
-        appearance: {
-          theme_id: "sambee-dark",
-          custom_themes: [
-            {
-              id: "custom-theme",
-              name: "Custom Theme",
-              mode: "light",
-              primary: { main: "#123456" },
-            },
-          ],
-        },
-      });
+      expect(result).toEqual(update);
+      expect(mockAxiosInstance.put).toHaveBeenCalledWith("/auth/me/settings", update);
     });
   });
 
@@ -1085,48 +1035,12 @@ describe("API Service", () => {
       expect(mockAxiosInstance.get).toHaveBeenCalledWith("/admin/settings/support-report");
     });
 
-    it("updateAdvancedSettings() forwards reset keys", async () => {
-      const advancedSettings: AdvancedSystemSettings = {
-        preprocessors: {
-          imagemagick: {
-            max_file_size_bytes: {
-              key: "preprocessors.imagemagick.max_file_size_bytes",
-              label: "Maximum file size",
-              description: "Largest input file ImageMagick is allowed to preprocess.",
-              value: 104857600,
-              source: "default",
-              default_value: 104857600,
-              min_value: 1048576,
-              max_value: 1073741824,
-              step: 1048576,
-            },
-            timeout_seconds: {
-              key: "preprocessors.imagemagick.timeout_seconds",
-              label: "Conversion timeout",
-              description: "Maximum time allowed for an ImageMagick preprocessing run.",
-              value: 30,
-              source: "default",
-              default_value: 30,
-              min_value: 5,
-              max_value: 600,
-              step: 1,
-            },
-          },
-        },
-      };
+    it("updateAdvancedSettings() forwards one field update", async () => {
+      const update = { field: "preprocessors.imagemagick.timeout_seconds", value: 45 };
+      mockAxiosInstance.put.mockResolvedValueOnce({ data: update } as AxiosResponse);
 
-      mockAxiosInstance.put.mockResolvedValueOnce({
-        data: advancedSettings,
-      } as AxiosResponse);
-
-      const result = await apiService.updateAdvancedSettings({
-        reset_keys: ["preprocessors.imagemagick.timeout_seconds"],
-      });
-
-      expect(result).toEqual(advancedSettings);
-      expect(mockAxiosInstance.put).toHaveBeenCalledWith("/admin/settings/advanced", {
-        reset_keys: ["preprocessors.imagemagick.timeout_seconds"],
-      });
+      await expect(apiService.updateAdvancedSettings(update)).resolves.toEqual(update);
+      expect(mockAxiosInstance.put).toHaveBeenCalledWith("/admin/settings/advanced", update);
     });
 
     it("gets and updates dedicated SMB settings", async () => {
@@ -1152,13 +1066,14 @@ describe("API Service", () => {
         require_encryption: false,
       };
       mockAxiosInstance.get.mockResolvedValueOnce({ data: smbSettings } as AxiosResponse);
-      mockAxiosInstance.put.mockResolvedValueOnce({ data: smbSettings } as AxiosResponse);
+      const update = { field: "encryption_mode", value: "encryption_required" } as const;
+      mockAxiosInstance.put.mockResolvedValueOnce({ data: update } as AxiosResponse);
 
       await expect(apiService.getSmbSettings()).resolves.toEqual(smbSettings);
-      await expect(apiService.updateSmbSettings({ reset_policy: true })).resolves.toEqual(smbSettings);
+      await expect(apiService.updateSmbSettings(update)).resolves.toEqual(update);
 
       expect(mockAxiosInstance.get).toHaveBeenCalledWith("/admin/settings/smb");
-      expect(mockAxiosInstance.put).toHaveBeenCalledWith("/admin/settings/smb", { reset_policy: true });
+      expect(mockAxiosInstance.put).toHaveBeenCalledWith("/admin/settings/smb", update);
     });
 
     it("deleteConnection() removes connection", async () => {

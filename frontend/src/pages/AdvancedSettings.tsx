@@ -1,14 +1,13 @@
-import { Box, Button, CircularProgress, FormControl, FormHelperText, InputAdornment, MenuItem, Stack, TextField } from "@mui/material";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, Box, Button, FormControl, FormHelperText, InputAdornment, MenuItem, Stack, TextField } from "@mui/material";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsPage } from "../components/Settings/SettingsPage";
 import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
 import { SettingsLoadingState } from "../components/Settings/SettingsState";
-import { settingsPrimaryButtonSx, settingsUtilityButtonSx } from "../components/Settings/settingsButtonStyles";
 import { loadAdvancedSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
 import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
+import { SettingPersistenceIndicator, useSystemSettingPersistence } from "../hooks/useSystemSettingPersistence";
 import { translate } from "../i18n";
 import api from "../services/api";
 import type { AdvancedSystemSettings, AdvancedSystemSettingsUpdate, IntegerSystemSetting } from "../types";
@@ -139,93 +138,24 @@ function validateByteSizeSetting(setting: IntegerSystemSetting, value: number | 
   return null;
 }
 
-function buildUpdatePayload(formState: AdvancedSettingsFormState): AdvancedSystemSettingsUpdate {
-  const toOptionalNumber = (value: number | null): number | undefined => value ?? undefined;
-  const includesPdfSettings = [
-    formState.pdfCacheQuotaBytes,
-    formState.pdfCacheInactivityTtlSeconds,
-    formState.pdfMaxSourceSizeBytes,
-    formState.pdfMaxOutputSizeBytes,
-    formState.pdfAddressSpaceBytes,
-    formState.pdfTemporaryDiskBytes,
-    formState.pdfTimeoutSeconds,
-    formState.pdfCpuTimeSeconds,
-    formState.pdfMaxConcurrent,
-    formState.pdfQueueWaitSeconds,
-    formState.pdfScreenDerivativeEnabled,
-    formState.pdfScreenMaxDecodedPixels,
-  ].some((value) => value !== null);
-
-  return {
-    preprocessors: {
-      imagemagick: {
-        max_file_size_bytes: toOptionalNumber(formState.imagemagickMaxFileSizeBytes),
-        timeout_seconds: toOptionalNumber(formState.imagemagickTimeoutSeconds),
-      },
-    },
-    ...(includesPdfSettings
-      ? {
-          pdf: {
-            cache_quota_bytes: toOptionalNumber(formState.pdfCacheQuotaBytes),
-            cache_inactivity_ttl_seconds: toOptionalNumber(formState.pdfCacheInactivityTtlSeconds),
-            max_source_size_bytes: toOptionalNumber(formState.pdfMaxSourceSizeBytes),
-            max_output_size_bytes: toOptionalNumber(formState.pdfMaxOutputSizeBytes),
-            address_space_bytes: toOptionalNumber(formState.pdfAddressSpaceBytes),
-            temporary_disk_bytes: toOptionalNumber(formState.pdfTemporaryDiskBytes),
-            timeout_seconds: toOptionalNumber(formState.pdfTimeoutSeconds),
-            cpu_time_seconds: toOptionalNumber(formState.pdfCpuTimeSeconds),
-            max_concurrent: toOptionalNumber(formState.pdfMaxConcurrent),
-            queue_wait_seconds: toOptionalNumber(formState.pdfQueueWaitSeconds),
-            screen_derivative_enabled: toOptionalNumber(formState.pdfScreenDerivativeEnabled),
-            screen_max_decoded_pixels: toOptionalNumber(formState.pdfScreenMaxDecodedPixels),
-          },
-        }
-      : {}),
-  };
-}
-
-function SettingFieldResetAction({
-  setting,
-  onReset,
-  resetDisabled,
-}: {
-  setting: IntegerSystemSetting;
-  onReset?: () => void;
-  resetDisabled?: boolean;
-}) {
-  const { t } = useTranslation();
-
-  if (setting.source !== "database" || !onReset) {
-    return null;
-  }
-
-  return (
-    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-      <Button size="small" variant="outlined" onClick={onReset} disabled={resetDisabled} sx={settingsUtilityButtonSx}>
-        {t("settings.advanced.resetOverride")}
-      </Button>
-    </Stack>
-  );
-}
-
 function SettingField({
   setting,
   value,
   onChange,
-  onReset,
-  resetDisabled,
+  onCommit,
+  persistenceError,
+  pending,
+  saved,
   unitAdornment,
-  errorText,
-  showErrors,
 }: {
   setting: IntegerSystemSetting;
   value: number | null;
   onChange: (value: number | null) => void;
-  onReset?: () => void;
-  resetDisabled?: boolean;
+  onCommit: (value: number) => void;
+  persistenceError?: string;
+  pending: boolean;
+  saved: boolean;
   unitAdornment?: string;
-  errorText?: string | null;
-  showErrors?: boolean;
 }) {
   const { t } = useTranslation();
   const [displayValue, setDisplayValue] = useState<string>(value === null ? "" : String(value));
@@ -235,8 +165,9 @@ function SettingField({
     setDisplayValue(value === null ? "" : String(value));
   }, [value]);
 
-  const displayError = Boolean(errorText) && (touched || showErrors);
-  const helperText = displayError
+  const validationError = validateIntegerSetting(setting, value, unitAdornment);
+  const errorText = persistenceError ?? (touched ? validationError : null);
+  const helperText = errorText
     ? errorText
     : t("settings.advanced.helperText.integer", {
         description: setting.description,
@@ -247,7 +178,6 @@ function SettingField({
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, py: 1.5 }}>
-      <SettingFieldResetAction setting={setting} onReset={onReset} resetDisabled={resetDisabled} />
       <TextField
         type="text"
         label={setting.label}
@@ -261,17 +191,32 @@ function SettingField({
           setDisplayValue(nextValue);
           onChange(nextValue ? Number(nextValue) : null);
         }}
-        onBlur={() => setTouched(true)}
+        onBlur={() => {
+          setTouched(true);
+          if (!validationError && value !== null) onCommit(value);
+        }}
         variant="outlined"
         sx={{ width: "100%", maxWidth: { xs: "100%", sm: DESKTOP_NUMERIC_FIELD_MAX_WIDTH } }}
-        error={displayError}
+        disabled={pending}
+        error={Boolean(errorText)}
         slotProps={{
           htmlInput: { inputMode: "numeric", pattern: "[0-9]*" },
-          input: unitAdornment
-            ? {
-                endAdornment: <InputAdornment position="end">{unitAdornment}</InputAdornment>,
-              }
-            : undefined,
+          input:
+            unitAdornment || pending || saved
+              ? {
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      {unitAdornment}
+                      <SettingPersistenceIndicator
+                        pending={pending}
+                        saved={saved}
+                        savingLabel="Saving setting"
+                        savedLabel="Setting saved"
+                      />
+                    </InputAdornment>
+                  ),
+                }
+              : undefined,
         }}
         helperText={helperText}
       />
@@ -283,18 +228,18 @@ function ByteSizeSettingField({
   setting,
   value,
   onChange,
-  onReset,
-  resetDisabled,
-  errorText,
-  showErrors,
+  onCommit,
+  persistenceError,
+  pending,
+  saved,
 }: {
   setting: IntegerSystemSetting;
   value: number | null;
   onChange: (value: number | null) => void;
-  onReset?: () => void;
-  resetDisabled?: boolean;
-  errorText?: string | null;
-  showErrors?: boolean;
+  onCommit: (value: number) => void;
+  persistenceError?: string;
+  pending: boolean;
+  saved: boolean;
 }) {
   const { t } = useTranslation();
   const [unit, setUnit] = useState<ByteUnitLabel>(() => getPreferredByteUnit(value ?? setting.min_value));
@@ -321,7 +266,8 @@ function ByteSizeSettingField({
   }, [unit, value]);
 
   const factor = getByteUnitFactor(unit);
-  const displayError = Boolean(errorText) && (touched || showErrors);
+  const validationError = validateByteSizeSetting(setting, value);
+  const errorText = persistenceError ?? (touched ? validationError : null);
 
   const handleValueChange = (nextValue: string) => {
     if (!/^\d*$/.test(nextValue)) {
@@ -340,6 +286,7 @@ function ByteSizeSettingField({
 
   const handleValueBlur = () => {
     setTouched(true);
+    if (!validationError && value !== null) onCommit(value);
   };
 
   const handleUnitChange = (nextUnit: ByteUnitLabel) => {
@@ -356,7 +303,7 @@ function ByteSizeSettingField({
   };
 
   const availableUnits = BYTE_UNITS.filter((option) => option.factor <= Math.max(value ?? 0, setting.min_value) || option.label === unit);
-  const helperMessage = displayError
+  const helperMessage = errorText
     ? errorText
     : t("settings.advanced.helperText.byteSize", {
         description: setting.description,
@@ -367,8 +314,7 @@ function ByteSizeSettingField({
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, py: 1.5 }}>
-      <SettingFieldResetAction setting={setting} onReset={onReset} resetDisabled={resetDisabled} />
-      <FormControl error={displayError} sx={{ width: "100%", maxWidth: { xs: "100%", sm: DESKTOP_FIELD_ROW_MAX_WIDTH } }}>
+      <FormControl error={Boolean(errorText)} sx={{ width: "100%", maxWidth: { xs: "100%", sm: DESKTOP_FIELD_ROW_MAX_WIDTH } }}>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
           <TextField
             type="text"
@@ -378,10 +324,26 @@ function ByteSizeSettingField({
             onBlur={handleValueBlur}
             slotProps={{
               htmlInput: { inputMode: "numeric", pattern: "[0-9]*" },
+              input:
+                pending || saved
+                  ? {
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <SettingPersistenceIndicator
+                            pending={pending}
+                            saved={saved}
+                            savingLabel="Saving setting"
+                            savedLabel="Setting saved"
+                          />
+                        </InputAdornment>
+                      ),
+                    }
+                  : undefined,
             }}
             variant="outlined"
             sx={{ width: "100%", maxWidth: { xs: "100%", sm: DESKTOP_VALUE_FIELD_MAX_WIDTH } }}
-            error={displayError}
+            disabled={pending}
+            error={Boolean(errorText)}
           />
           <TextField
             select
@@ -389,7 +351,8 @@ function ByteSizeSettingField({
             value={unit}
             onChange={(event) => handleUnitChange(event.target.value as ByteUnitLabel)}
             variant="outlined"
-            error={displayError}
+            disabled={pending}
+            error={Boolean(errorText)}
             sx={{ width: { xs: "100%", sm: DESKTOP_UNIT_FIELD_WIDTH } }}
           >
             {availableUnits.map((option) => (
@@ -405,6 +368,43 @@ function ByteSizeSettingField({
   );
 }
 
+function applyIntegerSettingUpdate(setting: IntegerSystemSetting, update: AdvancedSystemSettingsUpdate): IntegerSystemSetting {
+  return setting.key === update.field ? { ...setting, value: update.value, source: "database" } : setting;
+}
+
+function applyAdvancedSettingUpdate(settings: AdvancedSystemSettings, update: AdvancedSystemSettingsUpdate): AdvancedSystemSettings {
+  const updateSetting = (setting: IntegerSystemSetting) => applyIntegerSettingUpdate(setting, update);
+  const imagemagick = settings.preprocessors.imagemagick;
+  return {
+    ...settings,
+    preprocessors: {
+      ...settings.preprocessors,
+      imagemagick: {
+        max_file_size_bytes: updateSetting(imagemagick.max_file_size_bytes),
+        timeout_seconds: updateSetting(imagemagick.timeout_seconds),
+      },
+    },
+    ...(settings.pdf
+      ? {
+          pdf: {
+            cache_quota_bytes: updateSetting(settings.pdf.cache_quota_bytes),
+            cache_inactivity_ttl_seconds: updateSetting(settings.pdf.cache_inactivity_ttl_seconds),
+            max_source_size_bytes: updateSetting(settings.pdf.max_source_size_bytes),
+            max_output_size_bytes: updateSetting(settings.pdf.max_output_size_bytes),
+            address_space_bytes: updateSetting(settings.pdf.address_space_bytes),
+            temporary_disk_bytes: updateSetting(settings.pdf.temporary_disk_bytes),
+            timeout_seconds: updateSetting(settings.pdf.timeout_seconds),
+            cpu_time_seconds: updateSetting(settings.pdf.cpu_time_seconds),
+            max_concurrent: updateSetting(settings.pdf.max_concurrent),
+            queue_wait_seconds: updateSetting(settings.pdf.queue_wait_seconds),
+            screen_derivative_enabled: updateSetting(settings.pdf.screen_derivative_enabled),
+            screen_max_decoded_pixels: updateSetting(settings.pdf.screen_max_decoded_pixels),
+          },
+        }
+      : {}),
+  };
+}
+
 export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsProps) {
   const { t } = useTranslation();
   const [pageError, setPageError] = useState<string | null>(null);
@@ -417,6 +417,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
   const {
     data: settings,
     loading,
+    refresh,
     setData: setCachedSettings,
   } = useCachedAsyncData<AdvancedSystemSettings>({
     cacheKey: SETTINGS_DATA_CACHE_KEYS.adminSystem,
@@ -424,21 +425,9 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
     onError: handleAdvancedSettingsLoadError,
   });
   const [formState, setFormState] = useState<AdvancedSettingsFormState | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [notification, setNotification] = useState<SettingsNotificationState>({
-    open: false,
-    message: "",
-    severity: "success",
-  });
-  const [submitAttempted, setSubmitAttempted] = useState(false);
-
-  const hasUnsavedChanges = useMemo(() => {
-    if (!settings || !formState) {
-      return false;
-    }
-
-    return JSON.stringify(createFormState(settings)) !== JSON.stringify(formState);
-  }, [formState, settings]);
+  const persistence = useSystemSettingPersistence<AdvancedSystemSettingsUpdate>(api.updateAdvancedSettings, (saveError) =>
+    getApiErrorMessage(saveError, t("settings.advanced.saveFailed"))
+  );
 
   useEffect(() => {
     if (!settings) {
@@ -446,144 +435,57 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
     }
 
     setPageError(null);
-    setFormState((current) => {
-      if (current === null || !hasUnsavedChanges) {
-        return createFormState(settings);
-      }
+    setFormState((current) => current ?? createFormState(settings));
+  }, [settings]);
 
-      return current;
-    });
+  const updateFormField = <Field extends keyof AdvancedSettingsFormState>(
+    field: Field,
+    value: AdvancedSettingsFormState[Field],
+    setting: IntegerSystemSetting
+  ) => {
+    setFormState((current) => (current ? { ...current, [field]: value } : current));
+    persistence.clearFieldFeedback(setting.key);
+  };
 
-    if (!hasUnsavedChanges) {
-      setSubmitAttempted(false);
-    }
-  }, [hasUnsavedChanges, settings]);
-
-  const validationErrors = useMemo(() => {
-    if (!settings || !formState) {
-      return null;
-    }
-
-    return {
-      imagemagickMaxFileSizeBytes: validateByteSizeSetting(
-        settings.preprocessors.imagemagick.max_file_size_bytes,
-        formState.imagemagickMaxFileSizeBytes
-      ),
-      imagemagickTimeoutSeconds: validateIntegerSetting(
-        settings.preprocessors.imagemagick.timeout_seconds,
-        formState.imagemagickTimeoutSeconds,
-        t("settings.advanced.fields.seconds")
-      ),
-      pdfCacheQuotaBytes: settings.pdf ? validateByteSizeSetting(settings.pdf.cache_quota_bytes, formState.pdfCacheQuotaBytes) : null,
-      pdfCacheInactivityTtlSeconds: settings.pdf
-        ? validateIntegerSetting(
-            settings.pdf.cache_inactivity_ttl_seconds,
-            formState.pdfCacheInactivityTtlSeconds,
-            t("settings.advanced.fields.seconds")
-          )
-        : null,
-      pdfMaxSourceSizeBytes: settings.pdf
-        ? validateByteSizeSetting(settings.pdf.max_source_size_bytes, formState.pdfMaxSourceSizeBytes)
-        : null,
-      pdfMaxOutputSizeBytes: settings.pdf
-        ? validateByteSizeSetting(settings.pdf.max_output_size_bytes, formState.pdfMaxOutputSizeBytes)
-        : null,
-      pdfAddressSpaceBytes: settings.pdf ? validateByteSizeSetting(settings.pdf.address_space_bytes, formState.pdfAddressSpaceBytes) : null,
-      pdfTemporaryDiskBytes: settings.pdf
-        ? validateByteSizeSetting(settings.pdf.temporary_disk_bytes, formState.pdfTemporaryDiskBytes)
-        : null,
-      pdfTimeoutSeconds: settings.pdf
-        ? validateIntegerSetting(settings.pdf.timeout_seconds, formState.pdfTimeoutSeconds, t("settings.advanced.fields.seconds"))
-        : null,
-      pdfCpuTimeSeconds: settings.pdf
-        ? validateIntegerSetting(settings.pdf.cpu_time_seconds, formState.pdfCpuTimeSeconds, t("settings.advanced.fields.seconds"))
-        : null,
-      pdfMaxConcurrent: settings.pdf ? validateIntegerSetting(settings.pdf.max_concurrent, formState.pdfMaxConcurrent) : null,
-      pdfQueueWaitSeconds: settings.pdf
-        ? validateIntegerSetting(settings.pdf.queue_wait_seconds, formState.pdfQueueWaitSeconds, t("settings.advanced.fields.seconds"))
-        : null,
-      pdfScreenDerivativeEnabled: settings.pdf
-        ? validateIntegerSetting(settings.pdf.screen_derivative_enabled, formState.pdfScreenDerivativeEnabled)
-        : null,
-      pdfScreenMaxDecodedPixels: settings.pdf
-        ? validateIntegerSetting(settings.pdf.screen_max_decoded_pixels, formState.pdfScreenMaxDecodedPixels)
-        : null,
-    };
-  }, [formState, settings, t]);
-
-  const hasValidationErrors = useMemo(() => {
-    if (!validationErrors) {
-      return false;
-    }
-
-    return Object.values(validationErrors).some((value) => value !== null);
-  }, [validationErrors]);
-
-  const handleSave = async () => {
-    setSubmitAttempted(true);
-
-    if (!formState || hasValidationErrors) {
-      return;
-    }
-
-    try {
-      setSaving(true);
-      setPageError(null);
-      const updated = await api.updateAdvancedSettings(buildUpdatePayload(formState));
-      setCachedSettings(updated);
-      setFormState(createFormState(updated));
-      setNotification({
-        open: true,
-        message: t("settings.advanced.saveSuccess"),
-        severity: "success",
-      });
-      setSubmitAttempted(false);
-    } catch (saveError: unknown) {
-      setNotification({
-        open: true,
-        message: getApiErrorMessage(saveError, t("settings.advanced.saveFailed")),
-        severity: "error",
-      });
-    } finally {
-      setSaving(false);
+  const persistField = async (setting: IntegerSystemSetting, value: number) => {
+    const result = await persistence.persist({ field: setting.key, value });
+    if (result.status === "completed") {
+      setCachedSettings((current) => (current ? applyAdvancedSettingUpdate(current, result.update) : current));
     }
   };
 
-  const handleReset = async (key: string, label: string) => {
-    try {
-      setSaving(true);
-      setPageError(null);
-      const updated = await api.updateAdvancedSettings({ reset_keys: [key] });
-      setCachedSettings(updated);
-      setFormState(createFormState(updated));
-      setNotification({
-        open: true,
-        message: t("settings.advanced.resetSuccess", { label }),
-        severity: "success",
-      });
-      setSubmitAttempted(false);
-    } catch (resetError: unknown) {
-      setNotification({
-        open: true,
-        message: getApiErrorMessage(resetError, t("settings.advanced.resetFailed")),
-        severity: "error",
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
+  const getFieldPersistenceProps = (setting: IntegerSystemSetting) => ({
+    onCommit: (value: number) => void persistField(setting, value),
+    persistenceError: persistence.fieldErrors[setting.key],
+    pending: persistence.isPending(setting.key),
+    saved: persistence.isSaved(setting.key),
+  });
 
-  const saveAction = (
-    <Button onClick={handleSave} disabled={!hasUnsavedChanges || saving || loading} variant="contained" sx={settingsPrimaryButtonSx}>
-      {saving ? <CircularProgress size={18} color="inherit" /> : t("settings.advanced.saveChanges")}
-    </Button>
-  );
+  const retryLoad = () => {
+    setPageError(null);
+    void refresh(true);
+  };
 
   return (
-    <SettingsPage category="admin-system" dialogSafeHeader={dialogSafeHeader} footerPrimaryActions={saveAction}>
+    <SettingsPage
+      category="admin-system"
+      dialogSafeHeader={dialogSafeHeader}
+      contextualNotice={
+        pageError ? (
+          <Alert
+            severity="error"
+            action={
+              <Button onClick={retryLoad} disabled={loading}>
+                {t("common.actions.retry")}
+              </Button>
+            }
+          >
+            {pageError}
+          </Alert>
+        ) : null
+      }
+    >
       {loading && !settings && <SettingsLoadingState />}
-
-      {pageError && <SettingsInlineAlert>{pageError}</SettingsInlineAlert>}
 
       {settings && formState && (
         <SettingsSectionList>
@@ -593,31 +495,19 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
                 <ByteSizeSettingField
                   setting={settings.preprocessors.imagemagick.max_file_size_bytes}
                   value={formState.imagemagickMaxFileSizeBytes}
-                  onChange={(value) => setFormState((current) => (current ? { ...current, imagemagickMaxFileSizeBytes: value } : current))}
-                  errorText={validationErrors?.imagemagickMaxFileSizeBytes}
-                  showErrors={submitAttempted}
-                  onReset={() =>
-                    handleReset(
-                      settings.preprocessors.imagemagick.max_file_size_bytes.key,
-                      settings.preprocessors.imagemagick.max_file_size_bytes.label
-                    )
+                  onChange={(value) =>
+                    updateFormField("imagemagickMaxFileSizeBytes", value, settings.preprocessors.imagemagick.max_file_size_bytes)
                   }
-                  resetDisabled={saving || loading || hasUnsavedChanges}
+                  {...getFieldPersistenceProps(settings.preprocessors.imagemagick.max_file_size_bytes)}
                 />
                 <SettingField
                   setting={settings.preprocessors.imagemagick.timeout_seconds}
                   value={formState.imagemagickTimeoutSeconds}
-                  onChange={(value) => setFormState((current) => (current ? { ...current, imagemagickTimeoutSeconds: value } : current))}
-                  errorText={validationErrors?.imagemagickTimeoutSeconds}
-                  showErrors={submitAttempted}
-                  unitAdornment={t("settings.advanced.fields.seconds")}
-                  onReset={() =>
-                    handleReset(
-                      settings.preprocessors.imagemagick.timeout_seconds.key,
-                      settings.preprocessors.imagemagick.timeout_seconds.label
-                    )
+                  onChange={(value) =>
+                    updateFormField("imagemagickTimeoutSeconds", value, settings.preprocessors.imagemagick.timeout_seconds)
                   }
-                  resetDisabled={saving || loading || hasUnsavedChanges}
+                  unitAdornment={t("settings.advanced.fields.seconds")}
+                  {...getFieldPersistenceProps(settings.preprocessors.imagemagick.timeout_seconds)}
                 />
               </SettingsGroup>
               {settings.pdf && (
@@ -625,118 +515,78 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
                   <ByteSizeSettingField
                     setting={settings.pdf.cache_quota_bytes}
                     value={formState.pdfCacheQuotaBytes}
-                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfCacheQuotaBytes: value } : current))}
-                    errorText={validationErrors?.pdfCacheQuotaBytes}
-                    showErrors={submitAttempted}
-                    onReset={() => handleReset(settings.pdf.cache_quota_bytes.key, settings.pdf.cache_quota_bytes.label)}
-                    resetDisabled={saving || loading || hasUnsavedChanges}
+                    onChange={(value) => updateFormField("pdfCacheQuotaBytes", value, settings.pdf.cache_quota_bytes)}
+                    {...getFieldPersistenceProps(settings.pdf.cache_quota_bytes)}
                   />
                   <SettingField
                     setting={settings.pdf.cache_inactivity_ttl_seconds}
                     value={formState.pdfCacheInactivityTtlSeconds}
-                    onChange={(value) =>
-                      setFormState((current) => (current ? { ...current, pdfCacheInactivityTtlSeconds: value } : current))
-                    }
-                    errorText={validationErrors?.pdfCacheInactivityTtlSeconds}
-                    showErrors={submitAttempted}
+                    onChange={(value) => updateFormField("pdfCacheInactivityTtlSeconds", value, settings.pdf.cache_inactivity_ttl_seconds)}
                     unitAdornment={t("settings.advanced.fields.seconds")}
-                    onReset={() =>
-                      handleReset(settings.pdf.cache_inactivity_ttl_seconds.key, settings.pdf.cache_inactivity_ttl_seconds.label)
-                    }
-                    resetDisabled={saving || loading || hasUnsavedChanges}
+                    {...getFieldPersistenceProps(settings.pdf.cache_inactivity_ttl_seconds)}
                   />
                   <ByteSizeSettingField
                     setting={settings.pdf.max_source_size_bytes}
                     value={formState.pdfMaxSourceSizeBytes}
-                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfMaxSourceSizeBytes: value } : current))}
-                    errorText={validationErrors?.pdfMaxSourceSizeBytes}
-                    showErrors={submitAttempted}
-                    onReset={() => handleReset(settings.pdf.max_source_size_bytes.key, settings.pdf.max_source_size_bytes.label)}
-                    resetDisabled={saving || loading || hasUnsavedChanges}
+                    onChange={(value) => updateFormField("pdfMaxSourceSizeBytes", value, settings.pdf.max_source_size_bytes)}
+                    {...getFieldPersistenceProps(settings.pdf.max_source_size_bytes)}
                   />
                   <ByteSizeSettingField
                     setting={settings.pdf.max_output_size_bytes}
                     value={formState.pdfMaxOutputSizeBytes}
-                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfMaxOutputSizeBytes: value } : current))}
-                    errorText={validationErrors?.pdfMaxOutputSizeBytes}
-                    showErrors={submitAttempted}
-                    onReset={() => handleReset(settings.pdf.max_output_size_bytes.key, settings.pdf.max_output_size_bytes.label)}
-                    resetDisabled={saving || loading || hasUnsavedChanges}
+                    onChange={(value) => updateFormField("pdfMaxOutputSizeBytes", value, settings.pdf.max_output_size_bytes)}
+                    {...getFieldPersistenceProps(settings.pdf.max_output_size_bytes)}
                   />
                   <ByteSizeSettingField
                     setting={settings.pdf.address_space_bytes}
                     value={formState.pdfAddressSpaceBytes}
-                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfAddressSpaceBytes: value } : current))}
-                    errorText={validationErrors?.pdfAddressSpaceBytes}
-                    showErrors={submitAttempted}
-                    onReset={() => handleReset(settings.pdf.address_space_bytes.key, settings.pdf.address_space_bytes.label)}
-                    resetDisabled={saving || loading || hasUnsavedChanges}
+                    onChange={(value) => updateFormField("pdfAddressSpaceBytes", value, settings.pdf.address_space_bytes)}
+                    {...getFieldPersistenceProps(settings.pdf.address_space_bytes)}
                   />
                   <ByteSizeSettingField
                     setting={settings.pdf.temporary_disk_bytes}
                     value={formState.pdfTemporaryDiskBytes}
-                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfTemporaryDiskBytes: value } : current))}
-                    errorText={validationErrors?.pdfTemporaryDiskBytes}
-                    showErrors={submitAttempted}
-                    onReset={() => handleReset(settings.pdf.temporary_disk_bytes.key, settings.pdf.temporary_disk_bytes.label)}
-                    resetDisabled={saving || loading || hasUnsavedChanges}
+                    onChange={(value) => updateFormField("pdfTemporaryDiskBytes", value, settings.pdf.temporary_disk_bytes)}
+                    {...getFieldPersistenceProps(settings.pdf.temporary_disk_bytes)}
                   />
                   <SettingField
                     setting={settings.pdf.timeout_seconds}
                     value={formState.pdfTimeoutSeconds}
-                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfTimeoutSeconds: value } : current))}
-                    errorText={validationErrors?.pdfTimeoutSeconds}
-                    showErrors={submitAttempted}
+                    onChange={(value) => updateFormField("pdfTimeoutSeconds", value, settings.pdf.timeout_seconds)}
                     unitAdornment={t("settings.advanced.fields.seconds")}
-                    onReset={() => handleReset(settings.pdf.timeout_seconds.key, settings.pdf.timeout_seconds.label)}
-                    resetDisabled={saving || loading || hasUnsavedChanges}
+                    {...getFieldPersistenceProps(settings.pdf.timeout_seconds)}
                   />
                   <SettingField
                     setting={settings.pdf.cpu_time_seconds}
                     value={formState.pdfCpuTimeSeconds}
-                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfCpuTimeSeconds: value } : current))}
-                    errorText={validationErrors?.pdfCpuTimeSeconds}
-                    showErrors={submitAttempted}
+                    onChange={(value) => updateFormField("pdfCpuTimeSeconds", value, settings.pdf.cpu_time_seconds)}
                     unitAdornment={t("settings.advanced.fields.seconds")}
-                    onReset={() => handleReset(settings.pdf.cpu_time_seconds.key, settings.pdf.cpu_time_seconds.label)}
-                    resetDisabled={saving || loading || hasUnsavedChanges}
+                    {...getFieldPersistenceProps(settings.pdf.cpu_time_seconds)}
                   />
                   <SettingField
                     setting={settings.pdf.max_concurrent}
                     value={formState.pdfMaxConcurrent}
-                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfMaxConcurrent: value } : current))}
-                    errorText={validationErrors?.pdfMaxConcurrent}
-                    showErrors={submitAttempted}
-                    onReset={() => handleReset(settings.pdf.max_concurrent.key, settings.pdf.max_concurrent.label)}
-                    resetDisabled={saving || loading || hasUnsavedChanges}
+                    onChange={(value) => updateFormField("pdfMaxConcurrent", value, settings.pdf.max_concurrent)}
+                    {...getFieldPersistenceProps(settings.pdf.max_concurrent)}
                   />
                   <SettingField
                     setting={settings.pdf.queue_wait_seconds}
                     value={formState.pdfQueueWaitSeconds}
-                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfQueueWaitSeconds: value } : current))}
-                    errorText={validationErrors?.pdfQueueWaitSeconds}
-                    showErrors={submitAttempted}
+                    onChange={(value) => updateFormField("pdfQueueWaitSeconds", value, settings.pdf.queue_wait_seconds)}
                     unitAdornment={t("settings.advanced.fields.seconds")}
-                    onReset={() => handleReset(settings.pdf.queue_wait_seconds.key, settings.pdf.queue_wait_seconds.label)}
-                    resetDisabled={saving || loading || hasUnsavedChanges}
+                    {...getFieldPersistenceProps(settings.pdf.queue_wait_seconds)}
                   />
                   <SettingField
                     setting={settings.pdf.screen_derivative_enabled}
                     value={formState.pdfScreenDerivativeEnabled}
-                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfScreenDerivativeEnabled: value } : current))}
-                    errorText={validationErrors?.pdfScreenDerivativeEnabled}
-                    showErrors={submitAttempted}
-                    onReset={() => handleReset(settings.pdf.screen_derivative_enabled.key, settings.pdf.screen_derivative_enabled.label)}
-                    resetDisabled={saving || loading || hasUnsavedChanges}
+                    onChange={(value) => updateFormField("pdfScreenDerivativeEnabled", value, settings.pdf.screen_derivative_enabled)}
+                    {...getFieldPersistenceProps(settings.pdf.screen_derivative_enabled)}
                   />
                   <SettingField
                     setting={settings.pdf.screen_max_decoded_pixels}
                     value={formState.pdfScreenMaxDecodedPixels}
-                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfScreenMaxDecodedPixels: value } : current))}
-                    errorText={validationErrors?.pdfScreenMaxDecodedPixels}
-                    showErrors={submitAttempted}
-                    onReset={() => handleReset(settings.pdf.screen_max_decoded_pixels.key, settings.pdf.screen_max_decoded_pixels.label)}
-                    resetDisabled={saving || loading || hasUnsavedChanges}
+                    onChange={(value) => updateFormField("pdfScreenMaxDecodedPixels", value, settings.pdf.screen_max_decoded_pixels)}
+                    {...getFieldPersistenceProps(settings.pdf.screen_max_decoded_pixels)}
                   />
                 </SettingsGroup>
               )}
@@ -744,10 +594,6 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
           </SettingsGroup>
         </SettingsSectionList>
       )}
-      <SettingsNotificationSnackbar
-        notification={notification}
-        onClose={() => setNotification((current) => ({ ...current, open: false }))}
-      />
     </SettingsPage>
   );
 }

@@ -20,16 +20,9 @@
 import { Box, Button, CircularProgress, TextField } from "@mui/material";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
-import {
-  DialogFieldFeedback,
-  DialogFormNotice,
-  dialogFormHelperTextSx,
-  SettingsFormGroup,
-  SettingsFormRow,
-  SettingsFormSurface,
-  settingsFormOutlinedControlSx,
-} from "../Settings/SettingsFormLayout";
+import { DialogNotice } from "../Dialog/DialogNotice";
+import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
+import { FormGroup, FormRow, FormSurface, formOutlinedControlSx } from "../Form/FormLayout";
 import { FILENAME_FIELD_PROPS, FILENAME_INPUT_PROPS, FILENAME_INPUT_SX } from "./filenameFieldProps";
 import { NAME_DIALOG_STRINGS, validateItemName } from "./nameDialogStrings";
 
@@ -213,9 +206,9 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
   const formContent = (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
       {operationContext}
-      <SettingsFormSurface>
-        <SettingsFormGroup>
-          <SettingsFormRow sx={{ display: { md: "block" } }}>
+      <FormSurface>
+        <FormGroup>
+          <FormRow sx={{ display: { md: "block" } }}>
             <TextField
               id="name-input-dialog-field"
               inputRef={inputRef}
@@ -225,27 +218,27 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
               onKeyDown={handleKeyDown}
               disabled={isSubmitting}
               error={hasError}
-              helperText={<DialogFieldFeedback message={validationError} />}
+              helperText={validationError}
               variant="outlined"
               {...FILENAME_FIELD_PROPS}
-              slotProps={{ htmlInput: FILENAME_INPUT_PROPS, formHelperText: { sx: dialogFormHelperTextSx } }}
-              sx={[settingsFormOutlinedControlSx, FILENAME_INPUT_SX]}
+              slotProps={{ htmlInput: FILENAME_INPUT_PROPS }}
+              sx={[formOutlinedControlSx, FILENAME_INPUT_SX]}
             />
-          </SettingsFormRow>
-        </SettingsFormGroup>
-      </SettingsFormSurface>
-      <DialogFormNotice message={showApiError ? apiError : null} testId="name-input-api-error" />
+          </FormRow>
+        </FormGroup>
+      </FormSurface>
     </Box>
   );
 
   return (
-    <ResponsiveFormDialog
+    <ResponsiveDialogShell
       open={open}
       onClose={onClose}
       disableClose={isSubmitting}
       onEscape={isSubmitting && onCancelSubmitting ? onCancelSubmitting : undefined}
       title={title}
       description={description}
+      actionNotice={<DialogNotice message={showApiError ? apiError : null} testId="name-input-api-error" />}
       actions={
         isSubmitting && submittingContent ? (
           onCancelSubmitting ? (
@@ -285,7 +278,7 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
       ) : (
         formContent
       )}
-    </ResponsiveFormDialog>
+    </ResponsiveDialogShell>
   );
 };
 

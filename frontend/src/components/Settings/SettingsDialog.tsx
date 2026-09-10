@@ -6,6 +6,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import { Box, Dialog, Divider, IconButton, Typography } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { FORM_SURFACE_CSS_VARIABLE, getOverlaySurfaceTokens, OVERLAY_SURFACE_CSS_VARIABLE } from "../../theme/palette";
 import { RESIZABLE_DIALOG_VIEWPORT_GUTTER_PX, ResizableDialogHandle, useResizableDialogSize } from "../ResizableDialog";
 import { SettingsCategoryContent } from "./SettingsCategoryContent";
 import { SettingsCategoryList } from "./SettingsCategoryList";
@@ -133,15 +134,28 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
       onClose={onClose}
       maxWidth="lg"
       slotProps={{
+        backdrop: {
+          sx: (theme) => {
+            const surfaces = getOverlaySurfaceTokens(theme.palette.background.default, theme.palette.mode);
+            return surfaces.backdrop ? { bgcolor: surfaces.backdrop } : undefined;
+          },
+        },
         paper: {
-          sx: {
-            height: displayedSize ? `${displayedSize.height}px` : `calc(100dvh - ${RESIZABLE_DIALOG_VIEWPORT_GUTTER_PX * 2}px)`,
-            width: displayedSize ? `${displayedSize.width}px` : `min(1200px, calc(100dvw - ${RESIZABLE_DIALOG_VIEWPORT_GUTTER_PX * 2}px))`,
-            maxHeight: displayedSize
-              ? `calc(100dvh - ${RESIZABLE_DIALOG_VIEWPORT_GUTTER_PX * 2}px)`
-              : SETTINGS_DIALOG_DEFAULT_MAX_HEIGHT_PX,
-            maxWidth: `calc(100dvw - ${RESIZABLE_DIALOG_VIEWPORT_GUTTER_PX * 2}px)`,
-            overflow: "hidden",
+          sx: (theme) => {
+            const surfaces = getOverlaySurfaceTokens(theme.palette.background.default, theme.palette.mode);
+            return {
+              [OVERLAY_SURFACE_CSS_VARIABLE]: surfaces.paper,
+              [FORM_SURFACE_CSS_VARIABLE]: surfaces.form,
+              height: displayedSize ? `${displayedSize.height}px` : `calc(100dvh - ${RESIZABLE_DIALOG_VIEWPORT_GUTTER_PX * 2}px)`,
+              width: displayedSize
+                ? `${displayedSize.width}px`
+                : `min(1200px, calc(100dvw - ${RESIZABLE_DIALOG_VIEWPORT_GUTTER_PX * 2}px))`,
+              maxHeight: displayedSize
+                ? `calc(100dvh - ${RESIZABLE_DIALOG_VIEWPORT_GUTTER_PX * 2}px)`
+                : SETTINGS_DIALOG_DEFAULT_MAX_HEIGHT_PX,
+              maxWidth: `calc(100dvw - ${RESIZABLE_DIALOG_VIEWPORT_GUTTER_PX * 2}px)`,
+              overflow: "hidden",
+            };
           },
           ref: paperRef,
         },

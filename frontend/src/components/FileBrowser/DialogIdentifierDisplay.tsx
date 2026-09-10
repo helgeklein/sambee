@@ -1,6 +1,5 @@
-import { alpha, Box, Tooltip } from "@mui/material";
+import { Box, Tooltip } from "@mui/material";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { DIALOG_FORM_SURFACE_CSS_VARIABLE, getModeAdjustedSurfaceColor } from "../../theme/palette";
 import { abbreviateFileName, abbreviatePath } from "../../utils/pathDisplay";
 
 export type DialogOperationIdentifierKind = "fileName" | "path";
@@ -55,10 +54,6 @@ export function DialogIdentifierDisplay({ value, kind, testId }: DialogIdentifie
         component="code"
         ref={valueRef}
         sx={{
-          bgcolor: (theme) =>
-            `var(${DIALOG_FORM_SURFACE_CSS_VARIABLE}, ${getModeAdjustedSurfaceColor(theme.palette.background.default, theme.palette.mode)})`,
-          border: (theme) => `1px solid ${alpha(theme.palette.text.primary, 0.2)}`,
-          borderRadius: 0.5,
           color: "text.primary",
           display: "block",
           fontFamily: "monospace",
@@ -66,8 +61,6 @@ export function DialogIdentifierDisplay({ value, kind, testId }: DialogIdentifie
           maxWidth: "100%",
           minWidth: 0,
           overflow: "hidden",
-          px: 0.5,
-          py: 0.125,
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
         }}

@@ -19,8 +19,8 @@ export function DialogOperationContext({ entries, ariaLabel }: DialogOperationCo
       <Box component="dl" sx={{ display: "flex", flexDirection: "column", gap: 1, m: 0, minWidth: 0 }}>
         {entries.map((entry) => (
           <Box component="div" key={`${entry.label}\u0000${entry.value}`} sx={{ minWidth: 0 }}>
-            <Typography component="dt" variant="body2" color="text.secondary" sx={{ mb: 0.25 }}>
-              {entry.label}
+            <Typography component="dt" variant="body2" sx={{ color: (theme) => theme.palette.text.secondary, mb: 0.25 }}>
+              {entry.label}:
             </Typography>
             <Box component="dd" sx={{ m: 0, minWidth: 0 }}>
               <DialogIdentifierDisplay value={entry.value} kind={entry.kind} testId={entry.testId} />

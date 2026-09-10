@@ -242,36 +242,7 @@ export interface PdfAdvancedSettings {
   screen_max_decoded_pixels: IntegerSystemSetting;
 }
 
-export interface AdvancedSystemSettings {
-  preprocessors: {
-    imagemagick: PreprocessorAdvancedSettings;
-  };
-  pdf?: PdfAdvancedSettings;
-}
-
-export interface AdvancedSystemSettingsUpdate {
-  preprocessors?: {
-    imagemagick?: {
-      max_file_size_bytes?: number;
-      timeout_seconds?: number;
-    };
-  };
-  pdf?: {
-    cache_quota_bytes?: number;
-    cache_inactivity_ttl_seconds?: number;
-    max_source_size_bytes?: number;
-    max_output_size_bytes?: number;
-    address_space_bytes?: number;
-    temporary_disk_bytes?: number;
-    timeout_seconds?: number;
-    cpu_time_seconds?: number;
-    max_concurrent?: number;
-    queue_wait_seconds?: number;
-    screen_derivative_enabled?: number;
-    screen_max_decoded_pixels?: number;
-  };
-  reset_keys?: string[];
-}
+export type AdvancedSystemSettingsUpdate = { field: string; value: number };
 
 export type FileSearchExclusionCategory = "images" | "temporary_backup";
 
@@ -287,10 +258,11 @@ export interface FileSearchSettingsRead {
   source: Exclude<SystemSettingSource, "config_file">;
 }
 
-export interface FileSearchSettingsUpdate {
-  settings?: FileSearchSettings;
-  reset_to_default?: boolean;
-}
+export type FileSearchSettingsUpdate =
+  | { field: "retention_limit"; value: number }
+  | { field: "result_limit"; value: number }
+  | { field: "excluded_categories"; value: FileSearchExclusionCategory[] }
+  | { field: "excluded_extensions"; value: string[] };
 
 export interface RecentFile {
   id: string;
@@ -341,17 +313,15 @@ export interface SmbPolicySettings {
 export interface SmbSettings {
   read_chunk_size_bytes: IntegerSystemSetting;
   policy: SmbPolicySettings;
-  policy_source: SystemSettingSource;
   require_signing: boolean;
   require_encryption: boolean;
 }
 
-export interface SmbSettingsUpdate {
-  read_chunk_size_bytes?: number;
-  policy?: SmbPolicySettings;
-  reset_read_chunk_size_bytes?: boolean;
-  reset_policy?: boolean;
-}
+export type SmbSettingsUpdate =
+  | { field: "read_chunk_size_bytes"; value: number }
+  | { field: "authentication_mode"; value: SmbAuthenticationMode }
+  | { field: "encryption_mode"; value: SmbEncryptionMode }
+  | { field: "connection_timeout_seconds"; value: number };
 
 export interface AboutSettings {
   version: string;
@@ -373,10 +343,7 @@ export interface NetworkSettings {
   trusted_proxy_cidrs: string[];
 }
 
-export interface NetworkSettingsUpdate {
-  public_url: string;
-  trusted_proxy_cidrs: string[];
-}
+export type NetworkSettingsUpdate = { field: "public_url"; value: string } | { field: "trusted_proxy_cidrs"; value: string[] };
 
 export interface CurrentUserSettings {
   appearance: {
@@ -401,28 +368,19 @@ export interface CurrentUserSettings {
   };
 }
 
-export interface CurrentUserSettingsUpdate {
-  appearance?: {
-    theme_id?: string;
-    custom_themes?: ThemeConfig[];
-  };
-  localization?: {
-    language?: LanguagePreference;
-    regional_locale?: RegionalLocalePreference;
-  };
-  browser?: {
-    quick_nav_include_dot_directories?: boolean;
-    quick_bar_shortcut_hint_visibility?: "auto" | "always" | "never";
-    file_browser_view_mode?: "list" | "details";
-    pane_mode?: "single" | "dual";
-    selected_connection_id?: string | null;
-    viewer_associations?: Record<string, string>;
-  };
-  text_editor?: {
-    max_file_size_bytes?: number;
-    word_wrap_enabled?: boolean;
-  };
-}
+export type CurrentUserSettingsUpdate =
+  | { field: "appearance.theme_id"; value: string }
+  | { field: "appearance.custom_themes"; value: ThemeConfig[] }
+  | { field: "localization.language"; value: LanguagePreference }
+  | { field: "localization.regional_locale"; value: RegionalLocalePreference }
+  | { field: "browser.quick_nav_include_dot_directories"; value: boolean }
+  | { field: "browser.quick_bar_shortcut_hint_visibility"; value: "auto" | "always" | "never" }
+  | { field: "browser.file_browser_view_mode"; value: "list" | "details" }
+  | { field: "browser.pane_mode"; value: "single" | "dual" }
+  | { field: "browser.selected_connection_id"; value: string | null }
+  | { field: "browser.viewer_associations"; value: Record<string, string> }
+  | { field: "text_editor.max_file_size_bytes"; value: number }
+  | { field: "text_editor.word_wrap_enabled"; value: boolean | null };
 
 export enum FileType {
   FILE = "file",
@@ -675,6 +633,7 @@ export interface OidcConfigurationCandidate {
   role_assignment_mode: OidcRoleAssignmentMode;
   uniform_role: UserRole;
   role_mappings: OidcRoleMappings;
+  auto_link_by_username: boolean;
 }
 
 export interface RedactedOidcConfiguration extends Omit<OidcConfigurationCandidate, "client_secret"> {

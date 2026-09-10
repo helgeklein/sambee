@@ -165,37 +165,6 @@ describe("ThemeSelector Component", () => {
       expect(mockOnClose).not.toHaveBeenCalled();
     });
 
-    it("persists a selected theme only after saving", async () => {
-      const user = userEvent.setup();
-      const mockOnClose = vi.fn();
-      renderWithProvider(<ThemeSelectorDialog open={true} onClose={mockOnClose} />);
-
-      // Find and click dark theme
-      const darkThemeCard = screen.getByText(/Sambee dark/i).closest("button");
-      expect(darkThemeCard).toBeInTheDocument();
-
-      await user.click(darkThemeCard!);
-
-      expect(mockOnClose).not.toHaveBeenCalled();
-      expect(localStorageMock.getItem("theme-id-current")).toBeNull();
-
-      await user.click(screen.getByRole("button", { name: "Save changes" }));
-
-      expect(mockOnClose).toHaveBeenCalledTimes(1);
-      expect(localStorageMock.getItem("theme-id-current")).toBe("sambee-dark");
-    });
-
-    it("keeps the save action enabled after previewing a different theme", async () => {
-      const user = userEvent.setup();
-      renderWithProvider(<ThemeSelectorDialog open={true} onClose={vi.fn()} />);
-
-      const darkThemeCard = screen.getByText(/Sambee dark/i).closest("button");
-      expect(darkThemeCard).toBeInTheDocument();
-      await user.click(darkThemeCard!);
-
-      expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
-    });
-
     it("should show mode indicator (Light/Dark)", () => {
       const mockOnClose = vi.fn();
       renderWithProvider(<ThemeSelectorDialog open={true} onClose={mockOnClose} />);
@@ -206,7 +175,7 @@ describe("ThemeSelector Component", () => {
   });
 
   describe("Theme Switching", () => {
-    it("should persist theme selection to localStorage", async () => {
+    it("does not mirror a selected theme in localStorage", async () => {
       const user = userEvent.setup();
       renderWithProvider(<ThemeSelector />);
 
@@ -218,10 +187,7 @@ describe("ThemeSelector Component", () => {
       const darkThemeCard = screen.getByText(/Sambee dark/i).closest("button");
       await user.click(darkThemeCard!);
 
-      await user.click(screen.getByRole("button", { name: "Save changes" }));
-
-      // Check localStorage
-      expect(localStorageMock.getItem("theme-id-current")).toBe("sambee-dark");
+      expect(localStorageMock.getItem("theme-id-current")).toBeNull();
     });
 
     it("should restore theme from localStorage on mount", async () => {

@@ -578,8 +578,8 @@ class ApiService {
     return response.data;
   }
 
-  async updateCurrentUserSettings(payload: CurrentUserSettingsUpdate): Promise<CurrentUserSettings> {
-    const response = await this.api.put<CurrentUserSettings>("/auth/me/settings", payload);
+  async updateCurrentUserSettings(payload: CurrentUserSettingsUpdate): Promise<CurrentUserSettingsUpdate> {
+    const response = await this.api.put<CurrentUserSettingsUpdate>("/auth/me/settings", payload);
     return response.data;
   }
 
@@ -811,8 +811,8 @@ class ApiService {
     return response.data;
   }
 
-  async updateAdvancedSettings(payload: AdvancedSystemSettingsUpdate): Promise<AdvancedSystemSettings> {
-    const response = await this.api.put<AdvancedSystemSettings>("/admin/settings/advanced", payload);
+  async updateAdvancedSettings(payload: AdvancedSystemSettingsUpdate): Promise<AdvancedSystemSettingsUpdate> {
+    const response = await this.api.put<AdvancedSystemSettingsUpdate>("/admin/settings/advanced", payload);
     return response.data;
   }
 
@@ -821,8 +821,8 @@ class ApiService {
     return response.data;
   }
 
-  async updateFileSearchSettings(payload: FileSearchSettingsUpdate): Promise<FileSearchSettingsRead> {
-    const response = await this.api.put<FileSearchSettingsRead>("/admin/settings/file-search", payload);
+  async updateFileSearchSettings(payload: FileSearchSettingsUpdate): Promise<FileSearchSettingsUpdate> {
+    const response = await this.api.put<FileSearchSettingsUpdate>("/admin/settings/file-search", payload);
     return response.data;
   }
 
@@ -889,8 +889,8 @@ class ApiService {
     return response.data;
   }
 
-  async updateSmbSettings(payload: SmbSettingsUpdate): Promise<SmbSettings> {
-    const response = await this.api.put<SmbSettings>("/admin/settings/smb", payload);
+  async updateSmbSettings(payload: SmbSettingsUpdate): Promise<SmbSettingsUpdate> {
+    const response = await this.api.put<SmbSettingsUpdate>("/admin/settings/smb", payload);
     return response.data;
   }
 
@@ -899,8 +899,8 @@ class ApiService {
     return response.data;
   }
 
-  async updateNetworkSettings(payload: NetworkSettingsUpdate): Promise<NetworkSettings> {
-    const response = await this.api.put<NetworkSettings>("/admin/settings/network", payload);
+  async updateNetworkSettings(payload: NetworkSettingsUpdate): Promise<NetworkSettingsUpdate> {
+    const response = await this.api.put<NetworkSettingsUpdate>("/admin/settings/network", payload);
     return response.data;
   }
 

@@ -6,7 +6,9 @@ from enum import StrEnum
 
 class SystemSettingKey(StrEnum):
     SMB_READ_CHUNK_SIZE_BYTES = "smb.read_chunk_size_bytes"
-    SMB_POLICY = "smb.policy"
+    SMB_AUTHENTICATION_MODE = "smb.authentication_mode"
+    SMB_ENCRYPTION_MODE = "smb.encryption_mode"
+    SMB_CONNECTION_TIMEOUT_SECONDS = "smb.connection_timeout_seconds"
     PREPROCESSOR_IMAGEMAGICK_MAX_FILE_SIZE_BYTES = "preprocessors.imagemagick.max_file_size_bytes"
     PREPROCESSOR_IMAGEMAGICK_TIMEOUT_SECONDS = "preprocessors.imagemagick.timeout_seconds"
     PDF_VIEWER_CACHE_QUOTA_BYTES = "pdf.viewer.cache_quota_bytes"
@@ -21,7 +23,10 @@ class SystemSettingKey(StrEnum):
     PDF_NORMALIZER_QUEUE_WAIT_SECONDS = "pdf.normalizer.queue_wait_seconds"
     PDF_SCREEN_DERIVATIVE_ENABLED = "pdf.screen_derivative.enabled"
     PDF_SCREEN_MAX_DECODED_PIXELS = "pdf.screen_derivative.max_decoded_pixels"
-    FILE_SEARCH_POLICY = "file_search.policy"
+    FILE_SEARCH_RETENTION_LIMIT = "file_search.retention_limit"
+    FILE_SEARCH_RESULT_LIMIT = "file_search.result_limit"
+    FILE_SEARCH_EXCLUDED_CATEGORIES = "file_search.excluded_categories"
+    FILE_SEARCH_EXCLUDED_EXTENSIONS = "file_search.excluded_extensions"
 
 
 class SystemSettingSource(StrEnum):

@@ -336,7 +336,7 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
       });
     });
 
-    it("persists dual-pane mode to localStorage when restored from URL", async () => {
+    it("persists dual-pane mode through the current-user settings store when restored from URL", async () => {
       renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2");
 
       await waitFor(() => {
@@ -344,7 +344,7 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
       });
 
       await waitFor(() => {
-        expect(localStorage.getItem("dual-pane-mode")).toBe("dual");
+        expect(api.updateCurrentUserSettings).toHaveBeenCalledWith({ field: "browser.pane_mode", value: "dual" });
       });
     });
   });
@@ -361,9 +361,8 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
         expect(api.getConnections).toHaveBeenCalled();
       });
 
-      // Active pane should default to left
       await waitFor(() => {
-        expect(localStorage.getItem("active-pane")).not.toBe("right");
+        expect(screen.getByTestId("router-location")).toHaveTextContent("/browse/smb/test-server-1?p2=smb/test-server-2");
       });
     });
 
@@ -375,7 +374,7 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
       });
 
       await waitFor(() => {
-        expect(localStorage.getItem("active-pane")).toBe("right");
+        expect(screen.getByTestId("router-location")).toHaveTextContent("/browse/smb/test-server-1?p2=smb/test-server-2&active=2");
       });
     });
   });

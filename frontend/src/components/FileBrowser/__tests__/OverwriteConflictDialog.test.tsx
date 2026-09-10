@@ -208,7 +208,7 @@ describe("OverwriteConflictDialog", () => {
     const targetName = screen.getByRole("textbox", { name: S.LABEL_TARGET_NAME });
     expect(targetName).toHaveValue("report (copy).txt");
     expect(targetName).not.toHaveAttribute("readonly");
-    expect(targetName.closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).toBeInTheDocument();
+    expect(targetName.closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).not.toBeInTheDocument();
     expect(
       screen.getByRole("radiogroup").compareDocumentPosition(targetName.closest(".MuiFormControl-root")!) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
@@ -248,12 +248,12 @@ describe("OverwriteConflictDialog", () => {
     expect(screen.getByRole("button", { name: S.BUTTON_CONTINUE })).toBeDisabled();
   });
 
-  it("explains and focuses the no-resolution state", async () => {
+  it("explains the no-resolution state without moving focus to its alert", () => {
     render(<OverwriteConflictDialog {...defaultProps} allowedActions={[]} />);
 
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent(S.ERROR_NO_RESOLUTION_AVAILABLE);
-    await waitFor(() => expect(alert).toHaveFocus());
+    expect(alert).not.toHaveFocus();
   });
 
   it("resets the selected resolution when owner capabilities change", async () => {
@@ -288,11 +288,11 @@ describe("OverwriteConflictDialog", () => {
     expect(targetName.selectionEnd).toBe(targetName.value.length);
   });
 
-  it("focuses an owner-level error after a failed decision", async () => {
+  it("does not focus an owner-level error after a failed decision", () => {
     render(<OverwriteConflictDialog {...defaultProps} error="Unable to save this decision." />);
 
     const alert = screen.getByRole("alert");
-    await waitFor(() => expect(alert).toHaveFocus());
+    expect(alert).not.toHaveFocus();
   });
 
   it("cancels the operation on Escape", async () => {

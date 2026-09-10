@@ -1,4 +1,4 @@
-import { Alert, Box, Typography } from "@mui/material";
+import { Box, Typography } from "@mui/material";
 import { useTranslation } from "react-i18next";
 import { DialogOperationContext } from "./DialogOperationContext";
 
@@ -11,9 +11,6 @@ export function ArchiveMemberErrorResolver({ error }: ArchiveMemberErrorResolver
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-      <Alert severity={error.partialOutput ? "warning" : "error"} role="alert">
-        {error.message}
-      </Alert>
       <DialogOperationContext
         entries={[
           { label: t("fileBrowser.archive.collisionArchiveMemberLabel"), value: error.memberPath, kind: "path" },
@@ -21,7 +18,7 @@ export function ArchiveMemberErrorResolver({ error }: ArchiveMemberErrorResolver
         ]}
       />
       {error.partialOutput ? (
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" sx={{ color: (theme) => theme.palette.text.secondary }}>
           {t("fileBrowser.archive.memberErrorPartialOutputNote")}
         </Typography>
       ) : null}

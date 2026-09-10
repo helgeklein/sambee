@@ -50,9 +50,19 @@ describe("DialogOperationContext", () => {
       />
     );
 
-    expect(screen.getByText("Source item").tagName).toBe("DT");
-    expect(screen.getByText("Source item").parentElement?.querySelector("dd")).not.toBeNull();
-    expect(screen.getByText("Destination directory").tagName).toBe("DT");
+    expect(screen.getByText("Source item:").tagName).toBe("DT");
+    expect(screen.getByText("Source item:").parentElement?.querySelector("dd")).not.toBeNull();
+    expect(screen.getByText("Destination directory:").tagName).toBe("DT");
+  });
+
+  it("uses muted labels and primary identifier values", () => {
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+    render(<DialogOperationContext entries={[{ label: "Source item", value: "report.pdf", kind: "fileName" }]} />);
+
+    const label = screen.getByText("Source item:");
+    const value = screen.getByLabelText("report.pdf");
+
+    expect(getComputedStyle(label).color).not.toBe(getComputedStyle(value).color);
   });
 
   it("retains the complete accessible value and exposes a shortened value on hover only", async () => {

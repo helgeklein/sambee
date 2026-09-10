@@ -12,9 +12,11 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { useCurrentUserSetting } from "../services/userSettingsStore";
 import { useSambeeTheme } from "../theme";
-import { ResponsiveFormDialog } from "./Admin/ResponsiveFormDialog";
+import { DialogNotice } from "./Dialog/DialogNotice";
+import { ResponsiveDialogShell } from "./Dialog/ResponsiveDialogShell";
 import { THEME_SELECTOR_STRINGS } from "./themeSelectorStrings";
 
 //
@@ -59,48 +61,23 @@ interface ThemeSelectorDialogProps {
  * Dialog that displays all available themes for selection
  */
 export function ThemeSelectorDialog({ open, onClose }: ThemeSelectorDialogProps) {
-  const { currentTheme, availableThemes, saveThemeById, setThemeById } = useSambeeTheme();
-  const savedThemeIdRef = useRef(currentTheme.id);
-  const wasOpenRef = useRef(false);
-  const [draftThemeId, setDraftThemeId] = useState(currentTheme.id);
-
-  useEffect(() => {
-    if (open && !wasOpenRef.current) {
-      savedThemeIdRef.current = currentTheme.id;
-      setDraftThemeId(currentTheme.id);
-    }
-    wasOpenRef.current = open;
-  }, [currentTheme.id, open]);
+  const { currentTheme, availableThemes } = useSambeeTheme();
+  const themeSetting = useCurrentUserSetting("appearance.theme_id");
 
   const handleSelect = (themeId: string) => {
-    setDraftThemeId(themeId);
-    setThemeById(themeId);
-  };
-
-  const handleCancel = () => {
-    setThemeById(savedThemeIdRef.current);
-    onClose();
-  };
-
-  const handleSave = () => {
-    saveThemeById(draftThemeId);
-    onClose();
+    if (themeId !== currentTheme.id && !themeSetting.pending) {
+      void themeSetting.commit(themeId).catch(() => undefined);
+    }
   };
 
   return (
-    <ResponsiveFormDialog
+    <ResponsiveDialogShell
       open={open}
-      onClose={handleCancel}
+      onClose={onClose}
       title={THEME_SELECTOR_STRINGS.DIALOG_TITLE}
       maxWidth="md"
-      actions={
-        <>
-          <Button onClick={handleCancel}>Cancel</Button>
-          <Button variant="contained" onClick={handleSave} disabled={draftThemeId === savedThemeIdRef.current}>
-            Save changes
-          </Button>
-        </>
-      }
+      actionNotice={<DialogNotice message={themeSetting.error} />}
+      actions={<Button onClick={onClose}>Close</Button>}
     >
       <Box
         sx={{
@@ -115,14 +92,14 @@ export function ThemeSelectorDialog({ open, onClose }: ThemeSelectorDialogProps)
             key={theme.id}
             variant="outlined"
             sx={{
-              border: draftThemeId === theme.id ? 2 : 1,
-              borderColor: draftThemeId === theme.id ? "primary.main" : "divider",
+              border: currentTheme.id === theme.id ? 2 : 1,
+              borderColor: currentTheme.id === theme.id ? "primary.main" : "divider",
             }}
           >
-            <CardActionArea onClick={() => handleSelect(theme.id)}>
+            <CardActionArea onClick={() => handleSelect(theme.id)} disabled={themeSetting.pending}>
               <CardContent>
                 <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
-                  <Radio checked={draftThemeId === theme.id} />
+                  <Radio checked={currentTheme.id === theme.id} />
                   <Typography variant="h6" sx={{ ml: 1 }}>
                     {THEME_SELECTOR_STRINGS.themeName(theme)}
                   </Typography>
@@ -138,7 +115,7 @@ export function ThemeSelectorDialog({ open, onClose }: ThemeSelectorDialogProps)
           </Card>
         ))}
       </Box>
-    </ResponsiveFormDialog>
+    </ResponsiveDialogShell>
   );
 }
 

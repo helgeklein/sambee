@@ -1,6 +1,5 @@
 import {
   Box,
-  Button,
   Divider,
   FormControl,
   InputLabel,
@@ -14,10 +13,10 @@ import {
   useTheme,
 } from "@mui/material";
 import type { SelectChangeEvent } from "@mui/material/Select";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { formSelectMenuProps, formSelectSx } from "../components/Form/FormLayout";
 import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
-import { settingsSelectMenuProps, settingsSelectSx } from "../components/Settings/SettingsFormLayout";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsList } from "../components/Settings/SettingsList";
 import { SettingsPage } from "../components/Settings/SettingsPage";
@@ -26,6 +25,7 @@ import { getSettingsPageSurfaceColor } from "../components/Settings/settingsSurf
 import { getAvailableLanguages } from "../i18n";
 import { useLocalePreferences } from "../i18n/LocalePreferencesProvider";
 import { PSEUDO_LANGUAGE } from "../i18n/resources";
+import { useCurrentUserSetting } from "../services/userSettingsStore";
 import { useSambeeTheme } from "../theme";
 import type { LanguagePreference } from "../types";
 import { formatLocalizedDateTime, formatLocalizedNumber } from "../utils/localeFormatting";
@@ -94,65 +94,13 @@ function ThemePreview({
 }
 
 export function AppearanceSettings() {
-  const { currentTheme, availableThemes, saveThemeById, setThemeById } = useSambeeTheme();
+  const { currentTheme, availableThemes } = useSambeeTheme();
+  const themeSetting = useCurrentUserSetting("appearance.theme_id");
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t } = useTranslation();
   const { languagePreference, regionalLocalePreference, setLanguagePreference, setRegionalLocalePreference } = useLocalePreferences();
   const availableLanguages = getAvailableLanguages();
-  const [savedAppearance, setSavedAppearance] = useState({
-    themeId: currentTheme.id,
-    languagePreference,
-    regionalLocalePreference,
-  });
-  const savedAppearanceRef = useRef(savedAppearance);
-  const draftAppearanceRef = useRef(savedAppearance);
-  const previewActionsRef = useRef({ setThemeById, setLanguagePreference, setRegionalLocalePreference });
-  previewActionsRef.current = { setThemeById, setLanguagePreference, setRegionalLocalePreference };
-  const [draftThemeId, setDraftThemeId] = useState(currentTheme.id);
-  const [draftLanguagePreference, setDraftLanguagePreference] = useState(languagePreference);
-  const [draftRegionalLocalePreference, setDraftRegionalLocalePreference] = useState(regionalLocalePreference);
-
-  useEffect(() => {
-    const nextSavedAppearance = {
-      themeId: currentTheme.id,
-      languagePreference,
-      regionalLocalePreference,
-    };
-    const previousSavedAppearance = savedAppearanceRef.current;
-    const wasClean =
-      draftAppearanceRef.current.themeId === previousSavedAppearance.themeId &&
-      draftAppearanceRef.current.languagePreference === previousSavedAppearance.languagePreference &&
-      draftAppearanceRef.current.regionalLocalePreference === previousSavedAppearance.regionalLocalePreference;
-
-    if (!wasClean) {
-      return;
-    }
-
-    savedAppearanceRef.current = nextSavedAppearance;
-    setSavedAppearance(nextSavedAppearance);
-
-    if (wasClean) {
-      draftAppearanceRef.current = nextSavedAppearance;
-      setDraftThemeId(nextSavedAppearance.themeId);
-      setDraftLanguagePreference(nextSavedAppearance.languagePreference);
-      setDraftRegionalLocalePreference(nextSavedAppearance.regionalLocalePreference);
-    }
-  }, [currentTheme.id, languagePreference, regionalLocalePreference]);
-
-  const hasUnsavedChanges =
-    draftThemeId !== savedAppearance.themeId ||
-    draftLanguagePreference !== savedAppearance.languagePreference ||
-    draftRegionalLocalePreference !== savedAppearance.regionalLocalePreference;
-
-  useEffect(() => {
-    return () => {
-      previewActionsRef.current.setThemeById(savedAppearanceRef.current.themeId);
-      void previewActionsRef.current.setLanguagePreference(savedAppearanceRef.current.languagePreference);
-      void previewActionsRef.current.setRegionalLocalePreference(savedAppearanceRef.current.regionalLocalePreference);
-    };
-  }, []);
-
   const languageOptions = useMemo(
     () => [
       { value: "browser", label: t("settings.appearancePage.browserDefaultOption") },
@@ -176,53 +124,25 @@ export function AppearanceSettings() {
       })),
     ];
 
-    if (draftRegionalLocalePreference !== "browser" && !options.some((option) => option.value === draftRegionalLocalePreference)) {
-      options.push({ value: draftRegionalLocalePreference, label: draftRegionalLocalePreference });
+    if (regionalLocalePreference !== "browser" && !options.some((option) => option.value === regionalLocalePreference)) {
+      options.push({ value: regionalLocalePreference, label: regionalLocalePreference });
     }
 
     return options;
-  }, [draftRegionalLocalePreference, t]);
+  }, [regionalLocalePreference, t]);
 
   const handleLanguageChange = (event: SelectChangeEvent<string>) => {
     const nextLanguagePreference = event.target.value as LanguagePreference;
-    draftAppearanceRef.current = { ...draftAppearanceRef.current, languagePreference: nextLanguagePreference };
-    setDraftLanguagePreference(nextLanguagePreference);
     void setLanguagePreference(nextLanguagePreference);
   };
 
   const handleRegionalLocaleChange = (event: SelectChangeEvent<string>) => {
     const nextRegionalLocalePreference = event.target.value;
-    draftAppearanceRef.current = { ...draftAppearanceRef.current, regionalLocalePreference: nextRegionalLocalePreference };
-    setDraftRegionalLocalePreference(nextRegionalLocalePreference);
     void setRegionalLocalePreference(nextRegionalLocalePreference);
   };
 
-  const saveChanges = () => {
-    const nextSavedAppearance = {
-      themeId: draftThemeId,
-      languagePreference: draftLanguagePreference,
-      regionalLocalePreference: draftRegionalLocalePreference,
-    };
-    draftAppearanceRef.current = nextSavedAppearance;
-    savedAppearanceRef.current = nextSavedAppearance;
-    setSavedAppearance(nextSavedAppearance);
-    saveThemeById(draftThemeId, {
-      localization: {
-        language: draftLanguagePreference,
-        regional_locale: draftRegionalLocalePreference,
-      },
-    });
-  };
-
   return (
-    <SettingsPage
-      category="appearance"
-      footerPrimaryActions={
-        <Button variant="contained" onClick={saveChanges} disabled={!hasUnsavedChanges}>
-          {t("settings.advanced.saveChanges")}
-        </Button>
-      }
-    >
+    <SettingsPage category="appearance">
       <SettingsSectionList>
         <SettingsGroup title={t("settings.appearancePage.themeTitle")}>
           {isMobile ? (
@@ -232,14 +152,14 @@ export function AppearanceSettings() {
                   <ListItem disablePadding>
                     <ListItemButton
                       onClick={() => {
-                        draftAppearanceRef.current = { ...draftAppearanceRef.current, themeId: themeOption.id };
-                        setDraftThemeId(themeOption.id);
-                        setThemeById(themeOption.id);
+                        if (!themeSetting.pending && themeOption.id !== currentTheme.id) {
+                          void themeSetting.commit(themeOption.id).catch(() => undefined);
+                        }
                       }}
                       sx={{ py: 2, px: 0 }}
                     >
                       <Box sx={{ display: "flex", alignItems: "flex-start", width: "100%", gap: 2 }}>
-                        <Radio checked={draftThemeId === themeOption.id} sx={{ mt: -0.5 }} />
+                        <Radio checked={currentTheme.id === themeOption.id} sx={{ mt: -0.5 }} />
                         <Box sx={{ flex: 1 }}>
                           <Typography variant="h6" sx={{ fontWeight: 500 }}>
                             {themeOption.name}
@@ -270,25 +190,25 @@ export function AppearanceSettings() {
                 <Box
                   key={themeOption.id}
                   onClick={() => {
-                    draftAppearanceRef.current = { ...draftAppearanceRef.current, themeId: themeOption.id };
-                    setDraftThemeId(themeOption.id);
-                    setThemeById(themeOption.id);
+                    if (!themeSetting.pending && themeOption.id !== currentTheme.id) {
+                      void themeSetting.commit(themeOption.id).catch(() => undefined);
+                    }
                   }}
                   sx={{
                     p: 3,
-                    border: draftThemeId === themeOption.id ? 2 : 1,
-                    borderColor: draftThemeId === themeOption.id ? "primary.main" : "divider",
+                    border: currentTheme.id === themeOption.id ? 2 : 1,
+                    borderColor: currentTheme.id === themeOption.id ? "primary.main" : "divider",
                     borderRadius: 1,
                     cursor: "pointer",
                     transition: "all 0.2s",
                     "&:hover": {
-                      borderColor: draftThemeId === themeOption.id ? "primary.main" : "text.secondary",
+                      borderColor: currentTheme.id === themeOption.id ? "primary.main" : "text.secondary",
                       bgcolor: "action.selected",
                     },
                   }}
                 >
                   <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
-                    <Radio checked={draftThemeId === themeOption.id} />
+                    <Radio checked={currentTheme.id === themeOption.id} />
                     <Typography variant="h6" sx={{ ml: 1 }}>
                       {themeOption.name}
                     </Typography>
@@ -311,11 +231,11 @@ export function AppearanceSettings() {
               <InputLabel id="appearance-language-label">{t("settings.appearancePage.languageLabel")}</InputLabel>
               <Select
                 labelId="appearance-language-label"
-                value={draftLanguagePreference}
+                value={languagePreference}
                 label={t("settings.appearancePage.languageLabel")}
                 onChange={handleLanguageChange}
-                sx={settingsSelectSx}
-                MenuProps={settingsSelectMenuProps}
+                sx={formSelectSx}
+                MenuProps={formSelectMenuProps}
               >
                 {languageOptions.map((option) => (
                   <MenuItem key={option.value} value={option.value}>
@@ -330,11 +250,11 @@ export function AppearanceSettings() {
               <InputLabel id="appearance-regional-locale-label">{t("settings.appearancePage.regionalLocaleLabel")}</InputLabel>
               <Select
                 labelId="appearance-regional-locale-label"
-                value={draftRegionalLocalePreference}
+                value={regionalLocalePreference}
                 label={t("settings.appearancePage.regionalLocaleLabel")}
                 onChange={handleRegionalLocaleChange}
-                sx={settingsSelectSx}
-                MenuProps={settingsSelectMenuProps}
+                sx={formSelectSx}
+                MenuProps={formSelectMenuProps}
               >
                 {regionalLocaleOptions.map((option) => (
                   <MenuItem key={option.value} value={option.value}>

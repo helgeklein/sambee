@@ -49,7 +49,7 @@ describe("AdvancedSettings", () => {
     vi.clearAllMocks();
     clearCachedAsyncData();
     vi.mocked(api.getAdvancedSettings).mockResolvedValue(mockAdvancedSettings);
-    vi.mocked(api.updateAdvancedSettings).mockResolvedValue(mockAdvancedSettings);
+    vi.mocked(api.updateAdvancedSettings).mockImplementation(async (update) => update);
   });
 
   it("loads and displays advanced settings", async () => {
@@ -71,7 +71,7 @@ describe("AdvancedSettings", () => {
     expect(screen.queryByText(/exact value:/i)).not.toBeInTheDocument();
   });
 
-  it("saves updated values", async () => {
+  it("persists a valid updated value on blur", async () => {
     const user = userEvent.setup();
 
     render(
@@ -83,18 +83,14 @@ describe("AdvancedSettings", () => {
     const timeoutInput = await screen.findByLabelText("Conversion timeout");
     await user.clear(timeoutInput);
     await user.type(timeoutInput, "45");
-
-    await user.click(screen.getByRole("button", { name: /save changes/i }));
+    await user.tab();
 
     await waitFor(() => {
       expect(api.updateAdvancedSettings).toHaveBeenCalledWith({
-        preprocessors: {
-          imagemagick: {
-            max_file_size_bytes: 104857600,
-            timeout_seconds: 45,
-          },
-        },
+        field: "preprocessors.imagemagick.timeout_seconds",
+        value: 45,
       });
     });
+    expect(screen.queryByRole("button", { name: /save changes/i })).not.toBeInTheDocument();
   });
 });

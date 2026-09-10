@@ -5,6 +5,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from json import JSONDecodeError
+from pathlib import Path
 from typing import Any, cast
 
 from sqlmodel import Session, select
@@ -26,6 +27,7 @@ from app.models.user_settings import (
     BrowserUserSettingsRead,
     CurrentUserSettingsRead,
     CurrentUserSettingsUpdate,
+    CurrentUserSettingsUpdateResult,
     LocalizationUserSettingsRead,
     TextEditorUserSettingsRead,
     UserSetting,
@@ -43,6 +45,7 @@ MAX_TEXT_EDITOR_MAX_FILE_SIZE_BYTES = 104_857_600
 VALID_THEME_MODES = {"light", "dark"}
 VALID_LANGUAGE_PREFERENCES = {DEFAULT_LANGUAGE_PREFERENCE, "en", "en-XA"}
 REGIONAL_LOCALE_PATTERN = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
+BUILT_IN_THEME_IDS_PATH = Path(__file__).resolve().parents[3] / "shared" / "built_in_theme_ids.json"
 
 
 def _load_user_setting_map(user_id: uuid.UUID, session: Session) -> dict[str, str]:
@@ -304,177 +307,103 @@ def _delete_user_setting(*, user_id: uuid.UUID, key: UserSettingKey, session: Se
         session.delete(setting)
 
 
-def update_current_user_settings(*, user_id: uuid.UUID, payload: CurrentUserSettingsUpdate, session: Session) -> None:
-    has_updates = False
+def _built_in_theme_ids() -> set[str]:
+    try:
+        values = json.loads(BUILT_IN_THEME_IDS_PATH.read_text())
+    except (OSError, JSONDecodeError) as exc:
+        raise RuntimeError("The built-in theme manifest is unavailable or invalid") from exc
+    if not isinstance(values, list) or any(not isinstance(value, str) or not value for value in values):
+        raise RuntimeError("The built-in theme manifest is invalid")
+    return set(values)
 
-    if payload.appearance and payload.appearance.theme_id is not None:
-        theme_id = payload.appearance.theme_id.strip()
-        if not theme_id:
+
+def _validate_custom_themes(custom_themes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if any(not _is_valid_theme_config(theme) for theme in custom_themes):
+        raise ValueError("Custom themes payload contains an invalid theme definition")
+    built_in_ids = _built_in_theme_ids()
+    custom_ids = [str(theme["id"]).strip() for theme in custom_themes]
+    if len(custom_ids) != len(set(custom_ids)):
+        raise ValueError("Custom theme IDs must be unique")
+    if built_in_ids.intersection(custom_ids):
+        raise ValueError("Custom theme IDs cannot match built-in theme IDs")
+    return custom_themes
+
+
+def _begin_immediate_transaction(session: Session) -> None:
+    if session.get_bind().dialect.name == "sqlite" and not session.in_transaction():
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+
+
+def update_current_user_settings(
+    *, user_id: uuid.UUID, payload: CurrentUserSettingsUpdate, session: Session
+) -> CurrentUserSettingsUpdateResult:
+    key = UserSettingKey(payload.field)
+    value: object = payload.value
+
+    if key in {UserSettingKey.APPEARANCE_THEME_ID, UserSettingKey.APPEARANCE_CUSTOM_THEMES}:
+        _begin_immediate_transaction(session)
+
+    if key is UserSettingKey.APPEARANCE_THEME_ID:
+        value = str(value).strip()
+        if not value:
             raise ValueError("Theme ID cannot be empty")
-
-        _upsert_user_setting(user_id=user_id, key=UserSettingKey.APPEARANCE_THEME_ID, value=theme_id, session=session)
-        has_updates = True
-
-    if payload.appearance and "custom_themes" in payload.appearance.model_fields_set:
-        custom_themes = payload.appearance.custom_themes or []
-        if any(not _is_valid_theme_config(theme) for theme in custom_themes):
-            raise ValueError("Custom themes payload contains an invalid theme definition")
-
-        if custom_themes:
-            _upsert_user_setting(
-                user_id=user_id,
-                key=UserSettingKey.APPEARANCE_CUSTOM_THEMES,
-                value=json.dumps(custom_themes, separators=(",", ":"), sort_keys=True),
-                session=session,
-            )
-        else:
-            _delete_user_setting(
-                user_id=user_id,
-                key=UserSettingKey.APPEARANCE_CUSTOM_THEMES,
-                session=session,
-            )
-
-        has_updates = True
-
-    if payload.localization and "language" in payload.localization.model_fields_set:
-        language = _parse_language_preference(payload.localization.language)
-        _upsert_user_setting(
-            user_id=user_id,
-            key=UserSettingKey.LOCALIZATION_LANGUAGE,
-            value=language,
-            session=session,
-        )
-        has_updates = True
-
-    if payload.localization and "regional_locale" in payload.localization.model_fields_set:
-        regional_locale = _normalize_regional_locale(payload.localization.regional_locale)
-        _upsert_user_setting(
-            user_id=user_id,
-            key=UserSettingKey.LOCALIZATION_REGIONAL_LOCALE,
-            value=regional_locale,
-            session=session,
-        )
-        has_updates = True
-
-    if payload.browser and payload.browser.quick_nav_include_dot_directories is not None:
-        _upsert_user_setting(
-            user_id=user_id,
-            key=UserSettingKey.BROWSER_QUICK_NAV_INCLUDE_DOT_DIRECTORIES,
-            value="true" if payload.browser.quick_nav_include_dot_directories else "false",
-            session=session,
-        )
-        has_updates = True
-
-    if payload.browser and payload.browser.quick_bar_shortcut_hint_visibility is not None:
-        shortcut_hint_visibility = payload.browser.quick_bar_shortcut_hint_visibility.strip().lower()
-        if shortcut_hint_visibility not in VALID_QUICK_BAR_SHORTCUT_HINT_VISIBILITIES:
+        current = build_current_user_settings_read(user_id=user_id, session=session)
+        allowed_ids = _built_in_theme_ids().union(theme["id"] for theme in current.appearance.custom_themes)
+        if value not in allowed_ids:
+            raise ValueError("Theme ID must identify a built-in or current custom theme")
+    elif key is UserSettingKey.APPEARANCE_CUSTOM_THEMES:
+        value = _validate_custom_themes(cast(list[dict[str, Any]], value))
+        current_theme_id = build_current_user_settings_read(user_id=user_id, session=session).appearance.theme_id
+        allowed_ids = _built_in_theme_ids().union(theme["id"] for theme in value)
+        if current_theme_id not in allowed_ids:
+            raise ValueError("Cannot remove the active custom theme before selecting another theme")
+    elif key is UserSettingKey.LOCALIZATION_LANGUAGE:
+        value = _parse_language_preference(cast(str, value))
+    elif key is UserSettingKey.LOCALIZATION_REGIONAL_LOCALE:
+        value = _normalize_regional_locale(cast(str, value))
+    elif key is UserSettingKey.BROWSER_QUICK_BAR_SHORTCUT_HINT_VISIBILITY:
+        value = cast(str, value).strip().lower()
+        if value not in VALID_QUICK_BAR_SHORTCUT_HINT_VISIBILITIES:
             raise ValueError("Quick Bar shortcut hint visibility must be one of: auto, always, never")
-
-        _upsert_user_setting(
-            user_id=user_id,
-            key=UserSettingKey.BROWSER_QUICK_BAR_SHORTCUT_HINT_VISIBILITY,
-            value=shortcut_hint_visibility,
-            session=session,
-        )
-        has_updates = True
-
-    if payload.browser and payload.browser.file_browser_view_mode is not None:
-        view_mode = payload.browser.file_browser_view_mode.strip().lower()
-        if view_mode not in VALID_FILE_BROWSER_VIEW_MODES:
+    elif key is UserSettingKey.BROWSER_FILE_BROWSER_VIEW_MODE:
+        value = cast(str, value).strip().lower()
+        if value not in VALID_FILE_BROWSER_VIEW_MODES:
             raise ValueError("File browser view mode must be one of: list, details")
-
-        _upsert_user_setting(
-            user_id=user_id,
-            key=UserSettingKey.BROWSER_FILE_BROWSER_VIEW_MODE,
-            value=view_mode,
-            session=session,
-        )
-        has_updates = True
-
-    if payload.browser and payload.browser.pane_mode is not None:
-        pane_mode = payload.browser.pane_mode.strip().lower()
-        if pane_mode not in VALID_PANE_MODES:
+    elif key is UserSettingKey.BROWSER_PANE_MODE:
+        value = cast(str, value).strip().lower()
+        if value not in VALID_PANE_MODES:
             raise ValueError("Pane mode must be one of: single, dual")
-
-        _upsert_user_setting(
-            user_id=user_id,
-            key=UserSettingKey.BROWSER_PANE_MODE,
-            value=pane_mode,
-            session=session,
-        )
-        has_updates = True
-
-    if payload.browser and "selected_connection_id" in payload.browser.model_fields_set:
-        selected_connection_id = payload.browser.selected_connection_id
-        normalized_connection_id = selected_connection_id.strip() if selected_connection_id is not None else ""
-
-        if normalized_connection_id:
-            _upsert_user_setting(
-                user_id=user_id,
-                key=UserSettingKey.BROWSER_SELECTED_CONNECTION_ID,
-                value=normalized_connection_id,
-                session=session,
-            )
-        else:
-            _delete_user_setting(
-                user_id=user_id,
-                key=UserSettingKey.BROWSER_SELECTED_CONNECTION_ID,
-                session=session,
-            )
-
-        has_updates = True
-
-    if payload.browser and "viewer_associations" in payload.browser.model_fields_set:
-        viewer_associations = payload.browser.viewer_associations or {}
+    elif key is UserSettingKey.BROWSER_SELECTED_CONNECTION_ID:
+        value = cast(str | None, value)
+        value = value.strip() if value is not None else None
+    elif key is UserSettingKey.BROWSER_VIEWER_ASSOCIATIONS:
         normalized_associations: dict[str, str] = {}
-
-        for raw_key, raw_value in viewer_associations.items():
+        for raw_key, raw_value in cast(dict[str, str], value).items():
             normalized_key = raw_key.strip().lower()
             normalized_value = raw_value.strip()
             if not normalized_key or not normalized_value:
                 raise ValueError("Viewer associations must use non-empty file keys and viewer IDs")
-
             normalized_associations[normalized_key] = normalized_value
-
-        if normalized_associations:
-            _upsert_user_setting(
-                user_id=user_id,
-                key=UserSettingKey.BROWSER_VIEWER_ASSOCIATIONS,
-                value=json.dumps(normalized_associations, separators=(",", ":"), sort_keys=True),
-                session=session,
-            )
-        else:
-            _delete_user_setting(
-                user_id=user_id,
-                key=UserSettingKey.BROWSER_VIEWER_ASSOCIATIONS,
-                session=session,
-            )
-
-        has_updates = True
-
-    if payload.text_editor and payload.text_editor.max_file_size_bytes is not None:
-        max_file_size_bytes = payload.text_editor.max_file_size_bytes
-        if max_file_size_bytes < MIN_TEXT_EDITOR_MAX_FILE_SIZE_BYTES or max_file_size_bytes > MAX_TEXT_EDITOR_MAX_FILE_SIZE_BYTES:
+        value = normalized_associations
+    elif key is UserSettingKey.TEXT_EDITOR_MAX_FILE_SIZE_BYTES:
+        normalized_max_file_size = int(cast(int, value))
+        if normalized_max_file_size < MIN_TEXT_EDITOR_MAX_FILE_SIZE_BYTES or normalized_max_file_size > MAX_TEXT_EDITOR_MAX_FILE_SIZE_BYTES:
             raise ValueError("Text editor max file size must be between 65536 and 104857600 bytes")
+        value = normalized_max_file_size
 
-        _upsert_user_setting(
-            user_id=user_id,
-            key=UserSettingKey.TEXT_EDITOR_MAX_FILE_SIZE_BYTES,
-            value=str(max_file_size_bytes),
-            session=session,
+    if value in (None, "", {}):
+        _delete_user_setting(user_id=user_id, key=key, session=session)
+    else:
+        serialized = (
+            json.dumps(value, separators=(",", ":"), sort_keys=True)
+            if isinstance(value, (dict, list))
+            else "true"
+            if value is True
+            else "false"
+            if value is False
+            else str(value)
         )
-        has_updates = True
-
-    if payload.text_editor and payload.text_editor.word_wrap_enabled is not None:
-        _upsert_user_setting(
-            user_id=user_id,
-            key=UserSettingKey.TEXT_EDITOR_WORD_WRAP_ENABLED,
-            value="true" if payload.text_editor.word_wrap_enabled else "false",
-            session=session,
-        )
-        has_updates = True
-
-    if not has_updates:
-        return
+        _upsert_user_setting(user_id=user_id, key=key, value=serialized, session=session)
 
     session.commit()
+    return payload.model_copy(update={"value": value})

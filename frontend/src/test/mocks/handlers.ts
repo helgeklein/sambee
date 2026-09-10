@@ -39,8 +39,8 @@ function createAdvancedSettingsResponse() {
   };
 }
 
-let advancedSettingsResponse = createAdvancedSettingsResponse();
-let smbSettingsResponse = {
+const advancedSettingsResponse = createAdvancedSettingsResponse();
+const smbSettingsResponse = {
   read_chunk_size_bytes: {
     key: "smb.read_chunk_size_bytes",
     label: "SMB read chunk size",
@@ -541,56 +541,44 @@ export const handlers = [
 
   http.put(`${API_BASE}/admin/settings/advanced`, async ({ request }) => {
     const body = (await request.json()) as Record<string, unknown>;
-    const nextResponse = createAdvancedSettingsResponse();
-    const resetKeys = Array.isArray(body["reset_keys"]) ? body["reset_keys"] : [];
-
-    const preprocessors = body["preprocessors"] as Record<string, unknown> | undefined;
-    const imagemagick = preprocessors?.["imagemagick"] as Record<string, unknown> | undefined;
-    if (!resetKeys.includes("preprocessors.imagemagick.max_file_size_bytes")) {
-      const value = imagemagick?.["max_file_size_bytes"];
-      if (typeof value === "number") {
-        nextResponse.preprocessors.imagemagick.max_file_size_bytes.value = value;
-        nextResponse.preprocessors.imagemagick.max_file_size_bytes.source = "database";
-      }
+    const field = body["field"];
+    const value = body["value"];
+    if (typeof field !== "string" || typeof value !== "number") {
+      return HttpResponse.json({ detail: "Expected one advanced settings field and value." }, { status: 422 });
     }
 
-    if (!resetKeys.includes("preprocessors.imagemagick.timeout_seconds")) {
-      const value = imagemagick?.["timeout_seconds"];
-      if (typeof value === "number") {
-        nextResponse.preprocessors.imagemagick.timeout_seconds.value = value;
-        nextResponse.preprocessors.imagemagick.timeout_seconds.source = "database";
-      }
+    const imagemagick = advancedSettingsResponse.preprocessors.imagemagick;
+    if (field === imagemagick.max_file_size_bytes.key) {
+      imagemagick.max_file_size_bytes.value = value;
+      imagemagick.max_file_size_bytes.source = "database";
+    } else if (field === imagemagick.timeout_seconds.key) {
+      imagemagick.timeout_seconds.value = value;
+      imagemagick.timeout_seconds.source = "database";
+    } else {
+      return HttpResponse.json({ detail: `Unsupported advanced settings field: ${field}` }, { status: 422 });
     }
-
-    advancedSettingsResponse = nextResponse;
-    return HttpResponse.json(advancedSettingsResponse);
+    return HttpResponse.json({ field, value });
   }),
 
   http.get(`${API_BASE}/admin/settings/smb`, () => HttpResponse.json(smbSettingsResponse)),
 
   http.put(`${API_BASE}/admin/settings/smb`, async ({ request }) => {
     const body = (await request.json()) as Record<string, unknown>;
-    const nextResponse = structuredClone(smbSettingsResponse);
-    if (body["reset_read_chunk_size_bytes"] === true) {
-      nextResponse.read_chunk_size_bytes.value = 4194304;
-      nextResponse.read_chunk_size_bytes.source = "default";
-    } else if (typeof body["read_chunk_size_bytes"] === "number") {
-      nextResponse.read_chunk_size_bytes.value = body["read_chunk_size_bytes"];
-      nextResponse.read_chunk_size_bytes.source = "database";
+    const field = body["field"];
+    const value = body["value"];
+    if (field === "read_chunk_size_bytes" && typeof value === "number") {
+      smbSettingsResponse.read_chunk_size_bytes.value = value;
+      smbSettingsResponse.read_chunk_size_bytes.source = "database";
+    } else if (field === "authentication_mode" && (value === "negotiate" || value === "kerberos_required")) {
+      smbSettingsResponse.policy.authentication_mode = value;
+    } else if (field === "encryption_mode" && (value === "signing_only" || value === "encryption_required")) {
+      smbSettingsResponse.policy.encryption_mode = value;
+    } else if (field === "connection_timeout_seconds" && typeof value === "number") {
+      smbSettingsResponse.policy.connection_timeout_seconds = value;
+    } else {
+      return HttpResponse.json({ detail: "Expected one valid SMB settings field and value." }, { status: 422 });
     }
-    if (body["reset_policy"] === true) {
-      nextResponse.policy = {
-        authentication_mode: "negotiate",
-        encryption_mode: "signing_only",
-        connection_timeout_seconds: 30,
-      };
-      nextResponse.policy_source = "default";
-    } else if (body["policy"] && typeof body["policy"] === "object") {
-      nextResponse.policy = body["policy"] as typeof nextResponse.policy;
-      nextResponse.policy_source = "database";
-    }
-    smbSettingsResponse = nextResponse;
-    return HttpResponse.json(smbSettingsResponse);
+    return HttpResponse.json({ field, value });
   }),
 
   // Browse - List directory

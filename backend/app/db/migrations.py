@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -897,6 +898,74 @@ def _apply_transfer_operations_migration(connection: Connection) -> None:
         connection.execute(text(f"CREATE INDEX IF NOT EXISTS ix_transfer_operations_{column} ON transfer_operations ({column})"))
 
 
+def _apply_per_field_system_settings_migration(connection: Connection) -> None:
+    """Replace legacy policy blobs with independently persisted setting rows."""
+
+    if not inspect(connection).has_table("systemsetting"):
+        return
+
+    from app.models.system_settings import FileSearchSettings, SmbPolicySettings
+
+    legacy_settings = (
+        (
+            "file_search.policy",
+            FileSearchSettings,
+            {
+                "retention_limit": "file_search.retention_limit",
+                "result_limit": "file_search.result_limit",
+                "excluded_categories": "file_search.excluded_categories",
+                "excluded_extensions": "file_search.excluded_extensions",
+            },
+        ),
+        (
+            "smb.policy",
+            SmbPolicySettings,
+            {
+                "authentication_mode": "smb.authentication_mode",
+                "encryption_mode": "smb.encryption_mode",
+                "connection_timeout_seconds": "smb.connection_timeout_seconds",
+            },
+        ),
+    )
+
+    for legacy_key, model, target_keys in legacy_settings:
+        legacy_row = (
+            connection.execute(
+                text("SELECT key, value, updated_at, updated_by_user_id FROM systemsetting WHERE key = :key"), {"key": legacy_key}
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if legacy_row is None:
+            continue
+
+        try:
+            parsed = model.model_validate(json.loads(str(legacy_row["value"])))
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"Cannot migrate invalid legacy system setting {legacy_key}: {exc}") from exc
+
+        for field, target_key in target_keys.items():
+            value = getattr(parsed, field)
+            serialized = json.dumps(sorted(value), separators=(",", ":")) if isinstance(value, set) else str(value)
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO systemsetting (key, value, updated_at, updated_by_user_id)
+                    SELECT :key, :value, :updated_at, :updated_by_user_id
+                    WHERE NOT EXISTS (SELECT 1 FROM systemsetting WHERE key = :key)
+                    """
+                ),
+                {
+                    "key": target_key,
+                    "value": serialized,
+                    "updated_at": legacy_row["updated_at"],
+                    "updated_by_user_id": legacy_row["updated_by_user_id"],
+                },
+            )
+
+        connection.execute(text("DELETE FROM systemsetting WHERE key = :key"), {"key": legacy_key})
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="ensure_connection_slugs", apply=_apply_connection_slug_migration),
     Migration(version=2, name="add_user_role_and_session_fields", apply=_apply_user_role_migration),
@@ -934,6 +1003,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     ),
     Migration(version=33, name="add_archive_operation_member_selection", apply=_apply_archive_operation_member_selection_migration),
     Migration(version=34, name="add_transfer_operations", apply=_apply_transfer_operations_migration),
+    Migration(version=35, name="split_system_setting_policy_blobs", apply=_apply_per_field_system_settings_migration),
 )
 
 

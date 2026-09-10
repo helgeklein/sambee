@@ -213,6 +213,26 @@ describe("ArchiveExtractDialog", () => {
     expect(onCancelExtraction).toHaveBeenCalledOnce();
   });
 
+  it("renders one parent-owned action notice for a blocking member error", () => {
+    render(
+      <ArchiveExtractDialog
+        {...defaultProps}
+        isExtracting={true}
+        memberError={{
+          memberPath: "docs/readme.txt",
+          targetPath: "output/docs/readme.txt",
+          message: "Disk full",
+          partialOutput: false,
+        }}
+        onMemberErrorDecision={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId("archive-member-error-notice")).toHaveTextContent("Disk full");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.queryByTestId("archive-extract-notice")).not.toBeInTheDocument();
+  });
+
   it("retains direct member-error recovery actions after a failed decision", async () => {
     const user = userEvent.setup();
     const onMemberErrorDecision = vi.fn();

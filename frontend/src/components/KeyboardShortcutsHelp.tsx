@@ -5,7 +5,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { KeyboardShortcut, ShortcutHelpGroup } from "../hooks/useKeyboardShortcuts";
-import { ResponsiveFormDialog } from "./Admin/ResponsiveFormDialog";
+import { ResponsiveDialogShell } from "./Dialog/ResponsiveDialogShell";
 import {
   RESIZABLE_DIALOG_VIEWPORT_GUTTER_PX,
   type ResizableDialogConfig,
@@ -165,7 +165,7 @@ export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ op
   const hasSearchQuery = searchQuery.trim() !== "";
 
   return (
-    <ResponsiveFormDialog
+    <ResponsiveDialogShell
       open={open}
       onClose={onClose}
       onKeyDown={handleDialogKeyDown}
@@ -287,6 +287,6 @@ export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ op
           </Box>
         </Box>
       </Box>
-    </ResponsiveFormDialog>
+    </ResponsiveDialogShell>
   );
 };

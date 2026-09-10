@@ -7,16 +7,9 @@ import type {
   ArchiveExtractionSummary,
 } from "../../pages/FileBrowser/contentProviders";
 import { type ConflictInfo, FileType } from "../../types";
-import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
-import {
-  DialogFieldFeedback,
-  DialogFormNotice,
-  dialogFormHelperTextSx,
-  SettingsFormGroup,
-  SettingsFormRow,
-  SettingsFormSurface,
-  settingsFormOutlinedControlSx,
-} from "../Settings/SettingsFormLayout";
+import { DialogNotice } from "../Dialog/DialogNotice";
+import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
+import { FormGroup, FormRow, FormSurface, formOutlinedControlSx } from "../Form/FormLayout";
 import { ArchiveMemberErrorResolver } from "./ArchiveMemberErrorResolver";
 import { ArchiveOperationProgress } from "./ArchiveOperationProgress";
 import { DialogOperationContext } from "./DialogOperationContext";
@@ -49,9 +42,9 @@ interface ArchiveExtractDialogProps {
 }
 
 function validateDestinationPath(value: string): string | null {
-  const normalized = value.trim().replaceAll("\\", "/");
+  const normalized = value.trim().replace(/\\/g, "/");
   if (!normalized) return "empty";
-  if (normalized.startsWith("/") || normalized.split("/").some((part) => part === "" || part === "." || part === "..")) {
+  if (normalized.startsWith("/") || normalized.split("/").some((part: string) => part === "" || part === "." || part === "..")) {
     return "unsafe";
   }
   return null;
@@ -82,8 +75,8 @@ function toArchiveConflictInfo(conflict: ArchiveExtractionConflict): ConflictInf
       name: getItemName(conflict.source.path),
       path: conflict.source.path,
       type,
-      size: conflict.source.size,
-      modified_at: conflict.source.modifiedAt,
+      size: conflict.source.size ?? undefined,
+      modified_at: conflict.source.modifiedAt ?? undefined,
       is_readable: true,
       is_hidden: false,
     },
@@ -91,8 +84,8 @@ function toArchiveConflictInfo(conflict: ArchiveExtractionConflict): ConflictInf
       name: getItemName(conflict.target.path),
       path: conflict.target.path,
       type,
-      size: conflict.target.size,
-      modified_at: conflict.target.modifiedAt,
+      size: conflict.target.size ?? undefined,
+      modified_at: conflict.target.modifiedAt ?? undefined,
       is_readable: true,
       is_hidden: false,
     },
@@ -176,7 +169,7 @@ export function ArchiveExtractDialog({
       setValidationError(validation);
       return;
     }
-    onConfirm(destinationPath.trim().replaceAll("\\", "/"));
+    onConfirm(destinationPath.trim().replace(/\\/g, "/"));
   };
 
   const validationMessage =
@@ -189,6 +182,15 @@ export function ArchiveExtractDialog({
   const awaitingConflictDecision = currentConflict !== null && onConflictDecision !== undefined;
   const selectedMemberPaths = extractionScope.kind === "members" ? extractionScope.memberPaths : [];
   const isSingleMemberExtraction = selectedMemberPaths.length === 1;
+  const actionNotice = memberError ? (
+    <DialogNotice
+      message={memberError.message}
+      severity={memberError.partialOutput ? "warning" : "error"}
+      testId="archive-member-error-notice"
+    />
+  ) : (
+    <DialogNotice message={error} testId="archive-extract-notice" />
+  );
   const focusInitialControl = () => {
     if (memberError) {
       retryMemberButtonRef.current?.focus();
@@ -253,7 +255,7 @@ export function ArchiveExtractDialog({
   }
 
   return (
-    <ResponsiveFormDialog
+    <ResponsiveDialogShell
       open={open}
       onClose={onClose}
       disableClose={isExtracting}
@@ -262,6 +264,7 @@ export function ArchiveExtractDialog({
       title={t(memberError ? "fileBrowser.archive.memberErrorTitle" : "fileBrowser.archive.extractTitle")}
       description={extractionDescription}
       maxWidth="sm"
+      actionNotice={!awaitingConflictDecision ? actionNotice : undefined}
       actions={
         memberError ? (
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, justifyContent: { xs: "flex-start", sm: "flex-end" }, width: "100%" }}>
@@ -317,14 +320,13 @@ export function ArchiveExtractDialog({
         {isExtracting && !awaitingConflictDecision && !memberError ? (
           <ArchiveOperationProgress operation="extract" processedMembers={progressSummary?.membersProcessed} />
         ) : null}
-        {!awaitingConflictDecision && !memberError ? <DialogFormNotice message={error} testId="archive-extract-notice" /> : null}
         {memberError ? (
           <ArchiveMemberErrorResolver key={`${memberError.memberPath}\u0000${memberError.targetPath}`} error={memberError} />
         ) : null}
         {!isExtracting && !awaitingConflictDecision && requiresDestinationName ? (
-          <SettingsFormSurface>
-            <SettingsFormGroup>
-              <SettingsFormRow sx={{ display: { md: "block" } }}>
+          <FormSurface>
+            <FormGroup>
+              <FormRow sx={{ display: { md: "block" } }}>
                 <TextField
                   inputRef={inputRef}
                   fullWidth
@@ -341,15 +343,14 @@ export function ArchiveExtractDialog({
                     }
                   }}
                   error={validationError !== null}
-                  helperText={<DialogFieldFeedback message={validationMessage} />}
-                  slotProps={{ formHelperText: { sx: dialogFormHelperTextSx } }}
-                  sx={settingsFormOutlinedControlSx}
+                  helperText={validationMessage}
+                  sx={formOutlinedControlSx}
                 />
-              </SettingsFormRow>
-            </SettingsFormGroup>
-          </SettingsFormSurface>
+              </FormRow>
+            </FormGroup>
+          </FormSurface>
         ) : null}
       </Box>
-    </ResponsiveFormDialog>
+    </ResponsiveDialogShell>
   );
 }

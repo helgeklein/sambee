@@ -1,13 +1,13 @@
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
-import { loadCurrentUserSettings, USER_SETTINGS_CHANGED_EVENT } from "../services/userSettingsSync";
-import type { CurrentUserSettings, LanguagePreference, RegionalLocalePreference } from "../types";
+import { useCurrentUserSetting } from "../services/userSettingsStore";
+import type { LanguagePreference, RegionalLocalePreference } from "../types";
 import i18n, {
+  setLanguagePreference as applyLanguagePreference,
+  setRegionalLocalePreference as applyRegionalLocalePreference,
   getCurrentLanguagePreference,
   getCurrentRegionalLocale,
   getCurrentRegionalLocalePreference,
   REGIONAL_LOCALE_CHANGED_EVENT,
-  setLanguagePreference,
-  setRegionalLocalePreference,
 } from "./index";
 
 interface LocalePreferencesContextValue {
@@ -20,15 +20,9 @@ interface LocalePreferencesContextValue {
 
 const LocalePreferencesContext = createContext<LocalePreferencesContextValue | undefined>(undefined);
 
-function extractLocalizationSettings(settings: CurrentUserSettings | null): CurrentUserSettings["localization"] | null {
-  if (!settings) {
-    return null;
-  }
-
-  return settings.localization;
-}
-
 export function LocalePreferencesProvider({ children }: { children: ReactNode }) {
+  const languageSetting = useCurrentUserSetting("localization.language");
+  const regionalLocaleSetting = useCurrentUserSetting("localization.regional_locale");
   const [languagePreference, setLanguagePreferenceState] = useState<LanguagePreference>(() => getCurrentLanguagePreference());
   const [regionalLocalePreference, setRegionalLocalePreferenceState] = useState<RegionalLocalePreference>(() =>
     getCurrentRegionalLocalePreference()
@@ -42,36 +36,25 @@ export function LocalePreferencesProvider({ children }: { children: ReactNode })
       setRegionalLocaleState(getCurrentRegionalLocale());
     };
 
-    const applyLocalizationSettings = async (settings: CurrentUserSettings | null) => {
-      const localization = extractLocalizationSettings(settings);
-      if (!localization) {
+    const applyLocalizationSettings = async () => {
+      if (languageSetting.confirmedValue === undefined || regionalLocaleSetting.confirmedValue === undefined) {
         return;
       }
 
-      await setLanguagePreference(localization.language);
-      await setRegionalLocalePreference(localization.regional_locale);
+      await applyLanguagePreference(languageSetting.confirmedValue);
+      await applyRegionalLocalePreference(regionalLocaleSetting.confirmedValue);
       syncFromI18n();
-    };
-
-    const handleUserSettingsChanged = (event: Event) => {
-      const settings = (event as CustomEvent<CurrentUserSettings>).detail;
-      void applyLocalizationSettings(settings);
     };
 
     i18n.on("languageChanged", syncFromI18n);
     window.addEventListener(REGIONAL_LOCALE_CHANGED_EVENT, syncFromI18n);
-    window.addEventListener(USER_SETTINGS_CHANGED_EVENT, handleUserSettingsChanged);
-
-    void loadCurrentUserSettings().then((settings) => {
-      void applyLocalizationSettings(settings);
-    });
+    void applyLocalizationSettings();
 
     return () => {
       i18n.off("languageChanged", syncFromI18n);
       window.removeEventListener(REGIONAL_LOCALE_CHANGED_EVENT, syncFromI18n);
-      window.removeEventListener(USER_SETTINGS_CHANGED_EVENT, handleUserSettingsChanged);
     };
-  }, []);
+  }, [languageSetting.confirmedValue, regionalLocaleSetting.confirmedValue]);
 
   const value = useMemo<LocalePreferencesContextValue>(
     () => ({
@@ -79,18 +62,20 @@ export function LocalePreferencesProvider({ children }: { children: ReactNode })
       regionalLocale,
       regionalLocalePreference,
       setLanguagePreference: async (nextLanguagePreference) => {
-        await setLanguagePreference(nextLanguagePreference);
+        await languageSetting.commit(nextLanguagePreference);
+        await applyLanguagePreference(nextLanguagePreference);
         setLanguagePreferenceState(getCurrentLanguagePreference());
         setRegionalLocalePreferenceState(getCurrentRegionalLocalePreference());
         setRegionalLocaleState(getCurrentRegionalLocale());
       },
       setRegionalLocalePreference: async (nextRegionalLocalePreference) => {
-        await setRegionalLocalePreference(nextRegionalLocalePreference);
+        await regionalLocaleSetting.commit(nextRegionalLocalePreference);
+        await applyRegionalLocalePreference(nextRegionalLocalePreference);
         setRegionalLocalePreferenceState(getCurrentRegionalLocalePreference());
         setRegionalLocaleState(getCurrentRegionalLocale());
       },
     }),
-    [languagePreference, regionalLocale, regionalLocalePreference]
+    [languagePreference, languageSetting, regionalLocale, regionalLocalePreference, regionalLocaleSetting]
   );
 
   return <LocalePreferencesContext.Provider value={value}>{children}</LocalePreferencesContext.Provider>;

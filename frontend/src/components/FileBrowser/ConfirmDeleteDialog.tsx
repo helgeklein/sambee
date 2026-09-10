@@ -17,7 +17,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { type FileEntry, FileType } from "../../types";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
-import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
+import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
 import { CONFIRM_DELETE_STRINGS } from "./confirmDeleteDialogStrings";
 import { DialogIdentifierDisplay } from "./DialogIdentifierDisplay";
 import { DialogOperationContext } from "./DialogOperationContext";
@@ -80,7 +80,7 @@ const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({ open, items, 
   const handleKeyDown = useMemo(() => dialogEnterKeyHandler(), []);
 
   return (
-    <ResponsiveFormDialog
+    <ResponsiveDialogShell
       open={open}
       onClose={onClose}
       disableClose={isDeleting}
@@ -113,7 +113,7 @@ const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({ open, items, 
           aria-label={CONFIRM_DELETE_STRINGS.ARIA_LABEL_ITEMS}
           sx={{ display: "flex", flexDirection: "column", gap: 0.75, minWidth: 0 }}
         >
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{ color: (theme) => theme.palette.text.secondary }}>
             {CONFIRM_DELETE_STRINGS.ARIA_LABEL_ITEMS}
           </Typography>
           {visibleItems.map((visibleItem) => (
@@ -124,7 +124,7 @@ const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({ open, items, 
           ) : null}
         </Box>
       )}
-    </ResponsiveFormDialog>
+    </ResponsiveDialogShell>
   );
 };
 

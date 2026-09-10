@@ -30,7 +30,7 @@ describe("ConfirmDeleteDialog", () => {
 
     expect(screen.getByText(CONFIRM_DELETE_STRINGS.TITLE_FILE)).toBeInTheDocument();
     expect(screen.getByText(CONFIRM_DELETE_STRINGS.CONFIRM_FILE)).toBeInTheDocument();
-    expect(screen.getByText("Item to delete")).toBeInTheDocument();
+    expect(screen.getByText("Item to delete:")).toBeInTheDocument();
     expect(screen.getByLabelText("readme.txt")).toHaveTextContent("readme.txt");
   });
 

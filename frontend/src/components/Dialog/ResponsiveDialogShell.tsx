@@ -18,6 +18,7 @@ import {
   useTheme,
 } from "@mui/material";
 import { type ReactNode, type Ref, useEffect, useId, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import {
   mobileFullscreenDrawerPaperSx,
   mobileSafeAreaAppBarSx,
@@ -25,15 +26,17 @@ import {
   mobileScrollableContentSx,
   SAFE_AREA_INSET,
 } from "../../theme/mobileShell";
-import { DIALOG_FORM_SURFACE_CSS_VARIABLE, DIALOG_SURFACE_CSS_VARIABLE, getDialogSurfaceTokens } from "../../theme/palette";
+import { FORM_SURFACE_CSS_VARIABLE, getOverlaySurfaceTokens, OVERLAY_SURFACE_CSS_VARIABLE } from "../../theme/palette";
 
-interface ResponsiveFormDialogProps {
+interface ResponsiveDialogShellProps {
   open: boolean;
   onClose: () => void;
   disableClose?: boolean;
   title: string;
   description?: ReactNode;
   children: ReactNode;
+  contextualNotice?: ReactNode;
+  actionNotice?: ReactNode;
   actions?: ReactNode;
   showCloseButton?: boolean;
   closeButtonAriaLabel?: string;
@@ -54,20 +57,20 @@ interface ResponsiveFormDialogProps {
   onTransitionExited?: () => void;
 }
 
-import { useTranslation } from "react-i18next";
-
-export const responsiveFormDialogContentPaddingSx: SxProps<Theme> = {
+export const responsiveDialogShellContentPaddingSx: SxProps<Theme> = {
   px: { xs: 2, sm: 3 },
   py: 2,
 };
 
-export function ResponsiveFormDialog({
+export function ResponsiveDialogShell({
   open,
   onClose,
   disableClose = false,
   title,
   description,
   children,
+  contextualNotice,
+  actionNotice,
   actions,
   showCloseButton = false,
   closeButtonAriaLabel,
@@ -86,7 +89,7 @@ export function ResponsiveFormDialog({
   disableRestoreFocus = false,
   onTransitionEntered,
   onTransitionExited,
-}: ResponsiveFormDialogProps) {
+}: ResponsiveDialogShellProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t } = useTranslation();
@@ -127,52 +130,42 @@ export function ResponsiveFormDialog({
   }, [disableRestoreFocus, open]);
 
   const handleRequestClose = () => {
-    if (disableClose) {
-      return;
+    if (!disableClose) {
+      onClose();
     }
-
-    onClose();
-  };
-
-  const handleDialogClose = (_event: unknown, reason: string) => {
-    if (reason === "escapeKeyDown") {
-      if (escapeCloseHandledRef.current) {
-        escapeCloseHandledRef.current = false;
-        return;
-      }
-    }
-
-    handleRequestClose();
-  };
-
-  const handleDrawerClose = (_event: unknown, reason: string) => {
-    if (reason === "escapeKeyDown") {
-      if (escapeCloseHandledRef.current) {
-        escapeCloseHandledRef.current = false;
-        return;
-      }
-    }
-
-    handleRequestClose();
   };
 
   const handleShellKeyDown: DialogProps["onKeyDown"] = (event) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      if (onEscape) {
-        onEscape();
-        return;
-      }
-      if (disableClose) {
-        return;
-      }
-      escapeCloseHandledRef.current = true;
-      onClose();
+    if (event.key !== "Escape") {
+      onKeyDown?.(event);
       return;
     }
 
-    onKeyDown?.(event);
+    event.preventDefault();
+    event.stopPropagation();
+    if (onEscape) {
+      onEscape();
+    } else if (!disableClose) {
+      escapeCloseHandledRef.current = true;
+      onClose();
+    }
+  };
+
+  const handleShellClose = (_event: unknown, reason: string) => {
+    if (reason === "escapeKeyDown" && escapeCloseHandledRef.current) {
+      escapeCloseHandledRef.current = false;
+      return;
+    }
+    handleRequestClose();
+  };
+
+  const getSurfaceSx = (currentTheme: Theme) => {
+    const surfaces = getOverlaySurfaceTokens(currentTheme.palette.background.default, currentTheme.palette.mode);
+    return {
+      backgroundColor: surfaces.paper,
+      [OVERLAY_SURFACE_CSS_VARIABLE]: surfaces.paper,
+      [FORM_SURFACE_CSS_VARIABLE]: surfaces.form,
+    };
   };
 
   if (isMobile) {
@@ -180,28 +173,20 @@ export function ResponsiveFormDialog({
       <Drawer
         anchor="right"
         open={open}
-        onClose={handleDrawerClose}
+        onClose={handleShellClose}
         onKeyDown={handleShellKeyDown}
         disableAutoFocus={disableAutoFocus}
         disableEnforceFocus={disableEnforceFocus}
         disableRestoreFocus={disableRestoreFocus}
         sx={{ zIndex: (currentTheme) => currentTheme.zIndex.modal + dialogZIndexOffset }}
         slotProps={{
-          transition: {
-            onEntered: onTransitionEntered,
-            onExited: onTransitionExited,
-          },
+          transition: { onEntered: onTransitionEntered, onExited: onTransitionExited },
           paper: {
-            sx: (currentTheme) => {
-              const dialogSurfaces = getDialogSurfaceTokens(currentTheme.palette.background.default, currentTheme.palette.mode);
-
-              return {
-                ...mobileFullscreenDrawerPaperSx,
-                backgroundColor: dialogSurfaces.paper,
-                [DIALOG_SURFACE_CSS_VARIABLE]: dialogSurfaces.paper,
-                [DIALOG_FORM_SURFACE_CSS_VARIABLE]: dialogSurfaces.form,
-              };
-            },
+            ref: paperRef,
+            sx: [
+              (currentTheme) => ({ ...mobileFullscreenDrawerPaperSx, ...getSurfaceSx(currentTheme) }),
+              ...(Array.isArray(paperSx) ? paperSx : paperSx ? [paperSx] : []),
+            ],
           },
         }}
       >
@@ -235,21 +220,18 @@ export function ResponsiveFormDialog({
               )}
             </Toolbar>
           </AppBar>
-
           <Box
             sx={[
-              responsiveFormDialogContentPaddingSx,
-              {
-                ...mobileScrollableContentSx,
-                pb: `calc(16px + ${SAFE_AREA_INSET.BOTTOM})`,
-              },
+              responsiveDialogShellContentPaddingSx,
+              { ...mobileScrollableContentSx, pb: `calc(16px + ${SAFE_AREA_INSET.BOTTOM})` },
               ...(Array.isArray(contentSx) ? contentSx : contentSx ? [contentSx] : []),
             ]}
           >
             {renderedDescription}
+            {contextualNotice}
             {children}
+            {actionNotice}
           </Box>
-
           {actions && (
             <Box
               data-testid="responsive-form-dialog-mobile-actions"
@@ -280,7 +262,7 @@ export function ResponsiveFormDialog({
   return (
     <Dialog
       open={open}
-      onClose={handleDialogClose}
+      onClose={handleShellClose}
       onKeyDown={handleShellKeyDown}
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
@@ -292,12 +274,9 @@ export function ResponsiveFormDialog({
       slotProps={{
         paper: {
           ref: paperRef,
-          sx: paperSx,
+          sx: [(currentTheme) => getSurfaceSx(currentTheme), ...(Array.isArray(paperSx) ? paperSx : paperSx ? [paperSx] : [])],
         },
-        transition: {
-          onEntered: onTransitionEntered,
-          onExited: onTransitionExited,
-        },
+        transition: { onEntered: onTransitionEntered, onExited: onTransitionExited },
       }}
       sx={{ zIndex: (currentTheme) => currentTheme.zIndex.modal + dialogZIndexOffset }}
     >
@@ -318,17 +297,15 @@ export function ResponsiveFormDialog({
       {paperOverlay}
       <DialogContent
         sx={[
-          {
-            // MUI removes top padding after a DialogTitle. Restore it so the
-            // first line of dialog content is never visually clipped.
-            ".MuiDialogTitle-root + &&": { pt: 2 },
-          },
-          responsiveFormDialogContentPaddingSx,
+          { ".MuiDialogTitle-root + &&": { pt: 2 } },
+          responsiveDialogShellContentPaddingSx,
           ...(Array.isArray(contentSx) ? contentSx : contentSx ? [contentSx] : []),
         ]}
       >
         {renderedDescription}
+        {contextualNotice}
         {children}
+        {actionNotice}
       </DialogContent>
       {actions && (
         <DialogActions data-testid="responsive-form-dialog-desktop-actions" sx={{ borderTop: 1, borderColor: "divider" }}>

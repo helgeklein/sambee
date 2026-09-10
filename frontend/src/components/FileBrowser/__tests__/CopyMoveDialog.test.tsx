@@ -82,8 +82,8 @@ describe("CopyMoveDialog", () => {
     const destination = screen.getByLabelText("My Server:/backup");
     expect(itemName).toHaveTextContent("readme.txt");
     expect(destination).toHaveTextContent("My Server:/backup");
-    expect(screen.getByText("Source item")).toBeInTheDocument();
-    expect(screen.getByText("Destination directory")).toBeInTheDocument();
+    expect(screen.getByText("Source item:")).toBeInTheDocument();
+    expect(screen.getByText("Destination directory:")).toBeInTheDocument();
     expect(screen.queryByTestId("LockOutlinedIcon")).not.toBeInTheDocument();
     expect(screen.getByLabelText(S.LABEL_FILENAME)).toHaveValue("readme.txt");
   });
@@ -92,7 +92,7 @@ describe("CopyMoveDialog", () => {
     render(<CopyMoveDialog {...defaultProps} mode="copy" />);
     expect(screen.getByText(S.DESCRIPTION_COPY_MULTI(2))).toBeInTheDocument();
     expect(screen.getByLabelText("My Server:/backup")).toHaveTextContent("My Server:/backup");
-    expect(screen.getByText("Destination directory")).toBeInTheDocument();
+    expect(screen.getByText("Destination directory:")).toBeInTheDocument();
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
   });
 
@@ -124,7 +124,7 @@ describe("CopyMoveDialog", () => {
       render(<CopyMoveDialog {...props} mode="copy" />);
 
       expect(screen.getByText("انسخ العنصر إلى دليل الوجهة.")).toBeInTheDocument();
-      expect(screen.getByText("عنصر المصدر")).toBeInTheDocument();
+      expect(screen.getByText("عنصر المصدر:")).toBeInTheDocument();
       expect(screen.getByLabelText("تقارير/annual-report.pdf")).toHaveAttribute("dir", "auto");
     } finally {
       await i18n.changeLanguage("en");
@@ -241,11 +241,10 @@ describe("CopyMoveDialog", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it("reserves one notice region when no form-level notice is active", () => {
+  it("renders no notice region when no form-level notice is active", () => {
     render(<CopyMoveDialog {...defaultProps} />);
 
-    const region = screen.getByTestId("copy-move-notice-region");
-    expect(region.querySelectorAll(".MuiAlert-root")).toHaveLength(1);
+    expect(screen.queryByTestId("copy-move-notice-region")).not.toBeInTheDocument();
     expect(screen.queryByTestId("copy-move-notice")).not.toBeInTheDocument();
     expect(screen.queryByTestId("copy-move-warning")).not.toBeInTheDocument();
   });
@@ -343,7 +342,7 @@ describe("CopyMoveDialog", () => {
     await user.type(fileNameInput, "readme.txt");
 
     expect(screen.getByText(S.ERROR_SAME_FILENAME)).toBeInTheDocument();
-    expect(screen.getByText(S.ERROR_SAME_FILENAME)).toHaveStyle({ overflow: "hidden", whiteSpace: "nowrap" });
+    expect(screen.getByText(S.ERROR_SAME_FILENAME)).not.toHaveStyle({ overflow: "hidden", whiteSpace: "nowrap" });
     expect(fileNameInput).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByRole("button", { name: S.BUTTON_COPY })).toBeDisabled();
   });

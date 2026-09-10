@@ -1,14 +1,25 @@
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import VisibilityIcon from "@mui/icons-material/Visibility";
-import { Button, Checkbox, FormControlLabel, List, ListItemButton, ListItemIcon, ListItemText, Radio } from "@mui/material";
+import {
+  Button,
+  Checkbox,
+  CircularProgress,
+  FormControlLabel,
+  List,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  Radio,
+} from "@mui/material";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSelectableListbox } from "../../hooks/useSelectableListbox";
 import type { ViewerId } from "../../utils/FileTypeRegistry";
 import { getViewerDefinitions } from "../../utils/FileTypeRegistry";
-import { DialogReadOnlyField } from "../Admin/DialogReadOnlyField";
-import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
+import { DialogNoticeRegion } from "../Dialog/DialogNotice";
+import { DialogReadOnlyField } from "../Dialog/DialogReadOnlyField";
+import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
 
 interface BrowserViewerPickerProps {
   open?: boolean;
@@ -17,9 +28,12 @@ interface BrowserViewerPickerProps {
   defaultViewerId: ViewerId | null;
   preferredViewerId: ViewerId | null;
   showNativeOption: boolean;
+  saving: boolean;
+  saveError: string | null;
   onClose: () => void;
   onTransitionExited?: () => void;
   onConfirm: (selection: { viewerId: ViewerId | null; rememberSelection: boolean }) => void;
+  onOpenWithoutSaving: (selection: { viewerId: ViewerId | null }) => void;
 }
 
 export function BrowserViewerPicker({
@@ -29,9 +43,12 @@ export function BrowserViewerPicker({
   defaultViewerId,
   preferredViewerId,
   showNativeOption,
+  saving,
+  saveError,
   onClose,
   onTransitionExited,
   onConfirm,
+  onOpenWithoutSaving,
 }: BrowserViewerPickerProps) {
   const { t } = useTranslation();
   const viewerDefinitions = useMemo(() => getViewerDefinitions().filter((viewer) => viewerIds.includes(viewer.id)), [viewerIds]);
@@ -75,6 +92,14 @@ export function BrowserViewerPicker({
     onConfirm({ viewerId: selectedViewerId, rememberSelection: rememberSelection && canRememberSelection });
   };
 
+  const handleOpenWithoutSaving = () => {
+    if (!selectedValue) {
+      return;
+    }
+
+    onOpenWithoutSaving({ viewerId: selectedViewerId });
+  };
+
   const {
     listRef,
     focusList,
@@ -83,7 +108,7 @@ export function BrowserViewerPicker({
     open,
     options: viewerOptions,
     selectedValue,
-    onSelectValue: setSelectedValue,
+    onSelectValue: saving ? () => undefined : setSelectedValue,
     onConfirm: handleConfirm,
   });
 
@@ -103,18 +128,29 @@ export function BrowserViewerPicker({
   };
 
   return (
-    <ResponsiveFormDialog
+    <ResponsiveDialogShell
       open={open}
       onClose={onClose}
       onKeyDown={handleDialogKeyDown}
       title={t("fileBrowser.viewerPicker.title")}
       maxWidth="sm"
       onTransitionExited={onTransitionExited}
+      actionNotice={<DialogNoticeRegion notices={[{ message: saveError }]} />}
       actions={
         <>
           <Button onClick={onClose}>{t("common.actions.cancel")}</Button>
-          <Button variant="contained" onClick={handleConfirm} disabled={!selectedValue}>
-            {t("fileBrowser.viewerPicker.open")}
+          {saveError ? (
+            <Button onClick={handleOpenWithoutSaving} disabled={!selectedValue || saving}>
+              {t("fileBrowser.viewerPicker.openWithoutSaving")}
+            </Button>
+          ) : null}
+          <Button
+            variant="contained"
+            onClick={handleConfirm}
+            disabled={!selectedValue || saving}
+            startIcon={saving ? <CircularProgress size={16} color="inherit" /> : undefined}
+          >
+            {saving ? "Saving..." : t("fileBrowser.viewerPicker.open")}
           </Button>
         </>
       }
@@ -126,6 +162,7 @@ export function BrowserViewerPicker({
         role="listbox"
         tabIndex={0}
         autoFocus
+        aria-disabled={saving}
         aria-activedescendant={selectedValue ? `browser-viewer-picker-option-${selectedValue}` : undefined}
         onKeyDown={handleListKeyDown}
         sx={{
@@ -144,6 +181,7 @@ export function BrowserViewerPicker({
             selected={selectedValue === viewer.id}
             disableRipple
             disableTouchRipple
+            disabled={saving}
             sx={pickerOptionSx}
             onClick={() => {
               setSelectedValue(viewer.id);
@@ -171,6 +209,7 @@ export function BrowserViewerPicker({
             selected={selectedValue === "native"}
             disableRipple
             disableTouchRipple
+            disabled={saving}
             sx={pickerOptionSx}
             onClick={() => {
               setSelectedValue("native");
@@ -193,11 +232,15 @@ export function BrowserViewerPicker({
       <FormControlLabel
         sx={{ mt: 2 }}
         control={
-          <Checkbox checked={rememberSelection && canRememberSelection} onChange={(event) => setRememberSelection(event.target.checked)} />
+          <Checkbox
+            checked={rememberSelection && canRememberSelection}
+            onChange={(event) => setRememberSelection(event.target.checked)}
+            disabled={saving}
+          />
         }
-        disabled={!canRememberSelection}
+        disabled={!canRememberSelection || saving}
         label={t("fileBrowser.viewerPicker.alwaysUse")}
       />
-    </ResponsiveFormDialog>
+    </ResponsiveDialogShell>
   );
 }

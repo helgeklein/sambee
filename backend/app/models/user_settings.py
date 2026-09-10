@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from sqlmodel import Field, SQLModel
+from sqlmodel._compat import SQLModelConfig
 
 
 class UserSetting(SQLModel, table=True):
@@ -49,32 +50,83 @@ class CurrentUserSettingsRead(SQLModel):
     text_editor: TextEditorUserSettingsRead
 
 
-class AppearanceUserSettingsUpdate(SQLModel):
-    theme_id: Optional[str] = None
-    custom_themes: Optional[list[dict[str, Any]]] = None
+class StrictCurrentUserSettingUpdate(SQLModel):
+    model_config = SQLModelConfig(extra="forbid")
 
 
-class LocalizationUserSettingsUpdate(SQLModel):
-    language: Optional[LanguagePreference] = None
-    regional_locale: Optional[str] = None
+class ThemeIdUserSettingUpdate(StrictCurrentUserSettingUpdate):
+    field: Literal["appearance.theme_id"]
+    value: str
 
 
-class BrowserUserSettingsUpdate(SQLModel):
-    quick_nav_include_dot_directories: Optional[bool] = None
-    quick_bar_shortcut_hint_visibility: Optional[QuickBarShortcutHintVisibility] = None
-    file_browser_view_mode: Optional[str] = None
-    pane_mode: Optional[str] = None
-    selected_connection_id: Optional[str] = None
-    viewer_associations: Optional[dict[str, str]] = None
+class CustomThemesUserSettingUpdate(StrictCurrentUserSettingUpdate):
+    field: Literal["appearance.custom_themes"]
+    value: list[dict[str, Any]]
 
 
-class TextEditorUserSettingsUpdate(SQLModel):
-    max_file_size_bytes: Optional[int] = None
-    word_wrap_enabled: Optional[bool] = None
+class LanguageUserSettingUpdate(StrictCurrentUserSettingUpdate):
+    field: Literal["localization.language"]
+    value: LanguagePreference
 
 
-class CurrentUserSettingsUpdate(SQLModel):
-    appearance: Optional[AppearanceUserSettingsUpdate] = None
-    localization: Optional[LocalizationUserSettingsUpdate] = None
-    browser: Optional[BrowserUserSettingsUpdate] = None
-    text_editor: Optional[TextEditorUserSettingsUpdate] = None
+class RegionalLocaleUserSettingUpdate(StrictCurrentUserSettingUpdate):
+    field: Literal["localization.regional_locale"]
+    value: str
+
+
+class QuickNavUserSettingUpdate(StrictCurrentUserSettingUpdate):
+    field: Literal["browser.quick_nav_include_dot_directories"]
+    value: bool
+
+
+class QuickBarShortcutHintUserSettingUpdate(StrictCurrentUserSettingUpdate):
+    field: Literal["browser.quick_bar_shortcut_hint_visibility"]
+    value: QuickBarShortcutHintVisibility
+
+
+class FileBrowserViewModeUserSettingUpdate(StrictCurrentUserSettingUpdate):
+    field: Literal["browser.file_browser_view_mode"]
+    value: Literal["list", "details"]
+
+
+class PaneModeUserSettingUpdate(StrictCurrentUserSettingUpdate):
+    field: Literal["browser.pane_mode"]
+    value: Literal["single", "dual"]
+
+
+class SelectedConnectionUserSettingUpdate(StrictCurrentUserSettingUpdate):
+    field: Literal["browser.selected_connection_id"]
+    value: str | None
+
+
+class ViewerAssociationsUserSettingUpdate(StrictCurrentUserSettingUpdate):
+    field: Literal["browser.viewer_associations"]
+    value: dict[str, str]
+
+
+class TextEditorMaxFileSizeUserSettingUpdate(StrictCurrentUserSettingUpdate):
+    field: Literal["text_editor.max_file_size_bytes"]
+    value: int
+
+
+class TextEditorWordWrapUserSettingUpdate(StrictCurrentUserSettingUpdate):
+    field: Literal["text_editor.word_wrap_enabled"]
+    value: bool | None
+
+
+CurrentUserSettingsUpdate = Annotated[
+    ThemeIdUserSettingUpdate
+    | CustomThemesUserSettingUpdate
+    | LanguageUserSettingUpdate
+    | RegionalLocaleUserSettingUpdate
+    | QuickNavUserSettingUpdate
+    | QuickBarShortcutHintUserSettingUpdate
+    | FileBrowserViewModeUserSettingUpdate
+    | PaneModeUserSettingUpdate
+    | SelectedConnectionUserSettingUpdate
+    | ViewerAssociationsUserSettingUpdate
+    | TextEditorMaxFileSizeUserSettingUpdate
+    | TextEditorWordWrapUserSettingUpdate,
+    Field(discriminator="field"),
+]
+CurrentUserSettingsUpdateResult = CurrentUserSettingsUpdate

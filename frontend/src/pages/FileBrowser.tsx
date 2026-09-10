@@ -75,7 +75,7 @@ import { RECENT_FILES_CHANGED_EVENT } from "../services/recentFilesSync";
 import { scheduleRuntimeWarmup } from "../services/runtimeWarmup";
 import { buildServerWebSocketUrl } from "../services/serverWebsocket";
 import type { TargetResolutionPolicy } from "../services/storageContracts";
-import { loadCurrentUserSettings } from "../services/userSettingsSync";
+import { getConfirmedCurrentUserSetting, refreshCurrentUserSettings } from "../services/userSettingsStore";
 import { FILE_BROWSER_ROW_HEIGHT } from "../theme/constants";
 import { getMobileViewportShellSx, mobileSafeAreaAppBarSx, mobileSafeAreaToolbarSx, SAFE_AREA_INSET } from "../theme/mobileShell";
 import type { ConflictInfo, Connection } from "../types";
@@ -116,7 +116,6 @@ import {
   readFileBrowserPaneModePreference,
   readSelectedConnectionIdPreference,
   setFileBrowserPaneModePreference,
-  setSelectedConnectionIdPreference,
   useQuickBarKeyboardHints,
   useQuickBarShortcutHintVisibilityPreference,
 } from "./FileBrowser/preferences";
@@ -855,7 +854,7 @@ const Browser: React.FC = () => {
       setActivePaneId(snapshot.activePaneId);
     }
 
-    setFileBrowserPaneModePreference(snapshot.paneMode, true);
+    setFileBrowserPaneModePreference(snapshot.paneMode);
     localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, snapshot.activePaneId);
 
     const currentUrl = location.pathname + location.search;
@@ -1226,11 +1225,8 @@ const Browser: React.FC = () => {
 
         await logger.initializeBackendTracing();
 
-        const currentUserSettings = await loadCurrentUserSettings(true);
-        const persistedSelectedConnectionId = currentUserSettings?.browser.selected_connection_id ?? null;
-        if (persistedSelectedConnectionId !== null) {
-          setSelectedConnectionIdPreference(persistedSelectedConnectionId, false);
-        }
+        await refreshCurrentUserSettings();
+        const persistedSelectedConnectionId = getConfirmedCurrentUserSetting("browser.selected_connection_id") ?? null;
 
         const data = await browserContentServices.connections.getConnections();
         setConnections(data);
@@ -1301,7 +1297,7 @@ const Browser: React.FC = () => {
       setActivePaneId(nextActivePaneId);
     }
 
-    setFileBrowserPaneModePreference(nextPaneMode, true);
+    setFileBrowserPaneModePreference(nextPaneMode);
     localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, nextActivePaneId);
 
     if (pendingPaneFocusRef.current !== nextActivePaneId) {

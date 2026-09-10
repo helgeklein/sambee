@@ -2,7 +2,7 @@ import { Button } from "@mui/material";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SambeeThemeProvider } from "../../../theme";
-import { ResponsiveFormDialog } from "../ResponsiveFormDialog";
+import { ResponsiveDialogShell } from "../../Dialog/ResponsiveDialogShell";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -39,7 +39,7 @@ describe("ResponsiveFormDialog", () => {
   it("renders the shared description above the dialog body on desktop", () => {
     render(
       <SambeeThemeProvider>
-        <ResponsiveFormDialog
+        <ResponsiveDialogShell
           open={true}
           onClose={vi.fn()}
           title="Edit User"
@@ -47,7 +47,7 @@ describe("ResponsiveFormDialog", () => {
           actions={<Button>Save</Button>}
         >
           <div>Dialog Body</div>
-        </ResponsiveFormDialog>
+        </ResponsiveDialogShell>
       </SambeeThemeProvider>
     );
 
@@ -65,7 +65,7 @@ describe("ResponsiveFormDialog", () => {
 
     render(
       <SambeeThemeProvider>
-        <ResponsiveFormDialog
+        <ResponsiveDialogShell
           open={true}
           onClose={vi.fn()}
           title="Edit User"
@@ -73,7 +73,7 @@ describe("ResponsiveFormDialog", () => {
           actions={<Button>Save</Button>}
         >
           <div>Dialog Body</div>
-        </ResponsiveFormDialog>
+        </ResponsiveDialogShell>
       </SambeeThemeProvider>
     );
 
@@ -89,20 +89,18 @@ describe("ResponsiveFormDialog", () => {
     });
     const drawerStyles = window.getComputedStyle(drawerPaper as HTMLElement);
 
-    expect(drawerStyles.getPropertyValue("--sambee-dialog-surface")).not.toBe("");
-    expect(drawerStyles.getPropertyValue("--sambee-dialog-form-surface")).not.toBe("");
-    expect(drawerStyles.getPropertyValue("--sambee-dialog-form-surface")).not.toBe(
-      drawerStyles.getPropertyValue("--sambee-dialog-surface")
-    );
+    expect(drawerStyles.getPropertyValue("--sambee-overlay-surface")).not.toBe("");
+    expect(drawerStyles.getPropertyValue("--sambee-form-surface")).not.toBe("");
+    expect(drawerStyles.getPropertyValue("--sambee-form-surface")).not.toBe(drawerStyles.getPropertyValue("--sambee-overlay-surface"));
   });
 
   it("restores focus to the triggering element after the dialog closes", async () => {
     const { rerender } = render(
       <SambeeThemeProvider>
         <button type="button">Open Dialog</button>
-        <ResponsiveFormDialog open={false} onClose={vi.fn()} title="Edit User" actions={<Button>Save</Button>}>
+        <ResponsiveDialogShell open={false} onClose={vi.fn()} title="Edit User" actions={<Button>Save</Button>}>
           <div>Dialog Body</div>
-        </ResponsiveFormDialog>
+        </ResponsiveDialogShell>
       </SambeeThemeProvider>
     );
 
@@ -112,18 +110,18 @@ describe("ResponsiveFormDialog", () => {
     rerender(
       <SambeeThemeProvider>
         <button type="button">Open Dialog</button>
-        <ResponsiveFormDialog open={true} onClose={vi.fn()} title="Edit User" actions={<Button>Save</Button>}>
+        <ResponsiveDialogShell open={true} onClose={vi.fn()} title="Edit User" actions={<Button>Save</Button>}>
           <div>Dialog Body</div>
-        </ResponsiveFormDialog>
+        </ResponsiveDialogShell>
       </SambeeThemeProvider>
     );
 
     rerender(
       <SambeeThemeProvider>
         <button type="button">Open Dialog</button>
-        <ResponsiveFormDialog open={false} onClose={vi.fn()} title="Edit User" actions={<Button>Save</Button>}>
+        <ResponsiveDialogShell open={false} onClose={vi.fn()} title="Edit User" actions={<Button>Save</Button>}>
           <div>Dialog Body</div>
-        </ResponsiveFormDialog>
+        </ResponsiveDialogShell>
       </SambeeThemeProvider>
     );
 
@@ -139,9 +137,9 @@ describe("ResponsiveFormDialog", () => {
       <SambeeThemeProvider>
         <button type="button">Open Dialog</button>
         <button type="button">Fallback Focus</button>
-        <ResponsiveFormDialog open={false} onClose={vi.fn()} disableRestoreFocus title="Edit User" actions={<Button>Save</Button>}>
+        <ResponsiveDialogShell open={false} onClose={vi.fn()} disableRestoreFocus title="Edit User" actions={<Button>Save</Button>}>
           <div>Dialog Body</div>
-        </ResponsiveFormDialog>
+        </ResponsiveDialogShell>
       </SambeeThemeProvider>
     );
 
@@ -153,9 +151,9 @@ describe("ResponsiveFormDialog", () => {
       <SambeeThemeProvider>
         <button type="button">Open Dialog</button>
         <button type="button">Fallback Focus</button>
-        <ResponsiveFormDialog open={true} onClose={vi.fn()} disableRestoreFocus title="Edit User" actions={<Button>Save</Button>}>
+        <ResponsiveDialogShell open={true} onClose={vi.fn()} disableRestoreFocus title="Edit User" actions={<Button>Save</Button>}>
           <div>Dialog Body</div>
-        </ResponsiveFormDialog>
+        </ResponsiveDialogShell>
       </SambeeThemeProvider>
     );
 
@@ -163,9 +161,9 @@ describe("ResponsiveFormDialog", () => {
       <SambeeThemeProvider>
         <button type="button">Open Dialog</button>
         <button type="button">Fallback Focus</button>
-        <ResponsiveFormDialog open={false} onClose={vi.fn()} disableRestoreFocus title="Edit User" actions={<Button>Save</Button>}>
+        <ResponsiveDialogShell open={false} onClose={vi.fn()} disableRestoreFocus title="Edit User" actions={<Button>Save</Button>}>
           <div>Dialog Body</div>
-        </ResponsiveFormDialog>
+        </ResponsiveDialogShell>
       </SambeeThemeProvider>
     );
 
@@ -182,9 +180,9 @@ describe("ResponsiveFormDialog", () => {
 
     render(
       <SambeeThemeProvider>
-        <ResponsiveFormDialog open={true} onClose={vi.fn()} disableClose title="Edit User" actions={<Button>Save</Button>}>
+        <ResponsiveDialogShell open={true} onClose={vi.fn()} disableClose title="Edit User" actions={<Button>Save</Button>}>
           <div>Dialog Body</div>
-        </ResponsiveFormDialog>
+        </ResponsiveDialogShell>
       </SambeeThemeProvider>
     );
 
@@ -195,9 +193,9 @@ describe("ResponsiveFormDialog", () => {
     const onClose = vi.fn();
     render(
       <SambeeThemeProvider>
-        <ResponsiveFormDialog open={true} onClose={onClose} disableClose title="Edit User" actions={<Button>Save</Button>}>
+        <ResponsiveDialogShell open={true} onClose={onClose} disableClose title="Edit User" actions={<Button>Save</Button>}>
           <div>Dialog Body</div>
-        </ResponsiveFormDialog>
+        </ResponsiveDialogShell>
       </SambeeThemeProvider>
     );
 
@@ -211,9 +209,9 @@ describe("ResponsiveFormDialog", () => {
     const onClose = vi.fn();
     render(
       <SambeeThemeProvider>
-        <ResponsiveFormDialog open={true} onClose={onClose} disableClose title="Edit User" actions={<Button>Save</Button>}>
+        <ResponsiveDialogShell open={true} onClose={onClose} disableClose title="Edit User" actions={<Button>Save</Button>}>
           <div>Dialog Body</div>
-        </ResponsiveFormDialog>
+        </ResponsiveDialogShell>
       </SambeeThemeProvider>
     );
 

@@ -16,7 +16,7 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { logger } from "../../services/logger";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
-import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
+import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
 import { COMPANION_PAIRING_DIALOG_COPY } from "../Settings/localDrivesCopy";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -208,7 +208,7 @@ const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, o
     );
 
   return (
-    <ResponsiveFormDialog
+    <ResponsiveDialogShell
       open={open}
       onClose={handleClose}
       onKeyDown={handleKeyDown}
@@ -264,7 +264,7 @@ const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, o
       )}
 
       {step === "error" && <DialogContentText color="error">{errorMessage}</DialogContentText>}
-    </ResponsiveFormDialog>
+    </ResponsiveDialogShell>
   );
 };
 

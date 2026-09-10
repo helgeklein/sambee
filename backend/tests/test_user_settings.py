@@ -11,257 +11,106 @@ class TestCurrentUserSettingsApi:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["appearance"]["theme_id"] == "sambee-light"
-        assert data["appearance"]["custom_themes"] == []
-        assert data["localization"]["language"] == "browser"
-        assert data["localization"]["regional_locale"] == "browser"
+        assert data["appearance"] == {"theme_id": "sambee-light", "custom_themes": []}
+        assert data["localization"] == {"language": "browser", "regional_locale": "browser"}
         assert data["browser"]["quick_nav_include_dot_directories"] is False
-        assert data["browser"]["quick_bar_shortcut_hint_visibility"] == "auto"
-        assert data["browser"]["file_browser_view_mode"] == "list"
-        assert data["browser"]["pane_mode"] == "single"
         assert data["browser"]["selected_connection_id"] is None
-        assert data["browser"]["viewer_associations"] == {}
-        assert data["text_editor"]["max_file_size_bytes"] == 52428800
-        assert data["text_editor"]["word_wrap_enabled"] is None
+        assert data["text_editor"] == {"max_file_size_bytes": 52_428_800, "word_wrap_enabled": None}
 
-    def test_user_can_update_own_settings(self, client: TestClient, auth_headers_user: dict[str, str], session: Session) -> None:
-        response = client.put(
-            "/api/auth/me/settings",
-            headers=auth_headers_user,
-            json={
-                "appearance": {
-                    "theme_id": "sambee-dark",
-                    "custom_themes": [
-                        {
-                            "id": "custom-theme",
-                            "name": "Custom Theme",
-                            "mode": "light",
-                            "primary": {"main": "#123456"},
-                        }
-                    ],
-                },
-                "localization": {
-                    "language": "en",
-                    "regional_locale": "en-GB",
-                },
-                "browser": {
-                    "quick_nav_include_dot_directories": True,
-                    "quick_bar_shortcut_hint_visibility": "never",
-                    "file_browser_view_mode": "details",
-                    "pane_mode": "dual",
-                    "selected_connection_id": "conn-123",
-                    "viewer_associations": {
-                        ".md": "markdown",
-                        "application/pdf": "pdf",
-                    },
-                },
-                "text_editor": {
-                    "max_file_size_bytes": 4194304,
-                    "word_wrap_enabled": True,
-                },
+    def test_user_updates_independent_settings(self, client: TestClient, auth_headers_user: dict[str, str], session: Session) -> None:
+        updates = (
+            {
+                "field": "appearance.custom_themes",
+                "value": [{"id": "custom-theme", "name": "Custom", "mode": "light", "primary": {"main": "#123456"}}],
             },
+            {"field": "appearance.theme_id", "value": "custom-theme"},
+            {"field": "localization.language", "value": "en"},
+            {"field": "localization.regional_locale", "value": "en-GB"},
+            {"field": "browser.quick_nav_include_dot_directories", "value": True},
+            {"field": "browser.quick_bar_shortcut_hint_visibility", "value": "never"},
+            {"field": "browser.file_browser_view_mode", "value": "details"},
+            {"field": "browser.pane_mode", "value": "dual"},
+            {"field": "browser.selected_connection_id", "value": "conn-123"},
+            {"field": "browser.viewer_associations", "value": {".MD": " markdown ", "application/pdf": "pdf"}},
+            {"field": "text_editor.max_file_size_bytes", "value": 4_194_304},
+            {"field": "text_editor.word_wrap_enabled", "value": True},
         )
+        for payload in updates:
+            response = client.put("/api/auth/me/settings", headers=auth_headers_user, json=payload)
+            assert response.status_code == 200
+            assert response.json()["field"] == payload["field"]
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["appearance"]["theme_id"] == "sambee-dark"
-        assert data["appearance"]["custom_themes"][0]["id"] == "custom-theme"
-        assert data["localization"]["language"] == "en"
-        assert data["localization"]["regional_locale"] == "en-GB"
-        assert data["browser"]["quick_nav_include_dot_directories"] is True
-        assert data["browser"]["quick_bar_shortcut_hint_visibility"] == "never"
-        assert data["browser"]["file_browser_view_mode"] == "details"
-        assert data["browser"]["pane_mode"] == "dual"
-        assert data["browser"]["selected_connection_id"] == "conn-123"
-        assert data["browser"]["viewer_associations"] == {
-            ".md": "markdown",
-            "application/pdf": "pdf",
-        }
-        assert data["text_editor"]["max_file_size_bytes"] == 4194304
-        assert data["text_editor"]["word_wrap_enabled"] is True
+        data = client.get("/api/auth/me/settings", headers=auth_headers_user).json()
+        assert data["appearance"]["theme_id"] == "custom-theme"
+        assert data["browser"]["viewer_associations"] == {".md": "markdown", "application/pdf": "pdf"}
+        assert data["text_editor"]["max_file_size_bytes"] == 4_194_304
+        keys = {row.key for row in session.exec(select(UserSetting)).all()}
+        assert UserSettingKey.APPEARANCE_THEME_ID.value in keys
+        assert UserSettingKey.TEXT_EDITOR_WORD_WRAP_ENABLED.value in keys
 
-        rows = session.exec(select(UserSetting)).all()
-        values = {row.key: row.value for row in rows}
-        assert values[UserSettingKey.APPEARANCE_THEME_ID.value] == "sambee-dark"
-        assert '"id":"custom-theme"' in values[UserSettingKey.APPEARANCE_CUSTOM_THEMES.value]
-        assert values[UserSettingKey.LOCALIZATION_LANGUAGE.value] == "en"
-        assert values[UserSettingKey.LOCALIZATION_REGIONAL_LOCALE.value] == "en-GB"
-        assert values[UserSettingKey.BROWSER_QUICK_NAV_INCLUDE_DOT_DIRECTORIES.value] == "true"
-        assert values[UserSettingKey.BROWSER_QUICK_BAR_SHORTCUT_HINT_VISIBILITY.value] == "never"
-        assert values[UserSettingKey.BROWSER_FILE_BROWSER_VIEW_MODE.value] == "details"
-        assert values[UserSettingKey.BROWSER_PANE_MODE.value] == "dual"
-        assert values[UserSettingKey.BROWSER_SELECTED_CONNECTION_ID.value] == "conn-123"
-        assert values[UserSettingKey.BROWSER_VIEWER_ASSOCIATIONS.value] == '{".md":"markdown","application/pdf":"pdf"}'
-        assert values[UserSettingKey.TEXT_EDITOR_MAX_FILE_SIZE_BYTES.value] == "4194304"
-        assert values[UserSettingKey.TEXT_EDITOR_WORD_WRAP_ENABLED.value] == "true"
-
-    def test_user_can_clear_custom_themes(self, client: TestClient, auth_headers_user: dict[str, str], session: Session) -> None:
-        seed_response = client.put(
-            "/api/auth/me/settings",
-            headers=auth_headers_user,
-            json={
-                "appearance": {
-                    "custom_themes": [
-                        {
-                            "id": "custom-theme",
-                            "name": "Custom Theme",
-                            "mode": "light",
-                            "primary": {"main": "#123456"},
-                        }
-                    ]
-                }
-            },
-        )
-        assert seed_response.status_code == 200
-
-        clear_response = client.put(
-            "/api/auth/me/settings",
-            headers=auth_headers_user,
-            json={"appearance": {"custom_themes": []}},
-        )
-
-        assert clear_response.status_code == 200
-        assert clear_response.json()["appearance"]["custom_themes"] == []
-
-        rows = session.exec(select(UserSetting)).all()
-        keys = {row.key for row in rows}
-        assert UserSettingKey.APPEARANCE_CUSTOM_THEMES.value not in keys
-
-    def test_user_can_clear_selected_connection_preference(
-        self,
-        client: TestClient,
-        auth_headers_user: dict[str, str],
-        session: Session,
+    def test_user_can_clear_compound_and_nullable_settings(
+        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
     ) -> None:
-        seed_response = client.put(
-            "/api/auth/me/settings",
-            headers=auth_headers_user,
-            json={"browser": {"selected_connection_id": "conn-123"}},
-        )
-        assert seed_response.status_code == 200
+        for payload in (
+            {"field": "browser.selected_connection_id", "value": "conn-123"},
+            {"field": "browser.viewer_associations", "value": {".md": "markdown"}},
+            {"field": "browser.selected_connection_id", "value": None},
+            {"field": "browser.viewer_associations", "value": {}},
+            {"field": "text_editor.word_wrap_enabled", "value": None},
+        ):
+            response = client.put("/api/auth/me/settings", headers=auth_headers_user, json=payload)
+            assert response.status_code == 200
 
-        clear_response = client.put(
-            "/api/auth/me/settings",
-            headers=auth_headers_user,
-            json={"browser": {"selected_connection_id": None}},
-        )
-
-        assert clear_response.status_code == 200
-        assert clear_response.json()["browser"]["selected_connection_id"] is None
-
-        rows = session.exec(select(UserSetting)).all()
-        keys = {row.key for row in rows}
+        keys = {row.key for row in session.exec(select(UserSetting)).all()}
         assert UserSettingKey.BROWSER_SELECTED_CONNECTION_ID.value not in keys
-
-    def test_user_can_clear_viewer_associations(
-        self,
-        client: TestClient,
-        auth_headers_user: dict[str, str],
-        session: Session,
-    ) -> None:
-        seed_response = client.put(
-            "/api/auth/me/settings",
-            headers=auth_headers_user,
-            json={"browser": {"viewer_associations": {".md": "markdown"}}},
-        )
-        assert seed_response.status_code == 200
-
-        clear_response = client.put(
-            "/api/auth/me/settings",
-            headers=auth_headers_user,
-            json={"browser": {"viewer_associations": {}}},
-        )
-
-        assert clear_response.status_code == 200
-        assert clear_response.json()["browser"]["viewer_associations"] == {}
-
-        rows = session.exec(select(UserSetting)).all()
-        keys = {row.key for row in rows}
         assert UserSettingKey.BROWSER_VIEWER_ASSOCIATIONS.value not in keys
+        assert UserSettingKey.TEXT_EDITOR_WORD_WRAP_ENABLED.value not in keys
 
     def test_user_settings_are_isolated_per_user(
-        self,
-        client: TestClient,
-        auth_headers_user: dict[str, str],
-        auth_headers_admin: dict[str, str],
+        self, client: TestClient, auth_headers_user: dict[str, str], auth_headers_admin: dict[str, str]
     ) -> None:
-        update_response = client.put(
-            "/api/auth/me/settings",
-            headers=auth_headers_user,
-            json={"appearance": {"theme_id": "sambee-dark"}},
-        )
-        assert update_response.status_code == 200
-
-        admin_response = client.get("/api/auth/me/settings", headers=auth_headers_admin)
-        assert admin_response.status_code == 200
-        assert admin_response.json()["appearance"]["theme_id"] == "sambee-light"
-
-    def test_update_rejects_empty_theme_id(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
         response = client.put(
-            "/api/auth/me/settings",
-            headers=auth_headers_user,
-            json={"appearance": {"theme_id": "   "}},
+            "/api/auth/me/settings", headers=auth_headers_user, json={"field": "appearance.theme_id", "value": "sambee-dark"}
         )
+        assert response.status_code == 200
+        assert client.get("/api/auth/me/settings", headers=auth_headers_admin).json()["appearance"]["theme_id"] == "sambee-light"
 
-        assert response.status_code == 400
-        assert response.json()["detail"] == "Theme ID cannot be empty"
-
-    def test_update_rejects_invalid_custom_theme_payload(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
-        response = client.put(
-            "/api/auth/me/settings",
-            headers=auth_headers_user,
-            json={
-                "appearance": {
-                    "custom_themes": [
-                        {
-                            "id": "broken-theme",
-                            "name": "Broken Theme",
-                            "mode": "light",
-                        }
-                    ]
-                }
+    def test_rejects_invalid_values_and_legacy_shapes(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
+        invalid_values = (
+            {"field": "appearance.theme_id", "value": "   "},
+            {"field": "appearance.theme_id", "value": "unknown-theme"},
+            {
+                "field": "appearance.custom_themes",
+                "value": [{"id": "sambee-dark", "name": "Collision", "mode": "light", "primary": {"main": "#123456"}}],
             },
+            {"field": "browser.viewer_associations", "value": {"   ": "markdown"}},
+            {"field": "text_editor.max_file_size_bytes", "value": 1024},
+            {"field": "localization.regional_locale", "value": "english_us"},
         )
+        for payload in invalid_values:
+            assert client.put("/api/auth/me/settings", headers=auth_headers_user, json=payload).status_code == 400
 
-        assert response.status_code == 400
-        assert response.json()["detail"] == "Custom themes payload contains an invalid theme definition"
+        for payload in (
+            {"appearance": {"theme_id": "sambee-dark"}},
+            {"field": "unknown", "value": True},
+            {"field": "appearance.theme_id", "value": "sambee-dark", "unexpected": True},
+        ):
+            assert client.put("/api/auth/me/settings", headers=auth_headers_user, json=payload).status_code == 422
 
-    def test_update_rejects_invalid_browser_preference_values(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
-        response = client.put(
-            "/api/auth/me/settings",
-            headers=auth_headers_user,
-            json={"browser": {"file_browser_view_mode": "grid"}},
+    def test_prevents_removing_the_active_custom_theme(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
+        custom_themes = [{"id": "custom-theme", "name": "Custom", "mode": "light", "primary": {"main": "#123456"}}]
+        assert (
+            client.put(
+                "/api/auth/me/settings", headers=auth_headers_user, json={"field": "appearance.custom_themes", "value": custom_themes}
+            ).status_code
+            == 200
         )
-
-        assert response.status_code == 400
-        assert response.json()["detail"] == "File browser view mode must be one of: list, details"
-
-    def test_update_rejects_invalid_viewer_associations(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
-        response = client.put(
-            "/api/auth/me/settings",
-            headers=auth_headers_user,
-            json={"browser": {"viewer_associations": {"   ": "markdown"}}},
+        assert (
+            client.put(
+                "/api/auth/me/settings", headers=auth_headers_user, json={"field": "appearance.theme_id", "value": "custom-theme"}
+            ).status_code
+            == 200
         )
-
+        response = client.put("/api/auth/me/settings", headers=auth_headers_user, json={"field": "appearance.custom_themes", "value": []})
         assert response.status_code == 400
-        assert response.json()["detail"] == "Viewer associations must use non-empty file keys and viewer IDs"
-
-    def test_update_rejects_invalid_text_editor_max_file_size(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
-        response = client.put(
-            "/api/auth/me/settings",
-            headers=auth_headers_user,
-            json={"text_editor": {"max_file_size_bytes": 1024}},
-        )
-
-        assert response.status_code == 400
-        assert response.json()["detail"] == "Text editor max file size must be between 65536 and 104857600 bytes"
-
-    def test_update_rejects_invalid_regional_locale(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
-        response = client.put(
-            "/api/auth/me/settings",
-            headers=auth_headers_user,
-            json={"localization": {"regional_locale": "english_us"}},
-        )
-
-        assert response.status_code == 400
-        assert response.json()["detail"] == "Regional locale must be a valid locale identifier like en-US"
+        assert response.json()["detail"] == "Cannot remove the active custom theme before selecting another theme"

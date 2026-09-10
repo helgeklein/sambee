@@ -25,6 +25,6 @@ export const FILENAME_FIELD_PROPS = {
  * Sx mixin that disables font ligatures inside the input element.
  * Merge with any component-specific `sx` using spread or array syntax.
  */
-export const FILENAME_INPUT_SX: SxProps<Theme> = {
+export const FILENAME_INPUT_SX = {
   "& input": { fontVariantLigatures: "none" },
-};
+} satisfies SxProps<Theme>;

@@ -21,19 +21,20 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { adminDialogActionButtonSx, adminDialogEndActionRowSx } from "../components/Admin/dialogActionStyles";
-import { ResponsiveFormDialog } from "../components/Admin/ResponsiveFormDialog";
+import { DialogNotice } from "../components/Dialog/DialogNotice";
+import { ResponsiveDialogShell } from "../components/Dialog/ResponsiveDialogShell";
 import {
-  SettingsFormFieldLabel,
-  SettingsFormGroup,
-  SettingsFormRow,
-  SettingsFormSection,
-  SettingsFormSurface,
-  settingsFormFieldControlSx,
-  settingsFormOutlinedControlSx,
-  settingsFormSelectControlSx,
-  settingsSelectMenuProps,
-  settingsSelectSx,
-} from "../components/Settings/SettingsFormLayout";
+  FormFieldLabel,
+  FormGroup,
+  FormRow,
+  FormSurface,
+  formFieldControlSx,
+  formOutlinedControlSx,
+  formSelectControlSx,
+  formSelectMenuProps,
+  formSelectSx,
+} from "../components/Form/FormLayout";
+import { SettingsFormSection } from "../components/Settings/SettingsFormLayout";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsPage } from "../components/Settings/SettingsPage";
 import { SettingsPasswordVisibilityToggle } from "../components/Settings/SettingsPasswordVisibilityToggle";
@@ -100,6 +101,7 @@ const REVIEWABLE_POLICY_KEYS = new Set<keyof OidcConfigurationCandidate>([
   "role_assignment_mode",
   "uniform_role",
   "role_mappings",
+  "auto_link_by_username",
 ]);
 
 function clearAuthenticationCaches() {
@@ -130,6 +132,7 @@ const reviewedPolicyFor = (candidate: OidcConfigurationCandidate): OidcReviewedP
   role_assignment_mode: candidate.role_assignment_mode,
   uniform_role: candidate.uniform_role,
   role_mappings: candidate.role_mappings,
+  auto_link_by_username: candidate.auto_link_by_username,
 });
 const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every((entry) => typeof entry === "string");
 const isReviewedPolicy = (value: unknown): value is OidcReviewedPolicy => {
@@ -147,7 +150,8 @@ const isReviewedPolicy = (value: unknown): value is OidcReviewedPolicy => {
     roleMappings !== null &&
     isStringArray((roleMappings as Record<string, unknown>)["admin"]) &&
     isStringArray((roleMappings as Record<string, unknown>)["editor"]) &&
-    isStringArray((roleMappings as Record<string, unknown>)["viewer"])
+    isStringArray((roleMappings as Record<string, unknown>)["viewer"]) &&
+    typeof policy["auto_link_by_username"] === "boolean"
   );
 };
 const storedReviewedPolicy = (): OidcReviewedPolicy | undefined => {
@@ -230,6 +234,17 @@ const finalizationFailureKind = (error: unknown): FinalizationFailureKind => {
   if (getOidcMappingValidationErrors(error).length > 0) return "validation";
   return "other";
 };
+const mappingValidationFieldErrors = (errors: ReturnType<typeof getOidcMappingValidationErrors>) =>
+  Object.fromEntries(
+    errors
+      .filter((mappingError) => mappingError.target_user_id !== null)
+      .map((mappingError) => [mappingError.target_user_id, mappingError.message])
+  );
+const mappingValidationActionError = (errors: ReturnType<typeof getOidcMappingValidationErrors>) =>
+  errors
+    .filter((mappingError) => mappingError.target_user_id === null)
+    .map((mappingError) => mappingError.message)
+    .join(" ");
 const mappingReviewFor = (identity: OidcTestedIdentity) =>
   Object.fromEntries(
     identity.replacement_mappings.map((mapping) => [
@@ -247,8 +262,8 @@ export function AuthenticationSettings() {
   const theme = useTheme();
   const usesDesktopFormLayout = useMediaQuery(theme.breakpoints.up("md"));
   const formFieldSize = usesDesktopFormLayout ? "small" : "medium";
-  const providerFieldSx = [settingsFormOutlinedControlSx, { width: { md: PROVIDER_DESKTOP_FIELD_WIDTH_PX } }];
-  const providerIntervalFieldSx = [settingsFormOutlinedControlSx, { width: { md: PROVIDER_INTERVAL_DESKTOP_FIELD_WIDTH_PX } }];
+  const providerFieldSx = [formOutlinedControlSx, { width: { md: PROVIDER_DESKTOP_FIELD_WIDTH_PX } }];
+  const providerIntervalFieldSx = [formOutlinedControlSx, { width: { md: PROVIDER_INTERVAL_DESKTOP_FIELD_WIDTH_PX } }];
   const [candidate, setCandidate] = useState<OidcConfigurationCandidate>(DEFAULT_CANDIDATE);
   const [configuration, setConfiguration] = useState<OidcAdminConfigurationRead | null>(() =>
     getCachedAsyncData<OidcAdminConfigurationRead>(SETTINGS_DATA_CACHE_KEYS.adminAuthentication)
@@ -269,17 +284,16 @@ export function AuthenticationSettings() {
   const [error, setError] = useState("");
   const [testError, setTestError] = useState("");
   const [notice, setNotice] = useState("");
+  const [configurationActionError, setConfigurationActionError] = useState("");
+  const [configurationActionNotice, setConfigurationActionNotice] = useState("");
+  const [reviewContextualError, setReviewContextualError] = useState("");
+  const [reviewActionError, setReviewActionError] = useState("");
   const [finalizationUnresolved, setFinalizationUnresolved] = useState(() => storedPendingFinalization() !== undefined);
-  const testErrorRef = useRef<HTMLDivElement>(null);
   const providerNameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setScopesInput(listValue(candidate.scopes));
   }, [candidate.scopes]);
-
-  useEffect(() => {
-    if (testError) testErrorRef.current?.focus();
-  }, [testError]);
 
   const previewRequestSequence = useRef(0);
   const selectedMappings = testedIdentity?.replacement_mappings.filter((mapping) => mappingReview[mapping.target_user_id]?.selected) ?? [];
@@ -377,13 +391,13 @@ export function AuthenticationSettings() {
     hasError = false
   ) =>
     usesDesktopFormLayout ? (
-      <SettingsFormFieldLabel
+      <FormFieldLabel
         label={label}
         description={description}
         descriptionId={descriptionId}
         htmlFor={htmlFor}
         required={required}
-        hasError={hasError}
+        feedback={hasError ? { message: description, severity: "error" } : null}
       />
     ) : null;
 
@@ -396,10 +410,10 @@ export function AuthenticationSettings() {
     required = false,
     hasError = false
   ) => (
-    <SettingsFormRow>
+    <FormRow>
       {renderDesktopFieldLabel(label, description, descriptionId, htmlFor, required, hasError)}
-      <Box sx={settingsFormFieldControlSx}>{control}</Box>
-    </SettingsFormRow>
+      <Box sx={formFieldControlSx}>{control}</Box>
+    </FormRow>
   );
 
   const pageActionButtonSx = {
@@ -474,23 +488,15 @@ export function AuthenticationSettings() {
         setTestedIdentity(identity);
         setOidcDialogOpen(true);
         setOidcReviewOpen(true);
-        setMappingErrors(
-          replayFailure === "validation"
-            ? Object.fromEntries(
-                replayValidationErrors
-                  .filter((mappingError) => mappingError.target_user_id !== null)
-                  .map((mappingError) => [mappingError.target_user_id, mappingError.message])
-              )
-            : {}
-        );
+        setMappingErrors(replayFailure === "validation" ? mappingValidationFieldErrors(replayValidationErrors) : {});
         setMappingReview(mappingReviewFor(identity));
         sessionStorage.setItem(OIDC_REVIEWED_POLICY_STORAGE_KEY, JSON.stringify(reviewedPolicyFor(identity.candidate)));
         if (replayFailure === "mapping_stale") {
-          setError("The account mapping review changed. Review the refreshed mappings before activating.");
-        } else if (replayFailure === "validation") {
-          setError("Correct the highlighted OIDC mapping errors before activating.");
+          setReviewContextualError("The account mapping review changed. Review the refreshed mappings before activating.");
+        } else if (replayFailure === "validation" && mappingValidationActionError(replayValidationErrors)) {
+          setReviewContextualError(mappingValidationActionError(replayValidationErrors));
         } else if (replayFailure === "other") {
-          setError("The tested configuration could not be activated. Review it before trying again.");
+          setReviewContextualError("The tested configuration could not be activated. Review it before trying again.");
         }
       } catch (caught: unknown) {
         if (!active) return;
@@ -528,7 +534,8 @@ export function AuthenticationSettings() {
       const reviewedPolicy = reviewedPolicyFor(nextCandidate);
       sessionStorage.setItem(OIDC_REVIEWED_POLICY_STORAGE_KEY, JSON.stringify(reviewedPolicy));
       setReviewPending(true);
-      setError("");
+      setReviewContextualError("");
+      setReviewActionError("");
       void api
         .getOidcTestResult(testedIdentity.flow_id, reviewedPolicy)
         .then((identity) => {
@@ -547,7 +554,7 @@ export function AuthenticationSettings() {
             setTestedIdentity(null);
             setOidcReviewOpen(false);
             setMappingReview({});
-            setError("The OIDC test expired. Connect and test the provider again.");
+            setConfigurationActionError("The OIDC test expired. Connect and test the provider again.");
             return;
           }
           if (getApiErrorMessage(caught, "") === "oidc_configuration_changed") {
@@ -556,10 +563,10 @@ export function AuthenticationSettings() {
             setTestedIdentity(null);
             setOidcReviewOpen(false);
             setMappingReview({});
-            setError("The OIDC configuration changed after this test. Connect and test the provider again.");
+            setConfigurationActionError("The OIDC configuration changed after this test. Connect and test the provider again.");
             return;
           }
-          setError("The reviewed access policy could not be evaluated. Change it or retry before activating.");
+          setReviewActionError("The reviewed access policy could not be evaluated. Change it or retry before activating.");
         });
       setNotice("");
       return;
@@ -584,9 +591,14 @@ export function AuthenticationSettings() {
     setClientSecret("");
     setShowClientSecret(false);
     setTestError("");
+    setConfigurationActionError("");
+    setConfigurationActionNotice("");
   };
 
   const openOidcDialog = () => {
+    setConfigurationActionError("");
+    setConfigurationActionNotice("");
+    setTestError("");
     setOidcDialogOpen(true);
   };
 
@@ -594,6 +606,8 @@ export function AuthenticationSettings() {
     if (finalizationUnresolved) return;
     setBusy(true);
     setError("");
+    setConfigurationActionError("");
+    setConfigurationActionNotice("");
     setTestError("");
     try {
       const payload = { ...candidateToTest };
@@ -612,6 +626,7 @@ export function AuthenticationSettings() {
     if (finalizationUnresolved || !testedIdentity || replacementPlanInvalid || !testedIdentityCanActivate) return;
     setBusy(true);
     setError("");
+    setReviewActionError("");
     const finalizationRequest: PendingOidcFinalization = {
       flow_id: testedIdentity.flow_id,
       reviewed_policy: reviewedPolicyFor(candidate),
@@ -648,7 +663,7 @@ export function AuthenticationSettings() {
           setTestedIdentity(refreshedIdentity);
           setMappingErrors({});
           setMappingReview(mappingReviewFor(refreshedIdentity));
-          setError("The account mapping review changed. Review the refreshed mappings before activating.");
+          setReviewActionError("The account mapping review changed. Review the refreshed mappings before activating.");
         } catch (refreshError: unknown) {
           if (isApiError(refreshError) && refreshError.response?.status === 404) {
             sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
@@ -657,9 +672,9 @@ export function AuthenticationSettings() {
             setOidcReviewOpen(false);
             setMappingReview({});
             setMappingErrors({});
-            setError("The OIDC test expired while refreshing mappings. Connect and test the provider again.");
+            setConfigurationActionError("The OIDC test expired while refreshing mappings. Connect and test the provider again.");
           } else {
-            setError("The current mapping review could not be loaded. Retry activation to refresh it.");
+            setReviewActionError("The current mapping review could not be loaded. Retry activation to refresh it.");
           }
         }
       } else if (failureKind === "configuration_changed") {
@@ -669,20 +684,16 @@ export function AuthenticationSettings() {
         setOidcReviewOpen(false);
         setMappingReview({});
         setMappingErrors({});
-        setError("The OIDC configuration changed after this test. Connect and test the provider again.");
+        setConfigurationActionError("The OIDC configuration changed after this test. Connect and test the provider again.");
       } else if (failureKind === "validation") {
-        setMappingErrors(
-          Object.fromEntries(
-            validationErrors
-              .filter((mappingError) => mappingError.target_user_id !== null)
-              .map((mappingError) => [mappingError.target_user_id, mappingError.message])
-          )
-        );
-        setError("Correct the highlighted OIDC mapping errors before activating.");
+        setMappingErrors(mappingValidationFieldErrors(validationErrors));
+        setReviewActionError(mappingValidationActionError(validationErrors));
       } else if (failureKind === "ambiguous") {
-        setError("Activation may have completed, but the server response was not received. Reload this page to confirm the result.");
+        setReviewActionError(
+          "Activation may have completed, but the server response was not received. Reload this page to confirm the result."
+        );
       } else {
-        setError("The tested configuration could not be activated. Run the test again.");
+        setReviewActionError("The tested configuration could not be activated. Run the test again.");
       }
       setBusy(false);
       return;
@@ -722,6 +733,7 @@ export function AuthenticationSettings() {
     if (finalizationUnresolved || !testedIdentity) return;
     setBusy(true);
     setError("");
+    setReviewActionError("");
     try {
       await api.cancelOidcTestFlow(testedIdentity.flow_id);
       sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
@@ -734,7 +746,7 @@ export function AuthenticationSettings() {
       setOidcReviewOpen(false);
       setNotice("OIDC setup canceled.");
     } catch {
-      setError("The OIDC setup flow could not be canceled. It may already have expired.");
+      setReviewActionError("The OIDC setup flow could not be canceled. It may already have expired.");
     } finally {
       setBusy(false);
     }
@@ -753,6 +765,8 @@ export function AuthenticationSettings() {
 
   const returnToOidcConfiguration = () => {
     if (busy || finalizationUnresolved) return;
+    setReviewActionError("");
+    setReviewContextualError("");
     setOidcReviewOpen(false);
   };
 
@@ -853,9 +867,9 @@ export function AuthenticationSettings() {
               </Alert>
             )}
             <Stack spacing={2.5}>
-              <SettingsFormSurface testId="authentication-mode-form-surface">
-                <SettingsFormGroup>
-                  <SettingsFormRow>
+              <FormSurface testId="authentication-mode-form-surface">
+                <FormGroup>
+                  <FormRow>
                     {renderDesktopFieldLabel(
                       "Authentication mode",
                       "Choose available sign-in methods",
@@ -890,12 +904,12 @@ export function AuthenticationSettings() {
                       slotProps={{
                         select: {
                           SelectDisplayProps: { tabIndex: 0 },
-                          MenuProps: settingsSelectMenuProps,
+                          MenuProps: formSelectMenuProps,
                           renderValue: (selected) => AUTHENTICATION_MODE_LABELS[selected as AuthenticationMode],
                         },
                         htmlInput: { "aria-describedby": usesDesktopFormLayout ? "authentication-mode-description" : undefined },
                       }}
-                      sx={[settingsFormSelectControlSx, settingsFormOutlinedControlSx, settingsSelectSx].flat()}
+                      sx={[formSelectControlSx, formOutlinedControlSx, formSelectSx].flat()}
                     >
                       <SettingsSelectMenuItem
                         value="none"
@@ -922,13 +936,13 @@ export function AuthenticationSettings() {
                         description="Redirect users to the identity provider"
                       />
                     </TextField>
-                  </SettingsFormRow>
-                </SettingsFormGroup>
-              </SettingsFormSurface>
+                  </FormRow>
+                </FormGroup>
+              </FormSurface>
 
               {(isOidcMode || isActiveOidcMode) && (
                 <SettingsGroup title="OpenID Connect">
-                  <SettingsFormSurface testId="authentication-oidc-status-surface">
+                  <FormSurface testId="authentication-oidc-status-surface">
                     <Stack spacing={2}>
                       <Box
                         sx={{
@@ -957,16 +971,52 @@ export function AuthenticationSettings() {
                         </Button>
                       </Box>
                     </Stack>
-                  </SettingsFormSurface>
+                  </FormSurface>
                 </SettingsGroup>
               )}
 
-              <ResponsiveFormDialog
+              <ResponsiveDialogShell
                 open={oidcDialogOpen && !oidcReviewOpen}
                 onClose={closeOidcDialog}
                 disableClose={busy || finalizationUnresolved}
                 title="Configure OIDC"
                 maxWidth="md"
+                contextualNotice={
+                  <DialogNotice
+                    message={
+                      configuration?.health.status === "unhealthy"
+                        ? configuration.health.reasons.includes("public_url_missing")
+                          ? "Set Sambee's externally reachable public URL in network settings before testing this provider."
+                          : "Complete the required configuration before testing this provider."
+                        : null
+                    }
+                    severity="warning"
+                    testId="oidc-configuration-health-warning"
+                  />
+                }
+                actionNotice={
+                  configurationActionError || configurationActionNotice || testError ? (
+                    <Stack spacing={1}>
+                      <DialogNotice message={configurationActionError} testId="oidc-configuration-action-error" />
+                      {configurationActionNotice && (
+                        <Alert data-testid="oidc-configuration-action-notice" severity="success" role="status">
+                          {configurationActionNotice}
+                        </Alert>
+                      )}
+                      <DialogNotice
+                        message={
+                          testError ? (
+                            <>
+                              <AlertTitle>Connection test failed</AlertTitle>
+                              {testError}
+                            </>
+                          ) : null
+                        }
+                        testId="oidc-configuration-test-error"
+                      />
+                    </Stack>
+                  ) : null
+                }
                 onTransitionEntered={() => {
                   const activeElement = document.activeElement;
                   const userIsAlreadyInteracting =
@@ -1004,23 +1054,8 @@ export function AuthenticationSettings() {
                 }
               >
                 <Stack spacing={2}>
-                  {error && !oidcReviewOpen && <Alert severity="error">{error}</Alert>}
-                  {notice && !oidcReviewOpen && <Alert severity="success">{notice}</Alert>}
-                  {testError && (
-                    <Alert ref={testErrorRef} severity="error" role="alert" aria-live="assertive" tabIndex={-1}>
-                      <AlertTitle>Connection test failed</AlertTitle>
-                      {testError}
-                    </Alert>
-                  )}
-                  {configuration?.health.status === "unhealthy" && (
-                    <Alert severity="warning">
-                      {configuration.health.reasons.includes("public_url_missing")
-                        ? "Set Sambee's externally reachable public URL in network settings before testing this provider."
-                        : "Complete the required configuration before testing this provider."}
-                    </Alert>
-                  )}
-                  <SettingsFormSurface testId="authentication-oidc-form-surface" sx={{ gap: 2 }}>
-                    <SettingsFormGroup testId="authentication-provider-form-group">
+                  <FormSurface testId="authentication-oidc-form-surface" sx={{ gap: 2 }}>
+                    <FormGroup testId="authentication-provider-form-group">
                       {configuration?.health.redirect_uri &&
                         renderFormRow(
                           "Redirect URI",
@@ -1046,8 +1081,8 @@ export function AuthenticationSettings() {
                                         onClick={() => {
                                           void navigator.clipboard
                                             .writeText(configuration.health.redirect_uri ?? "")
-                                            .then(() => setNotice("Redirect URI copied."))
-                                            .catch(() => setError("The redirect URI could not be copied."));
+                                            .then(() => setConfigurationActionNotice("Redirect URI copied."))
+                                            .catch(() => setConfigurationActionError("The redirect URI could not be copied."));
                                         }}
                                       >
                                         <ContentCopy />
@@ -1249,9 +1284,9 @@ export function AuthenticationSettings() {
                           />
                         </Box>
                       )}
-                    </SettingsFormGroup>
+                    </FormGroup>
                     <SettingsFormSection title="Access" />
-                    <SettingsFormGroup testId="authentication-access-form-group">
+                    <FormGroup testId="authentication-access-form-group">
                       {renderFormRow(
                         "Admission",
                         "Choose which provider users can sign in",
@@ -1267,9 +1302,9 @@ export function AuthenticationSettings() {
                           onChange={(event) => update("admission_mode", event.target.value as OidcConfigurationCandidate["admission_mode"])}
                           disabled={finalizationUnresolved}
                           helperText={usesDesktopFormLayout ? undefined : "Choose which provider users can sign in"}
-                          sx={[settingsFormSelectControlSx, settingsFormOutlinedControlSx, settingsSelectSx].flat()}
+                          sx={[formSelectControlSx, formOutlinedControlSx, formSelectSx].flat()}
                           slotProps={{
-                            select: { MenuProps: settingsSelectMenuProps },
+                            select: { MenuProps: formSelectMenuProps },
                             htmlInput: { "aria-describedby": usesDesktopFormLayout ? "admission-description" : undefined },
                           }}
                         >
@@ -1297,7 +1332,7 @@ export function AuthenticationSettings() {
                                 ? undefined
                                 : admissionGroupError || "Members of these groups can sign in; enter exact names, separated by commas"
                             }
-                            sx={settingsFormOutlinedControlSx}
+                            sx={formOutlinedControlSx}
                             slotProps={{
                               htmlInput: { "aria-describedby": usesDesktopFormLayout ? "admission-groups-description" : undefined },
                             }}
@@ -1305,9 +1340,9 @@ export function AuthenticationSettings() {
                           false,
                           Boolean(admissionGroupError)
                         )}
-                    </SettingsFormGroup>
+                    </FormGroup>
                     <SettingsFormSection title="Role assignment" />
-                    <SettingsFormGroup testId="authentication-role-form-group">
+                    <FormGroup testId="authentication-role-form-group">
                       {renderFormRow(
                         "Role assignment",
                         "Set one role for all users or map roles from provider groups",
@@ -1325,9 +1360,9 @@ export function AuthenticationSettings() {
                           }
                           disabled={finalizationUnresolved}
                           helperText={usesDesktopFormLayout ? undefined : "Set one role for all users or map roles from provider groups"}
-                          sx={[settingsFormSelectControlSx, settingsFormOutlinedControlSx, settingsSelectSx].flat()}
+                          sx={[formSelectControlSx, formOutlinedControlSx, formSelectSx].flat()}
                           slotProps={{
-                            select: { MenuProps: settingsSelectMenuProps },
+                            select: { MenuProps: formSelectMenuProps },
                             htmlInput: { "aria-describedby": usesDesktopFormLayout ? "role-assignment-description" : undefined },
                           }}
                         >
@@ -1351,9 +1386,9 @@ export function AuthenticationSettings() {
                             onChange={(event) => update("uniform_role", event.target.value as OidcConfigurationCandidate["uniform_role"])}
                             disabled={finalizationUnresolved}
                             helperText={usesDesktopFormLayout ? undefined : "Role assigned to all admitted users"}
-                            sx={[settingsFormSelectControlSx, settingsFormOutlinedControlSx, settingsSelectSx].flat()}
+                            sx={[formSelectControlSx, formOutlinedControlSx, formSelectSx].flat()}
                             slotProps={{
-                              select: { MenuProps: settingsSelectMenuProps },
+                              select: { MenuProps: formSelectMenuProps },
                               htmlInput: { "aria-describedby": usesDesktopFormLayout ? "assigned-role-description" : undefined },
                             }}
                           >
@@ -1385,7 +1420,7 @@ export function AuthenticationSettings() {
                                   ? undefined
                                   : adminGroupError || "Members get administrator access; enter exact names, separated by commas"
                               }
-                              sx={settingsFormOutlinedControlSx}
+                              sx={formOutlinedControlSx}
                               slotProps={{
                                 htmlInput: {
                                   "aria-describedby": usesDesktopFormLayout ? "administrator-groups-description" : undefined,
@@ -1416,7 +1451,7 @@ export function AuthenticationSettings() {
                                   ? undefined
                                   : editorGroupError || "Members can edit content; enter exact names, separated by commas"
                               }
-                              sx={settingsFormOutlinedControlSx}
+                              sx={formOutlinedControlSx}
                               slotProps={{
                                 htmlInput: { "aria-describedby": usesDesktopFormLayout ? "editor-groups-description" : undefined },
                               }}
@@ -1445,7 +1480,7 @@ export function AuthenticationSettings() {
                                   ? undefined
                                   : viewerGroupError || "Members get viewer access; enter exact names, separated by commas"
                               }
-                              sx={settingsFormOutlinedControlSx}
+                              sx={formOutlinedControlSx}
                               slotProps={{
                                 htmlInput: { "aria-describedby": usesDesktopFormLayout ? "viewer-groups-description" : undefined },
                               }}
@@ -1455,14 +1490,14 @@ export function AuthenticationSettings() {
                           )}
                         </>
                       )}
-                    </SettingsFormGroup>
+                    </FormGroup>
                     <Alert severity="info">
                       The administrator connecting this provider keeps an individual Administrator assignment. Individual assignments always
                       override this configured role policy.
                     </Alert>
                     <SettingsFormSection title="Advanced claims" />
                     <Typography sx={{ color: "text.secondary" }}>The default claim names work with most providers</Typography>
-                    <SettingsFormGroup testId="authentication-claims-form-group">
+                    <FormGroup testId="authentication-claims-form-group">
                       {renderFormRow(
                         "Username claim",
                         "Claim used for the Sambee username",
@@ -1478,7 +1513,7 @@ export function AuthenticationSettings() {
                           disabled={finalizationUnresolved}
                           required
                           helperText={usesDesktopFormLayout ? undefined : "Claim used for the Sambee username"}
-                          sx={settingsFormOutlinedControlSx}
+                          sx={formOutlinedControlSx}
                           slotProps={{
                             htmlInput: { "aria-describedby": usesDesktopFormLayout ? "username-claim-description" : undefined },
                           }}
@@ -1499,7 +1534,7 @@ export function AuthenticationSettings() {
                           onChange={(event) => update("name_claim", optionalClaim(event.target.value))}
                           disabled={finalizationUnresolved}
                           helperText={usesDesktopFormLayout ? undefined : "Optional claim for the user's display name"}
-                          sx={settingsFormOutlinedControlSx}
+                          sx={formOutlinedControlSx}
                           slotProps={{
                             htmlInput: { "aria-describedby": usesDesktopFormLayout ? "name-claim-description" : undefined },
                           }}
@@ -1519,7 +1554,7 @@ export function AuthenticationSettings() {
                           onChange={(event) => update("email_claim", optionalClaim(event.target.value))}
                           disabled={finalizationUnresolved}
                           helperText={usesDesktopFormLayout ? undefined : "Optional claim for the user's email address"}
-                          sx={settingsFormOutlinedControlSx}
+                          sx={formOutlinedControlSx}
                           slotProps={{
                             htmlInput: { "aria-describedby": usesDesktopFormLayout ? "email-claim-description" : undefined },
                           }}
@@ -1539,25 +1574,54 @@ export function AuthenticationSettings() {
                           onChange={(event) => update("groups_claim", optionalClaim(event.target.value))}
                           disabled={finalizationUnresolved}
                           helperText={usesDesktopFormLayout ? undefined : "Required for group-based admission or roles"}
-                          sx={settingsFormOutlinedControlSx}
+                          sx={formOutlinedControlSx}
                           slotProps={{
                             htmlInput: { "aria-describedby": usesDesktopFormLayout ? "groups-claim-description" : undefined },
                           }}
                         />
                       )}
-                    </SettingsFormGroup>
-                  </SettingsFormSurface>
+                    </FormGroup>
+                  </FormSurface>
                 </Stack>
-              </ResponsiveFormDialog>
+              </ResponsiveDialogShell>
 
               {testedIdentity && (
-                <ResponsiveFormDialog
+                <ResponsiveDialogShell
                   open={oidcReviewOpen}
                   onClose={returnToOidcConfiguration}
                   disableClose={busy || finalizationUnresolved}
                   title="Review OIDC connection"
                   description="Review the tested identity and account impact before activating this configuration."
                   maxWidth="md"
+                  contextualNotice={
+                    reviewContextualError || !testedIdentityCanActivate || omittedPasswordlessMappings.length > 0 ? (
+                      <Stack spacing={1}>
+                        <DialogNotice message={reviewContextualError} testId="oidc-review-contextual-error" />
+                        <DialogNotice
+                          message={
+                            !testedIdentityCanActivate
+                              ? "The tested identity must pass the admission rule before this configuration can be activated."
+                              : null
+                          }
+                          testId="oidc-review-admission-error"
+                        />
+                        <DialogNotice
+                          message={
+                            omittedPasswordlessMappings.length > 0 ? (
+                              <>
+                                {omittedPasswordlessMappings.length} active passwordless account
+                                {omittedPasswordlessMappings.length === 1 ? " is" : "s are"} omitted. These users cannot sign in until
+                                mapped. An unmapped OIDC login may collide with an existing username or create a separate account.
+                              </>
+                            ) : null
+                          }
+                          severity="warning"
+                          testId="oidc-review-omitted-accounts-warning"
+                        />
+                      </Stack>
+                    ) : null
+                  }
+                  actionNotice={<DialogNotice message={reviewActionError} testId="oidc-review-action-error" />}
                   actions={
                     <Box sx={adminDialogEndActionRowSx}>
                       <Button
@@ -1588,8 +1652,7 @@ export function AuthenticationSettings() {
                   }
                 >
                   <Stack spacing={2}>
-                    {error && <Alert severity="error">{error}</Alert>}
-                    <SettingsFormSurface sx={{ gap: 2 }}>
+                    <FormSurface sx={{ gap: 2 }}>
                       <Typography variant="subtitle1" sx={{ fontWeight: "medium" }}>
                         Test results
                       </Typography>
@@ -1605,21 +1668,9 @@ export function AuthenticationSettings() {
                           <Typography>Matching admission group: {testedIdentity.matching_admission_group}</Typography>
                         )}
                         <Typography sx={{ color: "text.secondary" }}>Account mapping does not override the admission policy.</Typography>
-                        {!testedIdentityCanActivate && (
-                          <Alert severity="error" sx={{ mt: 1 }}>
-                            The tested identity must pass the admission rule before this configuration can be activated.
-                          </Alert>
-                        )}
                         {testedIdentity.replacement_mappings.length > 0 && (
                           <Stack spacing={2} sx={{ mt: 2 }}>
                             <Typography variant="subtitle1">Review existing accounts</Typography>
-                            {omittedPasswordlessMappings.length > 0 && (
-                              <Alert severity="warning">
-                                {omittedPasswordlessMappings.length} active passwordless account
-                                {omittedPasswordlessMappings.length === 1 ? " is" : "s are"} omitted. These users cannot sign in until
-                                mapped. An unmapped OIDC login may collide with an existing username or create a separate account.
-                              </Alert>
-                            )}
                             {testedIdentity.replacement_mappings
                               .filter((mapping) => mapping.selectable)
                               .map((mapping) => {
@@ -1744,9 +1795,9 @@ export function AuthenticationSettings() {
                           </Stack>
                         )}
                       </Box>
-                    </SettingsFormSurface>
+                    </FormSurface>
                   </Stack>
-                </ResponsiveFormDialog>
+                </ResponsiveDialogShell>
               )}
             </Stack>
           </>

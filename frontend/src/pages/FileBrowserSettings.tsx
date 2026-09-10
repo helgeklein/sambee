@@ -1,7 +1,7 @@
 import { Button, Checkbox, FormControl, FormControlLabel, InputLabel, MenuItem, Select, Stack } from "@mui/material";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ResponsiveFormDialog } from "../components/Admin/ResponsiveFormDialog";
+import { ResponsiveDialogShell } from "../components/Dialog/ResponsiveDialogShell";
 import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsPage } from "../components/Settings/SettingsPage";
@@ -21,49 +21,9 @@ export function FileBrowserSettings() {
   const [includeDotDirectories, setIncludeDotDirectories] = useQuickNavIncludeDotDirectoriesPreference();
   const [shortcutHintVisibility, setShortcutHintVisibility] = useQuickBarShortcutHintVisibilityPreference();
   const { t } = useTranslation();
-  const [savedIncludeDotDirectories, setSavedIncludeDotDirectories] = useState(includeDotDirectories);
-  const savedIncludeDotDirectoriesRef = useRef(savedIncludeDotDirectories);
-  const [draftIncludeDotDirectories, setDraftIncludeDotDirectories] = useState(includeDotDirectories);
-  const draftIncludeDotDirectoriesRef = useRef(draftIncludeDotDirectories);
-  const [savedShortcutHintVisibility, setSavedShortcutHintVisibility] = useState(shortcutHintVisibility);
-  const savedShortcutHintVisibilityRef = useRef(savedShortcutHintVisibility);
-  const [draftShortcutHintVisibility, setDraftShortcutHintVisibility] = useState(shortcutHintVisibility);
-  const draftShortcutHintVisibilityRef = useRef(draftShortcutHintVisibility);
   const [historyToClear, setHistoryToClear] = useState<RecentHistoryKind | null>(null);
   const [clearingHistory, setClearingHistory] = useState(false);
   const [clearHistoryError, setClearHistoryError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const wasClean = draftIncludeDotDirectoriesRef.current === savedIncludeDotDirectoriesRef.current;
-    savedIncludeDotDirectoriesRef.current = includeDotDirectories;
-    setSavedIncludeDotDirectories(includeDotDirectories);
-
-    if (wasClean) {
-      draftIncludeDotDirectoriesRef.current = includeDotDirectories;
-      setDraftIncludeDotDirectories(includeDotDirectories);
-    }
-  }, [includeDotDirectories]);
-
-  useEffect(() => {
-    const wasClean = draftShortcutHintVisibilityRef.current === savedShortcutHintVisibilityRef.current;
-    savedShortcutHintVisibilityRef.current = shortcutHintVisibility;
-    setSavedShortcutHintVisibility(shortcutHintVisibility);
-
-    if (wasClean) {
-      draftShortcutHintVisibilityRef.current = shortcutHintVisibility;
-      setDraftShortcutHintVisibility(shortcutHintVisibility);
-    }
-  }, [shortcutHintVisibility]);
-
-  const updateDraftIncludeDotDirectories = (enabled: boolean) => {
-    draftIncludeDotDirectoriesRef.current = enabled;
-    setDraftIncludeDotDirectories(enabled);
-  };
-
-  const updateDraftShortcutHintVisibility = (visibility: QuickBarShortcutHintVisibility) => {
-    draftShortcutHintVisibilityRef.current = visibility;
-    setDraftShortcutHintVisibility(visibility);
-  };
 
   const selectedHistory =
     historyToClear === "files"
@@ -108,32 +68,10 @@ export function FileBrowserSettings() {
   };
 
   return (
-    <SettingsPage
-      category="file-browser"
-      footerPrimaryActions={
-        <Button
-          variant="contained"
-          disabled={
-            draftIncludeDotDirectories === savedIncludeDotDirectories && draftShortcutHintVisibility === savedShortcutHintVisibility
-          }
-          onClick={() => {
-            if (draftIncludeDotDirectories !== savedIncludeDotDirectories) {
-              setIncludeDotDirectories(draftIncludeDotDirectories);
-            }
-            if (draftShortcutHintVisibility !== savedShortcutHintVisibility) {
-              setShortcutHintVisibility(draftShortcutHintVisibility);
-            }
-          }}
-        >
-          {t("settings.advanced.saveChanges")}
-        </Button>
-      }
-    >
+    <SettingsPage category="file-browser">
       <SettingsGroup title={t("settings.fileBrowserPage.quickNavigationTitle")} sx={{ mb: 3 }}>
         <FormControlLabel
-          control={
-            <Checkbox checked={draftIncludeDotDirectories} onChange={(event) => updateDraftIncludeDotDirectories(event.target.checked)} />
-          }
+          control={<Checkbox checked={includeDotDirectories} onChange={(event) => setIncludeDotDirectories(event.target.checked)} />}
           label={t("settings.fileBrowserPage.includeDotDirectoriesLabel")}
           sx={{ m: 0 }}
         />
@@ -143,8 +81,8 @@ export function FileBrowserSettings() {
           <Select
             labelId="quick-bar-shortcut-hints-label"
             label={t("settings.fileBrowserPage.shortcutHintsLabel")}
-            value={draftShortcutHintVisibility}
-            onChange={(event) => updateDraftShortcutHintVisibility(event.target.value as QuickBarShortcutHintVisibility)}
+            value={shortcutHintVisibility}
+            onChange={(event) => setShortcutHintVisibility(event.target.value as QuickBarShortcutHintVisibility)}
           >
             <MenuItem value="auto">{t("settings.fileBrowserPage.shortcutHintsAuto")}</MenuItem>
             <MenuItem value="always">{t("settings.fileBrowserPage.shortcutHintsAlways")}</MenuItem>
@@ -163,7 +101,7 @@ export function FileBrowserSettings() {
           </Button>
         </Stack>
       </SettingsGroup>
-      <ResponsiveFormDialog
+      <ResponsiveDialogShell
         open={selectedHistory !== null}
         onClose={() => {
           if (!clearingHistory) setHistoryToClear(null);
@@ -189,7 +127,7 @@ export function FileBrowserSettings() {
         }
       >
         {clearHistoryError ? <SettingsFieldHelp sx={{ color: "error.main" }}>{clearHistoryError}</SettingsFieldHelp> : null}
-      </ResponsiveFormDialog>
+      </ResponsiveDialogShell>
     </SettingsPage>
   );
 }

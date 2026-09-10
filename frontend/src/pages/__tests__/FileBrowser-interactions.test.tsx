@@ -10,7 +10,7 @@ import api from "../../services/api";
 import { authSession } from "../../services/authSession";
 import { RECENT_DIRECTORIES_CHANGED_EVENT } from "../../services/recentDirectoriesSync";
 import { RECENT_FILES_CHANGED_EVENT } from "../../services/recentFilesSync";
-import { clearCurrentUserSettingsCache } from "../../services/userSettingsSync";
+import { resetCurrentUserSettingsStoreForTests } from "../../services/userSettingsStore";
 import {
   type ApiMock,
   createForbiddenError,
@@ -91,13 +91,14 @@ describe("Browser Component - Interactions", () => {
     vi.clearAllMocks();
     vi.mocked(api.copyItem).mockReset();
     vi.mocked(api.moveItem).mockReset();
-    clearCurrentUserSettingsCache();
+    resetCurrentUserSettingsStoreForTests();
     authSession.setAuthenticated({ access_token: "fake-token", token_type: "bearer" }, false);
     localStorage.removeItem("selectedConnectionId");
     localStorage.removeItem(QUICK_NAV_INCLUDE_DOT_DIRECTORIES_STORAGE_KEY);
 
     // Use mock factory for successful API responses
     setupSuccessfulApiMocks(api as unknown as ApiMock);
+    vi.mocked(api.updateCurrentUserSettings).mockImplementation(async (update) => update as never);
   });
 
   afterEach(() => {
@@ -284,7 +285,7 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Control>}b{/Control}");
 
       await waitFor(() => {
-        expect(localStorage.getItem("dual-pane-mode")).toBe("dual");
+        expect(api.updateCurrentUserSettings).toHaveBeenCalledWith({ field: "browser.pane_mode", value: "dual" });
         expect(localStorage.getItem("active-pane")).toBe("right");
         const rightPaneList = container.querySelector('[data-pane-id="right"] [data-testid="file-list-container"]');
         expect(rightPaneList).toBeInstanceOf(HTMLElement);
@@ -294,7 +295,7 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Control>}b{/Control}");
 
       await waitFor(() => {
-        expect(localStorage.getItem("dual-pane-mode")).toBe("single");
+        expect(api.updateCurrentUserSettings).toHaveBeenLastCalledWith({ field: "browser.pane_mode", value: "single" });
       });
     });
 
@@ -327,7 +328,7 @@ describe("Browser Component - Interactions", () => {
       expect(event.defaultPrevented).toBe(true);
       const directory = await screen.findByLabelText("Test Server 1:/");
       expect(directory).toHaveTextContent("Test Server 1:/");
-      expect(screen.getByText("Destination directory")).toBeInTheDocument();
+      expect(screen.getByText("Destination directory:")).toBeInTheDocument();
       expect(screen.getByText("Create a ZIP archive from 1 selected item in the destination directory.")).toBeInTheDocument();
 
       fireEvent.keyDown(document, { key: "Tab" });
@@ -349,7 +350,7 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Control>}b{/Control}");
 
       await waitFor(() => {
-        expect(localStorage.getItem("dual-pane-mode")).toBe("dual");
+        expect(api.updateCurrentUserSettings).toHaveBeenCalledWith({ field: "browser.pane_mode", value: "dual" });
         const rightPaneList = container.querySelector('[data-pane-id="right"] [data-testid="file-list-container"]');
         expect(rightPaneList).toBeInstanceOf(HTMLElement);
       });
@@ -377,7 +378,7 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Control>}b{/Control}");
 
       await waitFor(() => {
-        expect(localStorage.getItem("dual-pane-mode")).toBe("dual");
+        expect(api.updateCurrentUserSettings).toHaveBeenCalledWith({ field: "browser.pane_mode", value: "dual" });
       });
 
       settingsButton.focus();
@@ -386,7 +387,7 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Control>}b{/Control}");
 
       await waitFor(() => {
-        expect(localStorage.getItem("dual-pane-mode")).toBe("single");
+        expect(api.updateCurrentUserSettings).toHaveBeenLastCalledWith({ field: "browser.pane_mode", value: "single" });
       });
     });
 
@@ -409,7 +410,7 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Control>}b{/Control}");
 
       await waitFor(() => {
-        expect(localStorage.getItem("dual-pane-mode")).toBe("single");
+        expect(api.updateCurrentUserSettings).toHaveBeenLastCalledWith({ field: "browser.pane_mode", value: "single" });
       });
     });
 
@@ -1067,7 +1068,7 @@ describe("Browser Component - Interactions", () => {
       fireEvent.keyDown(document, { key: "F9", altKey: true });
 
       const extractDialog = await screen.findByRole("dialog", { name: "Extract from ZIP Archive" });
-      expect(within(extractDialog).getByText("Destination directory")).toBeInTheDocument();
+      expect(within(extractDialog).getByText("Destination directory:")).toBeInTheDocument();
       expect(within(extractDialog).getByLabelText("Test Server 2:/")).toHaveTextContent("Test Server 2:/");
       const locationBeforeTab = screen.getByTestId("router-location").textContent;
       fireEvent.keyDown(document, { key: "Tab" });
@@ -1119,7 +1120,7 @@ describe("Browser Component - Interactions", () => {
 
       const extractDialog = await screen.findByRole("dialog", { name: "Extract from ZIP Archive" });
       expect(within(extractDialog).getByLabelText("inside.txt")).toHaveTextContent("inside.txt");
-      expect(within(extractDialog).getByText("Destination directory")).toBeInTheDocument();
+      expect(within(extractDialog).getByText("Destination directory:")).toBeInTheDocument();
       expect(within(extractDialog).getByLabelText("Test Server 2:/")).toHaveTextContent("Test Server 2:/");
       await user.click(within(extractDialog).getByRole("button", { name: "Extract" }));
 

@@ -10,11 +10,11 @@ The reference implementation is `frontend/src/components/Admin/ConnectionDialog.
 
 Use the pattern when a dialog edits several related settings and needs validation, field descriptions, or more than one action.
 
-Do not use it for a confirmation or destructive-action dialog. Those should continue to use `ResponsiveFormDialog` directly with focused content and actions.
+Do not use it for a confirmation or destructive-action dialog. Those should continue to use `ResponsiveDialogShell` directly with focused content and actions.
 
 ## Dialog Categories
 
-Use `ResponsiveFormDialog` as the shared shell for every ordinary application dialog. It provides the responsive Drawer and Dialog behavior, safe-area action area, dialog surface tokens, title and description relationships, close blocking, and focus restoration.
+Use `ResponsiveDialogShell` from `frontend/src/components/Dialog/ResponsiveDialogShell.tsx` as the shared shell for every ordinary application dialog. It provides responsive Drawer and Dialog behavior, safe-area actions, overlay/form surface tokens, title and description relationships, close blocking, and focus restoration.
 
 Small dialogs use traditional Cancel and confirmation actions; do not add a top-right close button.
 
@@ -22,11 +22,11 @@ Choose the content pattern that matches the job:
 
 | Dialog type | Use | Examples |
 |---|---|---|
-| Multi-field editor | `ResponsiveFormDialog` with the settings form building blocks below. | Connections, users, OIDC configuration, copy or move. |
-| One- or two-field editor | `ResponsiveFormDialog` with a single-column settings surface. Keep the floating MUI label at every width. | Create, rename, copy, and move. |
-| Decision | `ResponsiveFormDialog` with compact content and actions. Do not add `SettingsFormSurface`. | Delete, overwrite conflict, application update, connection test result. |
-| Picker | `ResponsiveFormDialog` with a listbox or selection grid. Keep the picker’s keyboard and selection semantics in the owning component. | Viewer and theme pickers. |
-| Short workflow | `ResponsiveFormDialog` with state-specific body and actions. | Companion pairing. |
+| Multi-field editor | `ResponsiveDialogShell` with the form building blocks below. | Connections, users, OIDC configuration, copy or move. |
+| One- or two-field editor | `ResponsiveDialogShell` with a single-column form surface. Keep the floating MUI label at every width. | Create, rename, copy, and move. |
+| Decision | `ResponsiveDialogShell` with compact content and actions. Do not add `FormSurface`. | Delete, overwrite conflict, application update, connection test result. |
+| Picker | `ResponsiveDialogShell` with a listbox or selection grid. Keep the picker’s keyboard and selection semantics in the owning component. | Viewer and theme pickers. |
+| Short workflow | `ResponsiveDialogShell` with state-specific body and actions. | Companion pairing. |
 | Full-screen workspace | Keep the specialized full-screen viewer shell. Share only reusable behavior that does not interfere with the viewer’s focus, toolbar, or third-party integration. | Image, PDF, Markdown, and text viewers. |
 
 The desktop settings overlay and mobile settings drawer are navigation containers, not form dialogs. Keep their information architecture separate while composing settings-form pages inside them.
@@ -35,21 +35,21 @@ For safety-critical decisions, focus the least destructive action after opening.
 
 ## Shared Building Blocks
 
-Import the structural primitives and control styles from `frontend/src/components/Settings/SettingsFormLayout.tsx`.
+Import reusable structural primitives and control styles from `frontend/src/components/Form/FormLayout.tsx`. Settings-only sections remain in `frontend/src/components/Settings/SettingsFormLayout.tsx`.
 
 | Building block | Responsibility |
 |---|---|
-| `SettingsFormSurface` | Provides the muted, rounded background and shared interior padding. It darkens the default background by 4% in light mode and lightens it by 8% in dark mode. |
-| `SettingsFormGroup` | Groups related rows and adds row dividers only at the desktop breakpoint. |
-| `SettingsFormRow` | Uses one column below `md` and the two-column label/control grid at `md` and above. |
-| `SettingsFormFieldLabel` | Renders a desktop label with its description or validation error. |
+| `FormSurface` | Provides the shared form-surface background and interior padding. |
+| `FormGroup` | Groups related rows and adds row dividers only at the desktop breakpoint. |
+| `FormRow` | Uses one column below `md` and the two-column label/control grid at `md` and above. |
+| `FormFieldLabel` | Renders a desktop label with its description or active error/warning. |
 | `SettingsFormSection` | Separates groups with the standard settings heading, subdued divider, and spacing. |
 | `SettingsSelectMenuItem` | Renders a select option with a label and supporting description. |
 | `SettingsPasswordVisibilityToggle` | Renders the shared show/hide password adornment. The owning dialog keeps password visibility state and translated labels. |
-| `settingsFormFieldControlSx` | Aligns a control to the desktop control column. |
-| `settingsFormSelectControlSx` | Makes a desktop select content-width and right-aligned. |
-| `settingsFormOutlinedControlSx` | Applies the shared outlined-field, focus, error, and floating-label treatment. |
-| `settingsSelectSx` and `settingsSelectMenuProps` | Keep select values, icons, and options at the standard subdued text color. |
+| `formFieldControlSx` | Aligns a control to the desktop control column. |
+| `formSelectControlSx` | Makes a desktop select content-width and right-aligned. |
+| `formOutlinedControlSx` | Applies the shared outlined-field, focus, error, and floating-label treatment. |
+| `formSelectSx` and `formSelectMenuProps` | Keep select values, icons, and options at the standard subdued text color. |
 
 Keep field state, API calls, validation rules, translations, and the concrete MUI controls in the owning dialog. The shared layer owns layout and presentation; it must not become a schema-driven form engine.
 
@@ -61,7 +61,7 @@ Multi-field settings editors have exactly two form layouts. One- and two-field o
 
 Use one column in both responsive shells.
 
-- Below `sm`, `ResponsiveFormDialog` renders the form in a Drawer.
+- Below `sm`, `ResponsiveDialogShell` renders the form in a Drawer.
 - From `sm` through `<md`, it renders the same form in a Dialog.
 - Use normal-height MUI outlined controls.
 - Keep MUI labels inside empty fields and floating in the outline after focus or entry.
@@ -107,26 +107,32 @@ File-name shortening preserves the extension where possible. Path shortening pre
 
 Use outcome-only translation strings for the dialog description. Do not interpolate filenames or paths into `Trans` text. For example, a single-item copy describes copying the item to the destination directory, then context rows identify `Source item` and `Destination directory`.
 
-## Feedback And Pending States
+## Feedback And Persistence
 
-Reserve a single helper-text line for every editable operation field with `DialogFieldFeedback` and `dialogFormHelperTextSx`. The idle slot is visually empty; an active message stays on one line, truncates visually, and exposes the complete text through its accessible name and a hover-only tooltip.
+Render feedback only while it is active. Field errors and warnings belong to their control; use normal MUI helper text below `md`, and pass `FieldFeedback` to `FormFieldLabel` at `md` and above so it replaces the left-column description. Error feedback uses the normal MUI error state. Warning text starts with `Warning:` and uses the warning color. Do not reserve blank helper-text space, clip feedback to one line, or use a tooltip as the only way to read it.
 
-Use `DialogFormNotice` for a single form-level API error or warning that does not belong to a field. It stays mounted while idle so changing its state does not move the context or fields. Use `DialogFormNoticeRegion` only when independent errors and warnings can genuinely coexist. Stack the visible notices inside that region; do not reserve separate hidden alert-height rows for every possible condition.
+Use `DialogNotice` and `DialogNoticeRegion` from `frontend/src/components/Dialog/` for non-field notices. A contextual condition known when the dialog opens belongs in the shell's `contextualNotice` slot, after its description and before the body. A result caused by an action belongs in the `actionNotice` slot immediately above the actions. Idle notices render no alert. An error alert uses the default dynamic `role="alert"`; a non-urgent warning uses `role="status"`. Do not move focus to an alert.
+
+Ordinary settings persist a valid committed value immediately. Selects, toggles, and checkboxes commit on change. Text and numeric fields commit on blur or Enter after local validation succeeds. Keep invalid candidates locally and associate their error with the field. Each field has at most one in-flight request; disable every representation of that field while it is pending, but do not queue, debounce, batch, or serialize unrelated fields. Show a `role="status"` saving indicator only while active, then a brief saved indicator. A failed write remains a readable field error until editing or a later success resolves it.
+
+Every settings update uses exactly one discriminated `{ field, value }` request and receives the matching canonical pair. Apply a response only to its matching field. Complete settings state is read through `GET`; routine settings pages have no Save, reset, dirty-state, or success-alert workflow. File Search and SMB policy fields are independent persisted keys; the backend validates correlated aggregates transactionally. SMB policy writes retain their full post-commit runtime refresh lifecycle, while its read-chunk-size update does not trigger that lifecycle.
+
+`userSettingsStore` is the sole frontend boundary for `/auth/me/settings`. Components use its field selectors and `useCurrentUserSetting()` hook, retain only local drafts/previews, and never store server-backed user settings in local storage. The store hydrates for identity changes, rejects stale requests, allows one write per field, and refreshes other tabs from invalidation-only BroadcastChannel messages.
 
 During a cancellable operation, keep its cancellation action enabled unless the owner is already processing the cancellation request. Move focus to that action when the pending state starts. Keep the primary action disabled while the operation is active. Archive progress must report only data actually provided by the operation: archive creation shows an indeterminate status, and extraction may show its processed-member count without inventing byte totals or an item total.
 
 ## Implementation Checklist
 
-1. Start with `ResponsiveFormDialog` for the responsive Drawer and Dialog shell.
-2. Wrap the fields in `SettingsFormSurface` and one or more `SettingsFormGroup` components.
-3. Put every field in `SettingsFormRow`.
-4. Use `SettingsFormFieldLabel` only for a multi-field editor at `md` or wider. Keep one- and two-field operation dialogs in a single column with floating MUI labels at every width.
-5. Keep the below-`md` MUI `label`, `InputLabel`, and `FormHelperText` props in the concrete control. Use normal field height for inline-labelled one- or two-field operation dialogs; reserve helper-text space when a field can show a validation error.
+1. Start with `ResponsiveDialogShell` for the responsive Drawer and Dialog shell.
+2. Wrap the fields in `FormSurface` and one or more `FormGroup` components.
+3. Put every field in `FormRow`.
+4. Use `FormFieldLabel` only for a multi-field editor at `md` or wider. Keep one- and two-field operation dialogs in a single column with floating MUI labels at every width.
+5. Keep the below-`md` MUI `label`, `InputLabel`, and active `FormHelperText` props in the concrete control. Use normal field height for inline-labelled one- or two-field operation dialogs; do not reserve helper-text space.
 6. Use `SettingsFormSection` between related groups instead of recreating section borders and title spacing locally.
 7. Reuse the shared action styles when the dialog has split or responsive actions.
-8. Render conditional fields or sections only when their state applies, while keeping each visible control in a `SettingsFormRow`.
+8. Render conditional fields or sections only when their state applies, while keeping each visible control in a `FormRow`.
 
-For a non-form dialog, start with `ResponsiveFormDialog` and retain only the content, selection, workflow, and keyboard behavior specific to that dialog. Do not duplicate MUI `Dialog`, `Drawer`, sticky mobile actions, focus restoration, or dialog surface styling in the owning component.
+For a non-form dialog, start with `ResponsiveDialogShell` and retain only the content, selection, workflow, and keyboard behavior specific to that dialog. Do not duplicate MUI `Dialog`, `Drawer`, sticky mobile actions, focus restoration, or dialog surface styling in the owning component.
 
 ## Accessibility And Validation
 
@@ -134,7 +140,7 @@ Associate desktop controls with their external labels and descriptions using `ht
 
 After a failed save or test, focus the first invalid field. Do not remove normal MUI error states from controls; the desktop error text supplements them by making the issue readable in the label column.
 
-Use field-level errors for validation that the dialog can determine before submitting. Reserve one helper-text line, then replace it with the active error so the form does not shift. Do not repeat a field-owned error in a form-level alert. Error text must explain the cause and the corrective action, not only name a failed rule.
+Use field-level errors for validation that the dialog can determine before submitting. Do not repeat a field-owned error in a form-level alert. Error text must explain the cause and the corrective action, not only name a failed rule. Bounded reflow when feedback appears is expected and preferred to hidden space.
 
 Prefer a safe, valid default over presenting a predictable error when the dialog can infer the intended correction. For example, a one-item copy into its source directory should prefill an extension-aware name such as `report (copy).pdf`. Do not apply this pattern to a same-directory move: it is a rename operation, so the user must deliberately choose the new name.
 
@@ -162,4 +168,3 @@ For every non-form dialog that adopts the shared shell, cover all of the followi
 - Dialog content and action states remain legible in light and dark themes.
 
 Use a live browser check at a phone width and a desktop width in addition to focused tests. Check a short viewport as well so the fixed mobile actions do not obscure the final control.
-

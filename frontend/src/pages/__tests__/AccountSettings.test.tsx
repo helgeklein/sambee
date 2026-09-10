@@ -304,6 +304,22 @@ describe("AccountSettings", () => {
     expect(await screen.findByText("Login page")).toBeInTheDocument();
   });
 
+  it("shows a failed password change as an action-result notice", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.changePassword).mockRejectedValueOnce({ response: { data: { detail: "Password rejected." } } });
+    renderAccount();
+
+    await screen.findByRole("heading", { name: "Password" });
+    await user.click(screen.getByRole("button", { name: "Change password" }));
+    await user.type(screen.getByLabelText("Current password"), "old-password");
+    await user.type(screen.getByLabelText("New password"), "new-password");
+    await user.type(screen.getByLabelText("Confirm new password"), "new-password");
+    await user.click(within(screen.getByRole("dialog", { name: "Change password" })).getByRole("button", { name: "Change password" }));
+
+    expect(await screen.findByTestId("change-password-error")).toHaveTextContent("Password rejected.");
+    expect(screen.getByTestId("change-password-error")).toHaveAttribute("role", "alert");
+  });
+
   it("supports password visibility and cancellation in the change dialog", async () => {
     const user = userEvent.setup();
     renderAccount();
@@ -313,7 +329,7 @@ describe("AccountSettings", () => {
     await user.click(changePasswordButton);
 
     await waitFor(() => expect(screen.getByLabelText("Current password")).toHaveFocus());
-    expect(screen.getByTestId("change-password-error")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.queryByTestId("change-password-error")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Show new password" }));
     expect(screen.getByRole("button", { name: "Hide new password" })).toBeInTheDocument();
 

@@ -609,11 +609,12 @@ export const EN_TRANSLATIONS = {
       },
     },
     smbSettings: {
-      saveChanges: "Save SMB settings",
-      saveSuccess: "SMB settings saved",
       loadFailed: "Failed to load SMB settings",
       saveFailed: "Failed to save SMB settings",
-      resetOverride: "Reset override",
+      saving: "Saving SMB setting",
+      saved: "SMB setting saved",
+      connectionTimeoutError: "Enter a whole number from 5 to 120.",
+      readChunkSizeError: "Enter a whole number within the allowed chunk-size range.",
       sections: {
         protection: "Protection",
         connectionBehavior: "Connection behavior",
@@ -831,6 +832,7 @@ export const EN_TRANSLATIONS = {
       title: "Choose Viewer",
       fileLabel: "File to open",
       open: "Open",
+      openWithoutSaving: "Open without saving",
       alwaysUse: "Always use this viewer for this file type",
       default: "Default",
       openInNativeApp: "Open in native app",

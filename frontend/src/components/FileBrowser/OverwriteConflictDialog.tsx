@@ -26,9 +26,9 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import type { ConflictInfo } from "../../types";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
 import { formatLocalizedDateTime, formatLocalizedNumber } from "../../utils/localeFormatting";
-import { DialogReadOnlyField } from "../Admin/DialogReadOnlyField";
-import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
-import { DialogFieldFeedback, DialogFormNotice } from "../Settings/SettingsFormLayout";
+import { DialogNotice } from "../Dialog/DialogNotice";
+import { DialogReadOnlyField } from "../Dialog/DialogReadOnlyField";
+import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
 import { DialogIdentifierDisplay } from "./DialogIdentifierDisplay";
 import { validateItemName } from "./nameDialogStrings";
 import { OVERWRITE_CONFLICT_STRINGS as S } from "./overwriteConflictStrings";
@@ -146,7 +146,6 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const targetNameRef = useRef<HTMLInputElement>(null);
   const resolutionGroupRef = useRef<HTMLDivElement>(null);
-  const errorAlertRef = useRef<HTMLDivElement>(null);
   const previousConflictIdentityRef = useRef<string | null>(null);
   const shouldFocusInitialControlRef = useRef(false);
   const shouldFocusRenameInputRef = useRef(false);
@@ -178,10 +177,7 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
   const focusInitialControl = useCallback(() => {
     if (!shouldFocusInitialControlRef.current) return;
     shouldFocusInitialControlRef.current = false;
-    if (!hasAvailableResolution) {
-      errorAlertRef.current?.focus();
-      return;
-    }
+    if (!hasAvailableResolution) return;
     if (safeDefaultResolution === "rename") {
       targetNameRef.current?.focus();
       return;
@@ -236,12 +232,6 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
     }
   }, [isRename, open]);
 
-  useEffect(() => {
-    if (displayedError) {
-      requestAnimationFrame(() => errorAlertRef.current?.focus());
-    }
-  }, [displayedError]);
-
   const handleResolutionChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const nextResolution = event.target.value as ConflictResolution;
@@ -277,7 +267,7 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
   ];
 
   return (
-    <ResponsiveFormDialog
+    <ResponsiveDialogShell
       open={open}
       onClose={onCancel}
       onKeyDown={handleKeyDown}
@@ -286,6 +276,7 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
       maxWidth="sm"
       disableClose={isSubmittingOrPending}
       onTransitionEntered={focusInitialControl}
+      actionNotice={<DialogNotice message={displayedError} testId="overwrite-conflict-notice" />}
       actions={
         <>
           <Button onClick={onCancel} disabled={isSubmittingOrPending}>
@@ -303,7 +294,6 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
         tabIndex={hasAvailableResolution ? undefined : -1}
         aria-busy={isSubmittingOrPending}
       >
-        <DialogFormNotice ref={errorAlertRef} message={displayedError} testId="overwrite-conflict-notice" />
         <Box component="section" aria-label={S.METADATA_LABEL} sx={{ mb: CONFLICT_METADATA_SECTION_MARGIN_BOTTOM }}>
           {[
             { label: S.LABEL_EXISTING, details: targetDetails, testId: "overwrite-conflict-target-details" },
@@ -326,7 +316,7 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
                 <Box component="dl" sx={{ display: "grid", gap: 0.25, m: 0 }}>
                   {details.map((detail) => (
                     <Box component="div" key={detail.label} sx={{ display: "grid", gridTemplateColumns: DETAIL_ROW_COLUMNS }}>
-                      <Typography component="dt" variant="caption" color="text.secondary">
+                      <Typography component="dt" variant="caption" sx={{ color: (theme) => theme.palette.text.secondary }}>
                         {detail.label}
                       </Typography>
                       <Box component="dd" data-testid={detail.testId} sx={{ gridColumn: 3, m: 0, minWidth: 0 }}>
@@ -396,14 +386,14 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
               onChange={(event) => setRenameDraft(event.target.value)}
               inputRef={targetNameRef}
               error={Boolean(targetNameError)}
-              helperText={<DialogFieldFeedback message={targetNameError} />}
+              helperText={targetNameError}
               autoFocus={safeDefaultResolution === "rename"}
               showFormSurface
             />
           </Box>
         ) : null}
       </Box>
-    </ResponsiveFormDialog>
+    </ResponsiveDialogShell>
   );
 };
 

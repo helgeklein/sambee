@@ -25,7 +25,7 @@ from app.core.security import (
     is_user_expired,
     verify_password,
 )
-from app.db.database import get_session
+from app.db.database import get_immediate_session, get_session
 from app.models.oidc import OidcBrowserSession, OidcBrowserSessionStatus, OidcFlowPurpose, OidcIdentity, OidcProviderConfiguration
 from app.models.oidc_api import OidcBrowserSessionListRead, OidcBrowserSessionRead, OidcBrowserSessionRevokeRead, OidcGrantExchangeRequest
 from app.models.user import (
@@ -39,7 +39,7 @@ from app.models.user import (
     build_current_user_read,
     normalize_utc_datetime,
 )
-from app.models.user_settings import CurrentUserSettingsRead, CurrentUserSettingsUpdate
+from app.models.user_settings import CurrentUserSettingsRead, CurrentUserSettingsUpdate, CurrentUserSettingsUpdateResult
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
 from app.services.authentication_config import (
     build_public_auth_configuration,
@@ -1102,19 +1102,17 @@ async def get_current_user_settings(
     return build_current_user_settings_read(user_id=current_user.id, session=session)
 
 
-@router.put("/me/settings", response_model=CurrentUserSettingsRead)
+@router.put("/me/settings", response_model=CurrentUserSettingsUpdateResult)
 async def put_current_user_settings(
     payload: CurrentUserSettingsUpdate,
+    session: Session = Depends(get_immediate_session),
     current_user: User = Depends(get_current_user_with_auth_check),
-    session: Session = Depends(get_session),
-) -> CurrentUserSettingsRead:
+) -> CurrentUserSettingsUpdateResult:
     set_user(current_user.username)
     try:
-        update_current_user_settings(user_id=current_user.id, payload=payload, session=session)
+        return update_current_user_settings(user_id=current_user.id, payload=payload, session=session)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    return build_current_user_settings_read(user_id=current_user.id, session=session)
 
 
 #

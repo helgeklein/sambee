@@ -37,4 +37,21 @@ describe("AuthSessionManager", () => {
     expect(session.getAccessToken()).toBe("still-usable-token");
     expect(session.hasUsableAccessToken()).toBe(true);
   });
+
+  it("publishes identity epochs for login and clear, but not same-user token refresh", () => {
+    session = new AuthSessionManager();
+    const identities: Array<{ epoch: number; userId: string | null }> = [];
+    session.subscribeToIdentity((identity) => identities.push(identity));
+
+    session.setAuthenticated({ access_token: "first-token", token_type: "bearer", user_id: "user-1" }, true);
+    session.setAuthenticated({ access_token: "refreshed-token", token_type: "bearer", user_id: "user-1" }, true);
+    session.clear();
+    session.setAuthenticated({ access_token: "second-token", token_type: "bearer", user_id: "user-1" }, true);
+
+    expect(identities).toEqual([
+      { epoch: 1, userId: "user-1" },
+      { epoch: 2, userId: null },
+      { epoch: 3, userId: "user-1" },
+    ]);
+  });
 });

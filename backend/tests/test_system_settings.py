@@ -5,15 +5,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlmodel import Session, create_engine, select
 from sqlmodel.pool import StaticPool
 
 import app.api.system_settings as system_settings_api
 import app.db.database as database_module
 from app.core.system_setting_definitions import SystemSettingKey
+from app.db.migrations import _apply_per_field_system_settings_migration
 from app.models.connection import Connection
 from app.models.oidc import OidcFlow, OidcFlowPurpose, OidcFlowStatus, OidcProviderConfiguration
-from app.models.system_settings import SmbPolicySettings, SmbSettingsUpdate, SystemSetting
+from app.models.system_settings import SmbAuthenticationModeUpdate, SmbPolicySettings, SystemSetting
 from app.models.user import User
 from app.services.system_settings import (
     SmbPolicyConfigurationError,
@@ -24,6 +26,75 @@ from app.services.system_settings import (
     retire_smb_runtime_policy,
 )
 from app.services.system_settings import store as system_settings_store
+
+
+def _create_system_settings_table(connection) -> None:
+    connection.execute(
+        text(
+            """
+            CREATE TABLE systemsetting (
+                key VARCHAR PRIMARY KEY,
+                value VARCHAR NOT NULL,
+                updated_at TIMESTAMP NOT NULL,
+                updated_by_user_id CHAR(32)
+            )
+            """
+        )
+    )
+
+
+def test_policy_blob_migration_materializes_missing_keys_and_keeps_existing_values() -> None:
+    engine = create_engine("sqlite://")
+    try:
+        with engine.begin() as connection:
+            _create_system_settings_table(connection)
+            connection.execute(
+                text("INSERT INTO systemsetting (key, value, updated_at, updated_by_user_id) VALUES (:key, :value, :updated_at, :user_id)"),
+                {
+                    "key": "file_search.policy",
+                    "value": '{"retention_limit":25,"result_limit":12,"excluded_categories":["images"],"excluded_extensions":[".tmp"]}',
+                    "updated_at": "2025-01-02T03:04:05+00:00",
+                    "user_id": "legacy-user",
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO systemsetting (key, value, updated_at, updated_by_user_id) VALUES ('file_search.result_limit', '33', CURRENT_TIMESTAMP, 'new-user')"
+                )
+            )
+            _apply_per_field_system_settings_migration(connection)
+
+            rows = connection.execute(text("SELECT key, value, updated_by_user_id FROM systemsetting")).mappings().all()
+        values = {row["key"]: row for row in rows}
+        assert "file_search.policy" not in values
+        assert values["file_search.retention_limit"]["value"] == "25"
+        assert values["file_search.retention_limit"]["updated_by_user_id"] == "legacy-user"
+        assert values["file_search.result_limit"]["value"] == "33"
+        assert values["file_search.result_limit"]["updated_by_user_id"] == "new-user"
+        assert values["file_search.excluded_categories"]["value"] == '["images"]'
+        assert values["file_search.excluded_extensions"]["value"] == '[".tmp"]'
+    finally:
+        engine.dispose()
+
+
+def test_policy_blob_migration_rolls_back_invalid_legacy_json() -> None:
+    engine = create_engine("sqlite://")
+    try:
+        with engine.begin() as connection:
+            _create_system_settings_table(connection)
+            connection.execute(
+                text("INSERT INTO systemsetting (key, value, updated_at) VALUES ('file_search.policy', 'not-json', CURRENT_TIMESTAMP)")
+            )
+
+        with pytest.raises(RuntimeError, match="Cannot migrate invalid legacy system setting file_search.policy"):
+            with engine.begin() as connection:
+                _apply_per_field_system_settings_migration(connection)
+
+        with engine.connect() as connection:
+            rows = connection.execute(text("SELECT key FROM systemsetting")).scalars().all()
+        assert rows == ["file_search.policy"]
+    finally:
+        engine.dispose()
 
 
 class TestAboutSettingsApi:
@@ -156,33 +227,27 @@ class TestAdvancedSystemSettingsApi:
         response = client.put(
             "/api/admin/settings/advanced",
             headers=auth_headers_admin,
-            json={
-                "preprocessors": {
-                    "imagemagick": {"timeout_seconds": 45},
-                },
-            },
+            json={"field": "preprocessors.imagemagick.timeout_seconds", "value": 45},
         )
 
         assert response.status_code == 200
-        data = response.json()
-        assert data["preprocessors"]["imagemagick"]["timeout_seconds"]["value"] == 45
+        assert response.json() == {"field": "preprocessors.imagemagick.timeout_seconds", "value": 45}
 
     def test_admin_can_update_pdf_rollout_and_cpu_limits(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
         response = client.put(
             "/api/admin/settings/advanced",
             headers=auth_headers_admin,
-            json={"pdf": {"screen_derivative_enabled": 1, "cpu_time_seconds": 45}},
+            json={"field": "pdf.screen_derivative.enabled", "value": 1},
         )
 
         assert response.status_code == 200
-        assert response.json()["pdf"]["screen_derivative_enabled"]["value"] == 1
-        assert response.json()["pdf"]["cpu_time_seconds"]["value"] == 45
+        assert response.json() == {"field": "pdf.screen_derivative.enabled", "value": 1}
 
     def test_update_rejects_out_of_range_values(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
         response = client.put(
             "/api/admin/settings/advanced",
             headers=auth_headers_admin,
-            json={"preprocessors": {"imagemagick": {"timeout_seconds": 1}}},
+            json={"field": "preprocessors.imagemagick.timeout_seconds", "value": 1},
         )
 
         assert response.status_code == 400
@@ -204,33 +269,29 @@ class TestSmbSettingsApi:
         assert data["require_signing"] is True
         assert data["require_encryption"] is False
 
-    def test_admin_can_update_smb_policy_and_streaming_setting(
+    def test_admin_can_update_independent_smb_fields(
         self, client: TestClient, auth_headers_admin: dict[str, str], session: Session
     ) -> None:
-        payload = {
-            "read_chunk_size_bytes": 2 * 1024 * 1024,
-            "policy": {
-                "authentication_mode": "kerberos_required",
-                "encryption_mode": "encryption_required",
-                "connection_timeout_seconds": 45,
-            },
-        }
+        for payload in (
+            {"field": "read_chunk_size_bytes", "value": 2 * 1024 * 1024},
+            {"field": "authentication_mode", "value": "kerberos_required"},
+            {"field": "encryption_mode", "value": "encryption_required"},
+            {"field": "connection_timeout_seconds", "value": 45},
+        ):
+            response = client.put("/api/admin/settings/smb", headers=auth_headers_admin, json=payload)
+            assert response.status_code == 200
+            assert response.json() == payload
 
-        response = client.put("/api/admin/settings/smb", headers=auth_headers_admin, json=payload)
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["read_chunk_size_bytes"]["value"] == 2 * 1024 * 1024
-        assert data["policy_source"] == "database"
+        data = client.get("/api/admin/settings/smb", headers=auth_headers_admin).json()
         assert data["policy"] == {
             "authentication_mode": "kerberos_required",
             "encryption_mode": "encryption_required",
             "connection_timeout_seconds": 45,
         }
         assert data["require_encryption"] is True
-        assert session.get(SystemSetting, SystemSettingKey.SMB_POLICY.value) is not None
+        assert session.get(SystemSetting, SystemSettingKey.SMB_AUTHENTICATION_MODE.value) is not None
 
-    def test_policy_ignores_retired_target_access_fields(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
+    def test_smb_update_rejects_legacy_policy_payload(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
         response = client.put(
             "/api/admin/settings/smb",
             headers=auth_headers_admin,
@@ -246,15 +307,12 @@ class TestSmbSettingsApi:
             },
         )
 
-        assert response.status_code == 200
-        assert response.json()["policy"] == {
-            "authentication_mode": "negotiate",
-            "encryption_mode": "signing_only",
-            "connection_timeout_seconds": 30,
-        }
+        assert response.status_code == 422
 
     def test_regular_user_cannot_update_smb_settings(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
-        response = client.put("/api/admin/settings/smb", headers=auth_headers_user, json={"reset_policy": True})
+        response = client.put(
+            "/api/admin/settings/smb", headers=auth_headers_user, json={"field": "authentication_mode", "value": "negotiate"}
+        )
 
         assert response.status_code == 403
 
@@ -263,7 +321,7 @@ class TestSmbSettingsApi:
             response = client.put(
                 "/api/admin/settings/smb",
                 headers=auth_headers_admin,
-                json={"policy": {"authentication_mode": "kerberos_required", "connection_timeout_seconds": 30}},
+                json={"field": "authentication_mode", "value": "kerberos_required"},
             )
 
         assert response.status_code == 200
@@ -284,7 +342,7 @@ class TestSmbSettingsApi:
         ):
             update_task = asyncio.create_task(
                 system_settings_api.put_smb_settings(
-                    SmbSettingsUpdate(policy=SmbPolicySettings(authentication_mode="kerberos_required")),
+                    SmbAuthenticationModeUpdate(field="authentication_mode", value="kerberos_required"),
                     current_user=admin_user,
                     session=session,
                 )
@@ -296,7 +354,8 @@ class TestSmbSettingsApi:
             allow_refresh_to_finish.set()
             response = await update_task
 
-        assert response.policy.authentication_mode == "kerberos_required"
+        assert response.field == "authentication_mode"
+        assert response.value == "kerberos_required"
         mock_retire.assert_awaited_once()
         mock_refresh.assert_awaited_once()
 
@@ -305,15 +364,10 @@ class TestSmbSettingsApi:
             response = client.put(
                 "/api/admin/settings/smb",
                 headers=auth_headers_admin,
-                json={
-                    "policy": {
-                        "authentication_mode": "negotiate",
-                        "connection_timeout_seconds": 1,
-                    }
-                },
+                json={"field": "connection_timeout_seconds", "value": 1},
             )
 
-        assert response.status_code == 422
+        assert response.status_code == 400
         mock_refresh.assert_not_awaited()
 
     def test_read_chunk_update_does_not_refresh_smb_runtime_state(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
@@ -321,7 +375,7 @@ class TestSmbSettingsApi:
             response = client.put(
                 "/api/admin/settings/smb",
                 headers=auth_headers_admin,
-                json={"read_chunk_size_bytes": 2 * 1024 * 1024},
+                json={"field": "read_chunk_size_bytes", "value": 2 * 1024 * 1024},
             )
 
         assert response.status_code == 200
@@ -332,7 +386,7 @@ class TestSmbSettingsApi:
             response = client.put(
                 "/api/admin/settings/smb",
                 headers=auth_headers_admin,
-                json={"policy": {"authentication_mode": "negotiate", "connection_timeout_seconds": 30}},
+                json={"field": "authentication_mode", "value": "negotiate"},
             )
 
         assert response.status_code == 200
@@ -384,20 +438,19 @@ def test_smbclient_policy_requires_encryption_only_for_strict_mode() -> None:
 
 class TestNetworkSettingsApi:
     def test_admin_can_update_network_settings(self, client: TestClient, auth_headers_admin: dict[str, str], session: Session) -> None:
-        response = client.put(
+        public_url_response = client.put(
             "/api/admin/settings/network",
             headers=auth_headers_admin,
-            json={
-                "public_url": "https://files.example.test/",
-                "trusted_proxy_cidrs": ["10.0.0.4/24", "2001:db8::1/64", "10.0.0.0/24"],
-            },
+            json={"field": "public_url", "value": "https://files.example.test/"},
+        )
+        cidrs_response = client.put(
+            "/api/admin/settings/network",
+            headers=auth_headers_admin,
+            json={"field": "trusted_proxy_cidrs", "value": ["10.0.0.4/24", "2001:db8::1/64", "10.0.0.0/24"]},
         )
 
-        assert response.status_code == 200
-        assert response.json() == {
-            "public_url": "https://files.example.test",
-            "trusted_proxy_cidrs": ["10.0.0.0/24", "2001:db8::/64"],
-        }
+        assert public_url_response.json() == {"field": "public_url", "value": "https://files.example.test"}
+        assert cidrs_response.json() == {"field": "trusted_proxy_cidrs", "value": ["10.0.0.0/24", "2001:db8::/64"]}
         stored_public_url = session.get(SystemSetting, "network.public_url")
         assert stored_public_url is not None
         assert stored_public_url.value == "https://files.example.test"
@@ -406,7 +459,7 @@ class TestNetworkSettingsApi:
         response = client.put(
             "/api/admin/settings/network",
             headers=auth_headers_admin,
-            json={"public_url": "https://files.example.test/sambee", "trusted_proxy_cidrs": []},
+            json={"field": "public_url", "value": "https://files.example.test/sambee"},
         )
 
         assert response.status_code == 400
@@ -416,7 +469,7 @@ class TestNetworkSettingsApi:
         response = client.put(
             "/api/admin/settings/network",
             headers=auth_headers_user,
-            json={"public_url": "https://files.example.test", "trusted_proxy_cidrs": []},
+            json={"field": "public_url", "value": "https://files.example.test"},
         )
 
         assert response.status_code == 403
@@ -437,7 +490,7 @@ class TestNetworkSettingsApi:
         response = client.put(
             "/api/admin/settings/network",
             headers=auth_headers_admin,
-            json={"public_url": "https://new.example.test", "trusted_proxy_cidrs": []},
+            json={"field": "public_url", "value": "https://new.example.test"},
         )
 
         assert response.status_code == 200

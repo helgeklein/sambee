@@ -67,6 +67,7 @@ const reviewedPolicy = (value: RedactedOidcConfiguration): OidcReviewedPolicy =>
   role_assignment_mode: value.role_assignment_mode,
   uniform_role: value.uniform_role,
   role_mappings: value.role_mappings,
+  auto_link_by_username: value.auto_link_by_username,
 });
 
 const testedIdentity = (overrides: Partial<OidcTestedIdentity> = {}): OidcTestedIdentity => ({
@@ -193,6 +194,9 @@ describe("Authentication settings", () => {
     expect(screen.getByTestId("authentication-access-form-group")).toBeInTheDocument();
     expect(screen.getByTestId("authentication-role-form-group")).toBeInTheDocument();
     expect(screen.getByTestId("authentication-claims-form-group")).toBeInTheDocument();
+    expect(screen.queryByTestId("oidc-configuration-health-warning")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("oidc-configuration-action-error")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("oidc-configuration-test-error")).not.toBeInTheDocument();
     const providerName = screen.getByRole("textbox", { name: "Provider name" });
     expect(providerName).toBeInTheDocument();
     expect(providerName.parentElement?.parentElement).toHaveClass("MuiFormControl-fullWidth");
@@ -285,6 +289,10 @@ describe("Authentication settings", () => {
     renderSettings();
 
     expect(await screen.findByRole("dialog", { name: "Review OIDC connection" })).toBeInTheDocument();
+    expect(screen.queryByTestId("oidc-review-contextual-error")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("oidc-review-admission-error")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("oidc-review-omitted-accounts-warning")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("oidc-review-action-error")).not.toBeInTheDocument();
     expect(api.getOidcTestResult).toHaveBeenCalledWith("test-flow", undefined);
     await user.click(screen.getByRole("button", { name: "Activate configuration" }));
     expect(await screen.findByText("Authentication configuration activated.")).toBeInTheDocument();
@@ -408,6 +416,13 @@ describe("Authentication settings", () => {
     expect(await screen.findByText("Set Sambee's externally reachable public URL in network settings.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open Network settings" })).not.toBeInTheDocument();
     expect(screen.queryByText(/public_url_missing/i)).not.toBeInTheDocument();
+
+    await openOidcConfiguration();
+    const healthWarning = await screen.findByTestId("oidc-configuration-health-warning");
+    expect(healthWarning).toHaveAttribute("role", "status");
+    expect(
+      healthWarning.compareDocumentPosition(screen.getByTestId("authentication-oidc-form-surface")) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it("keeps active OIDC recovery status visible while a different mode is pending", async () => {
@@ -529,8 +544,43 @@ describe("Authentication settings", () => {
     renderSettings();
 
     expect(await screen.findByText("Admission: Denied")).toBeInTheDocument();
-    expect(screen.getByText(/must pass the admission rule/i)).toBeInTheDocument();
+    const admissionError = screen.getByTestId("oidc-review-admission-error");
+    expect(admissionError).toHaveTextContent(/must pass the admission rule/i);
+    expect(admissionError).toHaveAttribute("role", "alert");
+    expect(admissionError.compareDocumentPosition(screen.getByText("Test results")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("button", { name: "Activate configuration" })).toBeDisabled();
+  });
+
+  it("places omitted passwordless account warnings before the review form", async () => {
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(
+      testedIdentity({
+        replacement_mappings: [
+          {
+            target_user_id: "user-1",
+            local_username: "alice",
+            local_role: "editor",
+            has_local_password: false,
+            target_state: "active",
+            mapping_state: "pending",
+            suggested_username: "provider-alice",
+            prefill_source: "pending",
+            selected_by_default: false,
+            selectable: true,
+            omission_acknowledgement_required: false,
+          },
+        ],
+      })
+    );
+    window.location.hash = "flow=test-flow";
+    renderSettings();
+
+    const omittedAccountsWarning = await screen.findByTestId("oidc-review-omitted-accounts-warning");
+    expect(omittedAccountsWarning).toHaveAttribute("role", "status");
+    expect(omittedAccountsWarning).toHaveTextContent(/active passwordless account is omitted/i);
+    expect(
+      omittedAccountsWarning.compareDocumentPosition(screen.getByText("Test results")) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it("refreshes a stale mapping review using the same tested flow", async () => {
@@ -548,7 +598,12 @@ describe("Authentication settings", () => {
 
     await user.click(await screen.findByRole("button", { name: "Activate configuration" }));
 
-    expect(await screen.findByText(/review the refreshed mappings/i)).toBeInTheDocument();
+    const reviewActionError = await screen.findByTestId("oidc-review-action-error");
+    expect(reviewActionError).toHaveTextContent(/review the refreshed mappings/i);
+    expect(
+      reviewActionError.compareDocumentPosition(screen.getByTestId("responsive-form-dialog-desktop-actions")) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
     expect(api.getOidcTestResult).toHaveBeenNthCalledWith(2, "test-flow", reviewedPolicy(configuration("Tested Provider")));
     expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("test-flow");
   });
@@ -1012,6 +1067,7 @@ describe("Authentication settings", () => {
 
     await user.click(await screen.findByRole("button", { name: "Activate configuration" }));
     expect(await screen.findByText("Provider username is already mapped")).toBeInTheDocument();
+    expect(screen.queryByTestId("oidc-review-action-error")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("checkbox", { name: "Map alice" }));
     expect(screen.queryByText("Provider username is already mapped")).not.toBeInTheDocument();
@@ -1127,14 +1183,19 @@ describe("Authentication settings", () => {
     await user.click(await screen.findByRole("button", { name: "Copy redirect URI" }));
     expect(await screen.findByText("The redirect URI could not be copied.")).toBeInTheDocument();
 
-    await user.click(await screen.findByRole("button", { name: "Connect and test" }));
+    const connectAndTestButton = await screen.findByRole("button", { name: "Connect and test" });
+    await user.click(connectAndTestButton);
 
     const testErrorTitle = await screen.findByText("Connection test failed");
     const testError = testErrorTitle.closest('[role="alert"]');
     if (!testError) throw new Error("OIDC connection test error alert was not rendered.");
     expect(testError).toHaveTextContent("Connection test failed");
     expect(testError).toHaveTextContent("OIDC discovery issuer does not exactly match configuration");
-    await waitFor(() => expect(testError).toHaveFocus());
+    expect(testError).toHaveAttribute("data-testid", "oidc-configuration-test-error");
+    expect(connectAndTestButton).toHaveFocus();
+    expect(
+      testError.compareDocumentPosition(screen.getByTestId("responsive-form-dialog-desktop-actions")) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
     expect(screen.queryByText("The redirect URI could not be copied.")).not.toBeInTheDocument();
   });
 

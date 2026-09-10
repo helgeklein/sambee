@@ -23,16 +23,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { FileEntry } from "../../types";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
-import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
-import {
-  DialogFieldFeedback,
-  DialogFormNoticeRegion,
-  dialogFormHelperTextSx,
-  SettingsFormGroup,
-  SettingsFormRow,
-  SettingsFormSurface,
-  settingsFormOutlinedControlSx,
-} from "../Settings/SettingsFormLayout";
+import { DialogNoticeRegion } from "../Dialog/DialogNotice";
+import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
+import { FormGroup, FormRow, FormSurface, formOutlinedControlSx } from "../Form/FormLayout";
 import { COPY_MOVE_STRINGS as S } from "./copyMoveDialogStrings";
 import { DialogIdentifierDisplay } from "./DialogIdentifierDisplay";
 import { DialogOperationContext } from "./DialogOperationContext";
@@ -189,14 +182,6 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
 
   const formContent = (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-      <DialogFormNoticeRegion
-        testId="copy-move-notice-region"
-        notices={[
-          { message: error, testId: "copy-move-notice" },
-          { message: warning, severity: "warning", testId: "copy-move-warning" },
-          ...(isSingleItem ? [] : [{ message: isNoOpDestination ? S.ERROR_SAME_DIRECTORY : null, testId: "copy-move-destination-error" }]),
-        ]}
-      />
       <DialogOperationContext
         entries={[
           ...(isSingleItem
@@ -206,9 +191,9 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
         ]}
       />
       {isSingleItem ? (
-        <SettingsFormSurface>
-          <SettingsFormGroup>
-            <SettingsFormRow sx={{ display: { md: "block" } }}>
+        <FormSurface>
+          <FormGroup>
+            <FormRow sx={{ display: { md: "block" } }}>
               <TextField
                 id="copy-move-filename"
                 inputRef={inputRef}
@@ -217,14 +202,14 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
                 onChange={(event) => setDestFileName(event.target.value)}
                 disabled={isProcessing}
                 error={Boolean(fileNameError)}
-                helperText={<DialogFieldFeedback message={fileNameError} />}
+                helperText={fileNameError}
                 {...FILENAME_FIELD_PROPS}
-                slotProps={{ htmlInput: FILENAME_INPUT_PROPS, formHelperText: { sx: dialogFormHelperTextSx } }}
-                sx={[settingsFormOutlinedControlSx, FILENAME_INPUT_SX]}
+                slotProps={{ htmlInput: FILENAME_INPUT_PROPS }}
+                sx={[formOutlinedControlSx, FILENAME_INPUT_SX]}
               />
-            </SettingsFormRow>
-          </SettingsFormGroup>
-        </SettingsFormSurface>
+            </FormRow>
+          </FormGroup>
+        </FormSurface>
       ) : null}
       {isProcessing && progress ? (
         <Box>
@@ -280,19 +265,36 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   );
 
   return (
-    <ResponsiveFormDialog
+    <ResponsiveDialogShell
       open={open}
       onClose={onCancel}
       disableClose={isProcessing}
       onEscape={isProcessing ? onCancel : undefined}
       onKeyDown={handleKeyDown}
       title={title}
+      contextualNotice={
+        <DialogNoticeRegion
+          testId="copy-move-notice-region"
+          notices={
+            isSingleItem ? [] : [{ message: isNoOpDestination ? S.ERROR_SAME_DIRECTORY : null, testId: "copy-move-destination-error" }]
+          }
+        />
+      }
+      actionNotice={
+        <DialogNoticeRegion
+          testId="copy-move-action-notice-region"
+          notices={[
+            { message: error, testId: "copy-move-notice" },
+            { message: warning, severity: "warning", testId: "copy-move-warning" },
+          ]}
+        />
+      }
       description={description}
       actions={actions}
       maxWidth="sm"
     >
       {formContent}
-    </ResponsiveFormDialog>
+    </ResponsiveDialogShell>
   );
 };
 

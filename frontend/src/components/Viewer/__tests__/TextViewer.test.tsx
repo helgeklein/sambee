@@ -31,25 +31,21 @@ interface MockTextCodeEditorProps {
   text: string;
 }
 
-const {
-  mockSetWordWrapEnabled,
-  mockTextEditorCommands,
-  readTextEditorMaxFileSizeBytesPreferenceMock,
-  useTextEditorWordWrapPreferenceMock,
-} = vi.hoisted(() => ({
-  mockSetWordWrapEnabled: vi.fn(),
-  mockTextEditorCommands: {
-    nextSearchResult: vi.fn(),
-    previousSearchResult: vi.fn(),
-    replaceAllSearchResults: vi.fn(),
-    replaceCurrentSearchResult: vi.fn(),
-  },
-  readTextEditorMaxFileSizeBytesPreferenceMock: vi.fn(() => 52_428_800),
-  useTextEditorWordWrapPreferenceMock: vi.fn(() => [false, mockSetWordWrapEnabled] as const),
-}));
+const { mockSetWordWrapEnabled, mockTextEditorCommands, useTextEditorMaxFileSizeBytesPreferenceMock, useTextEditorWordWrapPreferenceMock } =
+  vi.hoisted(() => ({
+    mockSetWordWrapEnabled: vi.fn(),
+    mockTextEditorCommands: {
+      nextSearchResult: vi.fn(),
+      previousSearchResult: vi.fn(),
+      replaceAllSearchResults: vi.fn(),
+      replaceCurrentSearchResult: vi.fn(),
+    },
+    useTextEditorMaxFileSizeBytesPreferenceMock: vi.fn(() => [52_428_800, vi.fn()] as const),
+    useTextEditorWordWrapPreferenceMock: vi.fn(() => [false, mockSetWordWrapEnabled] as const),
+  }));
 
 vi.mock("../../../pages/FileBrowser/preferences", () => ({
-  readTextEditorMaxFileSizeBytesPreference: readTextEditorMaxFileSizeBytesPreferenceMock,
+  useTextEditorMaxFileSizeBytesPreference: useTextEditorMaxFileSizeBytesPreferenceMock,
   useTextEditorWordWrapPreference: useTextEditorWordWrapPreferenceMock,
 }));
 
@@ -132,7 +128,7 @@ async function enterEditMode(): Promise<HTMLElement> {
 describe("TextViewer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    readTextEditorMaxFileSizeBytesPreferenceMock.mockReturnValue(52_428_800);
+    useTextEditorMaxFileSizeBytesPreferenceMock.mockReturnValue([52_428_800, vi.fn()]);
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "getFileContent").mockResolvedValue("hello world");
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValue({
@@ -266,7 +262,7 @@ describe("TextViewer", () => {
   });
 
   it("falls back to read-only large-file mode when the configured limit is exceeded", async () => {
-    readTextEditorMaxFileSizeBytesPreferenceMock.mockReturnValue(4);
+    useTextEditorMaxFileSizeBytesPreferenceMock.mockReturnValue([4, vi.fn()]);
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("this content is too large");
 
     renderViewer();

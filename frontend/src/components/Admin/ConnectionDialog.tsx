@@ -24,18 +24,19 @@ import api from "../../services/api";
 import type { Connection, ConnectionAccessMode, ConnectionCreate, ConnectionScope, ConnectionVisibilityOption } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
+import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
 import {
-  SettingsFormFieldLabel,
-  SettingsFormGroup,
-  SettingsFormRow,
-  SettingsFormSection,
-  SettingsFormSurface,
-  settingsFormFieldControlSx,
-  settingsFormOutlinedControlSx,
-  settingsFormSelectControlSx,
-  settingsSelectMenuProps,
-  settingsSelectSx,
-} from "../Settings/SettingsFormLayout";
+  FormFieldLabel,
+  FormGroup,
+  FormRow,
+  FormSurface,
+  formFieldControlSx,
+  formOutlinedControlSx,
+  formSelectControlSx,
+  formSelectMenuProps,
+  formSelectSx,
+} from "../Form/FormLayout";
+import { SettingsFormSection } from "../Settings/SettingsFormLayout";
 import { SettingsPasswordVisibilityToggle } from "../Settings/SettingsPasswordVisibilityToggle";
 import { SettingsSelectMenuItem } from "../Settings/SettingsSelectMenuItem";
 import { settingsPrimaryButtonSx, settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
@@ -46,7 +47,6 @@ import {
   adminDialogSplitActionRowSx,
   adminDialogStandaloneSecondaryActionSx,
 } from "./dialogActionStyles";
-import { ResponsiveFormDialog } from "./ResponsiveFormDialog";
 
 interface ConnectionDialogProps {
   open: boolean;
@@ -345,22 +345,22 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
     hasError = false
   ) =>
     usesDesktopFormLayout ? (
-      <SettingsFormFieldLabel
+      <FormFieldLabel
         label={label}
         description={description}
         descriptionId={descriptionId}
         htmlFor={htmlFor}
         required={required}
         id={id}
-        hasError={hasError}
+        feedback={hasError ? { message: description, severity: "error" } : null}
       />
     ) : null;
 
   // Form content (shared between Dialog and Drawer)
   const formContent = (
-    <SettingsFormSurface testId="connection-dialog-form-surface">
-      <SettingsFormGroup testId="connection-dialog-fields">
-        <SettingsFormRow>
+    <FormSurface testId="connection-dialog-form-surface">
+      <FormGroup testId="connection-dialog-fields">
+        <FormRow>
           {renderDesktopLabel(
             CONNECTION_DIALOG_STRINGS.LABEL_NAME,
             errors["name"] || CONNECTION_DIALOG_STRINGS.HELPER_NAME,
@@ -370,7 +370,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             undefined,
             !!errors["name"]
           )}
-          <Box sx={settingsFormFieldControlSx}>
+          <Box sx={formFieldControlSx}>
             <TextField
               id="connection-name"
               label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_NAME}
@@ -383,7 +383,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               required
               variant="outlined"
               size={usesDesktopFormLayout ? "small" : "medium"}
-              sx={settingsFormOutlinedControlSx}
+              sx={formOutlinedControlSx}
               slotProps={{
                 htmlInput: {
                   "aria-describedby": usesDesktopFormLayout ? "connection-name-description" : undefined,
@@ -391,8 +391,8 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               }}
             />
           </Box>
-        </SettingsFormRow>
-        <SettingsFormRow>
+        </FormRow>
+        <FormRow>
           {renderDesktopLabel(
             CONNECTION_DIALOG_STRINGS.LABEL_HOST,
             errors["host"] || CONNECTION_DIALOG_STRINGS.HELPER_HOST,
@@ -402,7 +402,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             undefined,
             !!errors["host"]
           )}
-          <Box sx={settingsFormFieldControlSx}>
+          <Box sx={formFieldControlSx}>
             <TextField
               id="connection-host"
               label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_HOST}
@@ -415,7 +415,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               required
               variant="outlined"
               size={usesDesktopFormLayout ? "small" : "medium"}
-              sx={settingsFormOutlinedControlSx}
+              sx={formOutlinedControlSx}
               slotProps={{
                 htmlInput: {
                   "aria-describedby": usesDesktopFormLayout ? "connection-host-description" : undefined,
@@ -423,8 +423,8 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               }}
             />
           </Box>
-        </SettingsFormRow>
-        <SettingsFormRow>
+        </FormRow>
+        <FormRow>
           {renderDesktopLabel(
             CONNECTION_DIALOG_STRINGS.LABEL_SHARE_NAME,
             errors["share_name"] || CONNECTION_DIALOG_STRINGS.HELPER_SHARE_NAME,
@@ -434,7 +434,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             undefined,
             !!errors["share_name"]
           )}
-          <Box sx={settingsFormFieldControlSx}>
+          <Box sx={formFieldControlSx}>
             <TextField
               id="connection-share-name"
               label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_SHARE_NAME}
@@ -447,7 +447,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               required
               variant="outlined"
               size={usesDesktopFormLayout ? "small" : "medium"}
-              sx={settingsFormOutlinedControlSx}
+              sx={formOutlinedControlSx}
               slotProps={{
                 htmlInput: {
                   "aria-describedby": usesDesktopFormLayout ? "connection-share-name-description" : undefined,
@@ -455,8 +455,8 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               }}
             />
           </Box>
-        </SettingsFormRow>
-        <SettingsFormRow>
+        </FormRow>
+        <FormRow>
           {renderDesktopLabel(
             CONNECTION_DIALOG_STRINGS.LABEL_USERNAME,
             errors["username"] || CONNECTION_DIALOG_STRINGS.HELPER_USERNAME,
@@ -466,7 +466,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             undefined,
             !!errors["username"]
           )}
-          <Box sx={settingsFormFieldControlSx}>
+          <Box sx={formFieldControlSx}>
             <TextField
               id="connection-username"
               label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_USERNAME}
@@ -479,7 +479,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               required
               variant="outlined"
               size={usesDesktopFormLayout ? "small" : "medium"}
-              sx={settingsFormOutlinedControlSx}
+              sx={formOutlinedControlSx}
               slotProps={{
                 htmlInput: {
                   "aria-describedby": usesDesktopFormLayout ? "connection-username-description" : undefined,
@@ -487,9 +487,9 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               }}
             />
           </Box>
-        </SettingsFormRow>
+        </FormRow>
 
-        <SettingsFormRow>
+        <FormRow>
           {renderDesktopLabel(
             CONNECTION_DIALOG_STRINGS.LABEL_PASSWORD,
             errors["password"] ||
@@ -500,7 +500,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             undefined,
             !!errors["password"]
           )}
-          <Box sx={settingsFormFieldControlSx}>
+          <Box sx={formFieldControlSx}>
             <TextField
               id="connection-password"
               label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_PASSWORD}
@@ -519,7 +519,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               required={!connection}
               variant="outlined"
               size={usesDesktopFormLayout ? "small" : "medium"}
-              sx={settingsFormOutlinedControlSx}
+              sx={formOutlinedControlSx}
               slotProps={{
                 htmlInput: {
                   "aria-describedby": usesDesktopFormLayout ? "connection-password-description" : undefined,
@@ -537,16 +537,16 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               }}
             />
           </Box>
-        </SettingsFormRow>
+        </FormRow>
 
-        <SettingsFormRow>
+        <FormRow>
           {renderDesktopLabel(
             CONNECTION_DIALOG_STRINGS.LABEL_PATH_PREFIX,
             CONNECTION_DIALOG_STRINGS.HELPER_PATH_PREFIX,
             "connection-path-prefix-description",
             "connection-path-prefix"
           )}
-          <Box sx={settingsFormFieldControlSx}>
+          <Box sx={formFieldControlSx}>
             <TextField
               id="connection-path-prefix"
               label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_PATH_PREFIX}
@@ -557,7 +557,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               fullWidth
               variant="outlined"
               size={usesDesktopFormLayout ? "small" : "medium"}
-              sx={settingsFormOutlinedControlSx}
+              sx={formOutlinedControlSx}
               slotProps={{
                 htmlInput: {
                   "aria-describedby": usesDesktopFormLayout ? "connection-path-prefix-description" : undefined,
@@ -565,11 +565,11 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               }}
             />
           </Box>
-        </SettingsFormRow>
-      </SettingsFormGroup>
+        </FormRow>
+      </FormGroup>
       <SettingsFormSection title={t("settings.connectionDialog.sections.access")} />
-      <SettingsFormGroup>
-        <SettingsFormRow>
+      <FormGroup>
+        <FormRow>
           {renderDesktopLabel(
             t("settings.connectionDialog.labels.visibility"),
             CONNECTION_DIALOG_STRINGS.HELPER_VISIBILITY,
@@ -582,7 +582,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             fullWidth={!usesDesktopFormLayout}
             variant="outlined"
             size={usesDesktopFormLayout ? "small" : "medium"}
-            sx={usesDesktopFormLayout ? [settingsFormOutlinedControlSx, settingsFormSelectControlSx] : settingsFormOutlinedControlSx}
+            sx={usesDesktopFormLayout ? [formOutlinedControlSx, formSelectControlSx] : formOutlinedControlSx}
           >
             {!usesDesktopFormLayout && (
               <InputLabel id="connection-scope-label">{t("settings.connectionDialog.labels.visibility")}</InputLabel>
@@ -596,8 +596,8 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               size={usesDesktopFormLayout ? "small" : "medium"}
               onChange={(event) => handleChange("scope", event.target.value as ConnectionScope)}
               renderValue={(selected) => visibilityOptions.find((option) => option.value === selected)?.label ?? selected}
-              sx={settingsSelectSx}
-              MenuProps={settingsSelectMenuProps}
+              sx={formSelectSx}
+              MenuProps={formSelectMenuProps}
             >
               {visibilityOptions.map((option) => (
                 <SettingsSelectMenuItem
@@ -611,9 +611,9 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             </Select>
             {!usesDesktopFormLayout && <FormHelperText>{CONNECTION_DIALOG_STRINGS.HELPER_VISIBILITY}</FormHelperText>}
           </FormControl>
-        </SettingsFormRow>
+        </FormRow>
 
-        <SettingsFormRow>
+        <FormRow>
           {renderDesktopLabel(
             t("settings.connectionDialog.labels.accessMode"),
             formData.access_mode === "read_only"
@@ -628,7 +628,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             fullWidth={!usesDesktopFormLayout}
             variant="outlined"
             size={usesDesktopFormLayout ? "small" : "medium"}
-            sx={usesDesktopFormLayout ? [settingsFormOutlinedControlSx, settingsFormSelectControlSx] : settingsFormOutlinedControlSx}
+            sx={usesDesktopFormLayout ? [formOutlinedControlSx, formSelectControlSx] : formOutlinedControlSx}
           >
             {!usesDesktopFormLayout && (
               <InputLabel id="connection-access-mode-label">{t("settings.connectionDialog.labels.accessMode")}</InputLabel>
@@ -641,8 +641,8 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               value={formData.access_mode}
               size={usesDesktopFormLayout ? "small" : "medium"}
               onChange={(event) => handleChange("access_mode", event.target.value as ConnectionAccessMode)}
-              sx={settingsSelectSx}
-              MenuProps={settingsSelectMenuProps}
+              sx={formSelectSx}
+              MenuProps={formSelectMenuProps}
             >
               <MenuItem value="read_write">{t("settings.connectionDialog.accessMode.readWriteLabel")}</MenuItem>
               <MenuItem value="read_only">{t("settings.connectionDialog.accessMode.readOnlyLabel")}</MenuItem>
@@ -655,9 +655,9 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               </FormHelperText>
             )}
           </FormControl>
-        </SettingsFormRow>
-      </SettingsFormGroup>
-    </SettingsFormSurface>
+        </FormRow>
+      </FormGroup>
+    </FormSurface>
   );
 
   // Action buttons (shared between Dialog and Drawer)
@@ -720,7 +720,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
 
   return (
     <>
-      <ResponsiveFormDialog
+      <ResponsiveDialogShell
         open={open}
         onClose={handleDialogClose}
         disableClose={closeDisabled}
@@ -731,8 +731,8 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         onKeyDown={handleKeyDown}
       >
         {formContent}
-      </ResponsiveFormDialog>
-      <ResponsiveFormDialog
+      </ResponsiveDialogShell>
+      <ResponsiveDialogShell
         open={Boolean(resultDialog)}
         onClose={dismissResultDialog}
         title={resultDialog?.title ?? ""}
@@ -752,7 +752,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         }
       >
         <Typography>{resultDialog?.message}</Typography>
-      </ResponsiveFormDialog>
+      </ResponsiveDialogShell>
     </>
   );
 };

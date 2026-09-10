@@ -56,7 +56,7 @@ import { openExternalUrl } from "../../utils/externalLinks";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
-import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
+import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
 import { HelpMenu } from "../FileBrowser/HelpMenu";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { CodeMirrorFindReplacePopover } from "./CodeMirrorFindReplacePopover";
@@ -1994,7 +1994,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
         </Box>
       </Dialog>
 
-      <ResponsiveFormDialog
+      <ResponsiveDialogShell
         open={recoveryDraft !== null}
         onClose={() => setRecoveryDraft(null)}
         onKeyDown={(event) => {
@@ -2034,9 +2034,9 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
         }
       >
         {null}
-      </ResponsiveFormDialog>
+      </ResponsiveDialogShell>
 
-      <ResponsiveFormDialog
+      <ResponsiveDialogShell
         open={unsavedChangesDialogOpen}
         onClose={handleUnsavedChangesDialogClose}
         onKeyDown={(event) => {
@@ -2073,7 +2073,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
         }
       >
         {null}
-      </ResponsiveFormDialog>
+      </ResponsiveDialogShell>
 
       <KeyboardShortcutsHelp
         open={showViewerHelp}

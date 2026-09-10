@@ -11,10 +11,10 @@ const DARK_CHROME_SURFACE = "#382c0a";
 const DARK_DIALOG_BACKDROP_OPACITY = 0.92;
 const DARK_DIALOG_FORM_SURFACE_BLACK_MIX_PERCENT = 12;
 
-export const DIALOG_SURFACE_CSS_VARIABLE = "--sambee-dialog-surface";
-export const DIALOG_FORM_SURFACE_CSS_VARIABLE = "--sambee-dialog-form-surface";
+export const OVERLAY_SURFACE_CSS_VARIABLE = "--sambee-overlay-surface";
+export const FORM_SURFACE_CSS_VARIABLE = "--sambee-form-surface";
 
-export interface DialogSurfaceTokens {
+export interface OverlaySurfaceTokens {
   backdrop: string | undefined;
   form: string;
   paper: string;
@@ -66,7 +66,7 @@ export function getDarkChromeSurfaceColor(): string {
   return DARK_CHROME_SURFACE;
 }
 
-export function getDialogSurfaceTokens(background: string, mode: ThemeConfig["mode"]): DialogSurfaceTokens {
+export function getOverlaySurfaceTokens(background: string, mode: ThemeConfig["mode"]): OverlaySurfaceTokens {
   const paper = mode === "dark" ? getDarkChromeSurfaceColor() : background;
 
   return {

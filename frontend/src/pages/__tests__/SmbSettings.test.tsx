@@ -42,10 +42,10 @@ describe("SmbSettings", () => {
     vi.clearAllMocks();
     clearCachedAsyncData();
     vi.mocked(api.getSmbSettings).mockResolvedValue(smbSettings);
-    vi.mocked(api.updateSmbSettings).mockResolvedValue(smbSettings);
+    vi.mocked(api.updateSmbSettings).mockImplementation(async (update) => update);
   });
 
-  it("loads SMB controls and saves only the supported policy fields", async () => {
+  it("loads SMB controls and persists a valid timeout on blur", async () => {
     const user = userEvent.setup();
     render(
       <SambeeThemeProvider>
@@ -60,18 +60,15 @@ describe("SmbSettings", () => {
 
     await user.clear(screen.getByLabelText("Connection timeout"));
     await user.type(screen.getByLabelText("Connection timeout"), "45");
-    await user.click(screen.getByRole("button", { name: "Save SMB settings" }));
+    await user.tab();
 
     await waitFor(() => {
       expect(api.updateSmbSettings).toHaveBeenCalledWith({
-        read_chunk_size_bytes: 4194304,
-        policy: {
-          authentication_mode: "negotiate",
-          encryption_mode: "signing_only",
-          connection_timeout_seconds: 45,
-        },
+        field: "connection_timeout_seconds",
+        value: 45,
       });
     });
+    expect(screen.queryByRole("button", { name: "Save SMB settings" })).not.toBeInTheDocument();
   });
 
   it("shows a retry action when the initial settings load fails", async () => {
@@ -91,7 +88,7 @@ describe("SmbSettings", () => {
     expect(api.getSmbSettings).toHaveBeenCalledTimes(2);
   });
 
-  it("saves encryption-required protection when selected", async () => {
+  it("persists encryption-required protection when selected", async () => {
     const user = userEvent.setup();
     render(
       <SambeeThemeProvider>
@@ -102,17 +99,29 @@ describe("SmbSettings", () => {
     const protection = await screen.findByRole("combobox", { name: "Transport protection" });
     await user.click(protection);
     await user.click(screen.getByRole("option", { name: "Signing and encryption (SMB 3+)" }));
-    await user.click(screen.getByRole("button", { name: "Save SMB settings" }));
 
     await waitFor(() => {
       expect(api.updateSmbSettings).toHaveBeenCalledWith({
-        read_chunk_size_bytes: 4194304,
-        policy: {
-          authentication_mode: "negotiate",
-          encryption_mode: "encryption_required",
-          connection_timeout_seconds: 30,
-        },
+        field: "encryption_mode",
+        value: "encryption_required",
       });
     });
+  });
+
+  it("retains invalid chunk-size input without sending an update", async () => {
+    const user = userEvent.setup();
+    render(
+      <SambeeThemeProvider>
+        <SmbSettings />
+      </SambeeThemeProvider>
+    );
+
+    const chunkSize = await screen.findByLabelText("SMB read chunk size");
+    await user.clear(chunkSize);
+    await user.type(chunkSize, "1");
+    await user.tab();
+
+    expect(await screen.findByText("Enter a whole number within the allowed chunk-size range.")).toBeInTheDocument();
+    expect(api.updateSmbSettings).not.toHaveBeenCalled();
   });
 });

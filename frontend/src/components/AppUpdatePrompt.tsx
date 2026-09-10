@@ -8,7 +8,7 @@ import { logger } from "../services/logger";
 import { CURRENT_BUILD_INFO, hasBuildMismatch, shortenCommit } from "../utils/buildInfo";
 import type { VersionInfo } from "../utils/version";
 import { fetchVersionInfo } from "../utils/version";
-import { ResponsiveFormDialog } from "./Admin/ResponsiveFormDialog";
+import { ResponsiveDialogShell } from "./Dialog/ResponsiveDialogShell";
 
 const UPDATE_CHECK_INTERVAL_MS = 5 * 60_000;
 const VISIBILITY_RECHECK_DELAY_MS = 1_500;
@@ -108,7 +108,7 @@ export function AppUpdatePrompt() {
   }
 
   return (
-    <ResponsiveFormDialog
+    <ResponsiveDialogShell
       open={availableUpdate !== null}
       onClose={handleLater}
       title={translate("app.updateAvailable.title")}
@@ -141,7 +141,7 @@ export function AppUpdatePrompt() {
           </Stack>
         </Alert>
       ) : null}
-    </ResponsiveFormDialog>
+    </ResponsiveDialogShell>
   );
 }
 

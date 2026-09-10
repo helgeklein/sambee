@@ -1,26 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { syncCurrentLocalizationToCompanion } from "../services/companionLocalizationSync";
-import { loadCurrentUserSettings } from "../services/userSettingsSync";
+import { useCurrentUserSetting } from "../services/userSettingsStore";
 import { useLocalePreferences } from "./LocalePreferencesProvider";
 
 export function CompanionLocalizationSync() {
   const { languagePreference, regionalLocale, regionalLocalePreference } = useLocalePreferences();
+  const languageSetting = useCurrentUserSetting("localization.language");
   const [ready, setReady] = useState(false);
   const lastSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-
-    void loadCurrentUserSettings().finally(() => {
-      if (!cancelled) {
-        setReady(true);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    setReady(languageSetting.confirmedValue !== undefined);
+  }, [languageSetting.confirmedValue]);
 
   useEffect(() => {
     if (!ready) {

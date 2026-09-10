@@ -40,7 +40,7 @@ describe("CreateItemDialog", () => {
     expect(screen.getByText(CREATE_ITEM_DIALOG_STRINGS.TITLE_DIRECTORY)).toBeInTheDocument();
     const directory = screen.getByLabelText("My Server:/documents");
     expect(directory).toHaveTextContent("My Server:/documents");
-    expect(screen.getByText("Destination directory")).toBeInTheDocument();
+    expect(screen.getByText("Destination directory:")).toBeInTheDocument();
     expect(screen.getByText("Create the new directory in the destination directory.")).toBeInTheDocument();
   });
 
@@ -245,6 +245,6 @@ describe("CreateItemDialog", () => {
     render(<CreateItemDialog {...defaultProps} apiError="Item already exists" />);
 
     const input = screen.getByLabelText(CREATE_ITEM_DIALOG_STRINGS.INPUT_LABEL);
-    expect(input.closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).not.toHaveTextContent("Item already exists");
+    expect(input.closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).toBeNull();
   });
 });

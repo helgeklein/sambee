@@ -40,7 +40,7 @@ describe("NetworkSettings", () => {
     expect(screen.queryByRole("heading", { name: "External origin" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Trusted reverse proxies" })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "OIDC callback URI" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save network settings" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Save network settings" })).not.toBeInTheDocument();
   });
 
   it("uses prefetched Network settings without a second request", async () => {
@@ -57,13 +57,10 @@ describe("NetworkSettings", () => {
     expect(api.getNetworkSettings).not.toHaveBeenCalled();
   });
 
-  it("saves normalized Network settings", async () => {
+  it("immediately saves normalized Network settings fields", async () => {
     const user = userEvent.setup();
     await primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAuthentication, async () => ({ public_url_configured: false }));
-    vi.mocked(api.updateNetworkSettings).mockResolvedValue({
-      public_url: "https://new.example.test",
-      trusted_proxy_cidrs: ["10.0.0.0/24", "2001:db8::/64"],
-    });
+    vi.mocked(api.updateNetworkSettings).mockImplementation(async (update) => update);
     render(
       <SambeeThemeProvider>
         <NetworkSettings />
@@ -71,22 +68,24 @@ describe("NetworkSettings", () => {
     );
 
     const publicUrl = await screen.findByRole("textbox", { name: /public url/i });
-    expect(screen.getByRole("button", { name: "Save network settings" })).toBeDisabled();
     await user.clear(publicUrl);
     await user.type(publicUrl, "https://new.example.test");
-    expect(screen.getByRole("button", { name: "Save network settings" })).toBeEnabled();
+    await user.tab();
     const proxyCidrs = screen.getByRole("textbox", { name: /trusted proxy cidrs/i });
     await user.clear(proxyCidrs);
     await user.type(proxyCidrs, "10.0.0.4/24{enter}2001:db8::1/64");
-    await user.click(screen.getByRole("button", { name: "Save network settings" }));
+    await user.tab();
 
     await waitFor(() => {
       expect(api.updateNetworkSettings).toHaveBeenCalledWith({
-        public_url: "https://new.example.test",
-        trusted_proxy_cidrs: ["10.0.0.4/24", "2001:db8::1/64"],
+        field: "public_url",
+        value: "https://new.example.test",
+      });
+      expect(api.updateNetworkSettings).toHaveBeenCalledWith({
+        field: "trusted_proxy_cidrs",
+        value: ["10.0.0.4/24", "2001:db8::1/64"],
       });
     });
-    expect(await screen.findByText("Network settings saved.")).toBeInTheDocument();
     expect(getCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAuthentication)).toBeNull();
   });
 });

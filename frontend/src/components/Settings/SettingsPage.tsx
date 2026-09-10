@@ -11,6 +11,7 @@ interface SettingsPageProps {
   title?: string;
   children: ReactNode;
   description?: ReactNode;
+  contextualNotice?: ReactNode;
   actions?: ReactNode;
   footerPrimaryActions?: ReactNode;
   footerSecondaryActions?: ReactNode;
@@ -24,6 +25,7 @@ export function SettingsPage({
   title,
   children,
   description,
+  contextualNotice,
   actions,
   footerPrimaryActions,
   footerSecondaryActions,
@@ -55,6 +57,7 @@ export function SettingsPage({
         showTitle={!isMobile}
       />
       <Box data-testid="settings-page-content" tabIndex={-1} sx={resolvedContentSx}>
+        {contextualNotice}
         {children}
       </Box>
       {(footerPrimaryActions || footerSecondaryActions) && (

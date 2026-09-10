@@ -156,9 +156,7 @@ describe("RenameDialog", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("An item named 'readme.txt' already exists");
     // API errors must not be duplicated in the TextField helper text
     const input = screen.getByLabelText(RENAME_DIALOG_STRINGS.INPUT_LABEL);
-    expect(input.closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).not.toHaveTextContent(
-      "An item named 'readme.txt' already exists"
-    );
+    expect(input.closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).toBeNull();
   });
 
   it("does not render when open is false", () => {
