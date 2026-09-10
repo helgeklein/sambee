@@ -735,7 +735,7 @@ def smb_policy_will_change(payload: SmbSettingsUpdate, session: Session) -> bool
             current_value = getattr(SmbPolicySettings.model_validate({payload.field: current_setting.value}), payload.field)
         except ValueError:
             return True
-    return current_value != payload.value
+    return bool(current_value != payload.value)
 
 
 async def retire_smb_runtime_policy() -> None:

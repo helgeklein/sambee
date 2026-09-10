@@ -133,7 +133,7 @@ def get_session() -> Generator[Session, None, None]:
 
 def get_immediate_session(session: Session = Depends(get_session)) -> Session:
     bind = session.get_bind()
-    bind_engine = getattr(bind, "engine", bind)
+    bind_engine = bind if isinstance(bind, Engine) else bind.engine
     if bind.dialect.name == "sqlite" and not isinstance(bind_engine.pool, StaticPool):
         session.connection().exec_driver_sql("BEGIN IMMEDIATE")
     return session
