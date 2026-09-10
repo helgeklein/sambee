@@ -9,6 +9,7 @@ vi.mock("react-i18next", () => ({
         "common.actions.cancel": "Cancel",
         "fileBrowser.viewerPicker.title": "Choose Viewer",
         "fileBrowser.viewerPicker.open": "Open",
+        "fileBrowser.viewerPicker.openWithoutSaving": "Open without saving",
         "fileBrowser.viewerPicker.alwaysUse": "Always use this viewer for this file type",
         "fileBrowser.viewerPicker.default": "Default",
         "fileBrowser.viewerPicker.openInNativeApp": "Open in native app",
@@ -226,5 +227,31 @@ describe("BrowserViewerPicker", () => {
       viewerId: "pdf",
       rememberSelection: true,
     });
+  });
+
+  it("offers an explicit unsaved open after a remembered-selection write fails", () => {
+    const onConfirm = vi.fn();
+    const onOpenWithoutSaving = vi.fn();
+
+    render(
+      <BrowserViewerPicker
+        open={true}
+        fileName="report.pdf"
+        viewerIds={["pdf"]}
+        defaultViewerId="pdf"
+        preferredViewerId={null}
+        showNativeOption={false}
+        saving={false}
+        saveError="Unable to save viewer preference."
+        onClose={vi.fn()}
+        onConfirm={onConfirm}
+        onOpenWithoutSaving={onOpenWithoutSaving}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open without saving" }));
+
+    expect(onOpenWithoutSaving).toHaveBeenCalledWith({ viewerId: "pdf" });
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 });

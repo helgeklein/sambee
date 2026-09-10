@@ -57,6 +57,8 @@ export interface BrowserViewerPickerState {
   defaultViewerId: ViewerId | null;
   preferredViewerId: ViewerId | null;
   showNativeOption: boolean;
+  saving?: boolean;
+  saveError?: string | null;
 }
 
 export interface NavigationHistoryEntry {

@@ -20,14 +20,16 @@
  */
 
 import ArrowUpwardOutlinedIcon from "@mui/icons-material/ArrowUpwardOutlined";
-import { Alert, Box, Button, Checkbox, FormControl, FormControlLabel, FormLabel, Radio, RadioGroup, Typography } from "@mui/material";
+import { Box, Button, Checkbox, FormControl, FormControlLabel, FormLabel, Radio, RadioGroup, Typography } from "@mui/material";
 import type React from "react";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ConflictInfo } from "../../types";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
 import { formatLocalizedDateTime, formatLocalizedNumber } from "../../utils/localeFormatting";
-import { DialogReadOnlyField } from "../Admin/DialogReadOnlyField";
-import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
+import { DialogNotice } from "../Dialog/DialogNotice";
+import { DialogReadOnlyField } from "../Dialog/DialogReadOnlyField";
+import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
+import { DialogIdentifierDisplay } from "./DialogIdentifierDisplay";
 import { validateItemName } from "./nameDialogStrings";
 import { OVERWRITE_CONFLICT_STRINGS as S } from "./overwriteConflictStrings";
 
@@ -115,39 +117,9 @@ function getParentDirectory(path: string): string {
   return path.slice(0, separatorIndex) || "/";
 }
 
-function PathValue({
-  path,
-  testId,
-  blockLayout = false,
-  removeHorizontalMargin = false,
-}: {
-  path: string;
-  testId: string;
-  blockLayout?: boolean;
-  removeHorizontalMargin?: boolean;
-}) {
-  return (
-    <Typography
-      component="span"
-      data-testid={testId}
-      title={path}
-      variant="body2"
-      sx={{
-        display: blockLayout ? "block" : undefined,
-        whiteSpace: "nowrap",
-        ...(blockLayout
-          ? {
-              maxWidth: "100%",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }
-          : {}),
-        mx: removeHorizontalMargin ? 0 : undefined,
-      }}
-    >
-      {path}
-    </Typography>
-  );
+function joinDirectoryAndName(directory: string, name: string): string {
+  if (!directory || directory === "/") return `/${name}`;
+  return `${directory.replace(/\/+$/, "")}/${name}`;
 }
 
 // ============================================================================
@@ -174,7 +146,6 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const targetNameRef = useRef<HTMLInputElement>(null);
   const resolutionGroupRef = useRef<HTMLDivElement>(null);
-  const errorAlertRef = useRef<HTMLDivElement>(null);
   const previousConflictIdentityRef = useRef<string | null>(null);
   const shouldFocusInitialControlRef = useRef(false);
   const shouldFocusRenameInputRef = useRef(false);
@@ -182,7 +153,6 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
   const sourcePath = ownerSourcePath ?? conflict?.incoming_file.path ?? "";
   const existingTargetName = conflict?.existing_file.name ?? "";
   const targetDirectory = ownerTargetDirectoryPath ?? getParentDirectory(conflict?.existing_file.path ?? "");
-  const sourceDirectory = getParentDirectory(sourcePath);
   const conflictIdentity = `${conflict?.incoming_file.path ?? ""}\u0000${conflict?.existing_file.path ?? ""}`;
   const allowedActionsIdentity = allowedActions.join("\u0000");
   const dialogStateIdentity = `${conflictIdentity}\u0000${allowedActionsIdentity}`;
@@ -190,7 +160,6 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
   const hasAvailableResolution = allowedActions.length > 0;
   const isRename = resolution === "rename";
   const isSubmittingOrPending = isSubmitting || ownerIsSubmitting;
-  const displayedTargetName = isRename ? renameDraft : existingTargetName;
   const targetNameError = isRename
     ? (validateItemName(renameDraft) ?? (renameDraft === existingTargetName ? S.ERROR_TARGET_NAME_UNCHANGED : null))
     : null;
@@ -208,10 +177,7 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
   const focusInitialControl = useCallback(() => {
     if (!shouldFocusInitialControlRef.current) return;
     shouldFocusInitialControlRef.current = false;
-    if (!hasAvailableResolution) {
-      errorAlertRef.current?.focus();
-      return;
-    }
+    if (!hasAvailableResolution) return;
     if (safeDefaultResolution === "rename") {
       targetNameRef.current?.focus();
       return;
@@ -266,12 +232,6 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
     }
   }, [isRename, open]);
 
-  useEffect(() => {
-    if (displayedError) {
-      requestAnimationFrame(() => errorAlertRef.current?.focus());
-    }
-  }, [displayedError]);
-
   const handleResolutionChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const nextResolution = event.target.value as ConflictResolution;
@@ -296,18 +256,18 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => fallbackEnterHandler(event), [fallbackEnterHandler]);
 
   const targetDetails = [
-    { label: S.LABEL_PATH, value: targetDirectory, testId: "overwrite-conflict-target-path" },
+    { label: S.LABEL_PATH, value: joinDirectoryAndName(targetDirectory, existingTargetName), testId: "overwrite-conflict-target-path" },
     { label: S.LABEL_MODIFIED, value: formatDate(conflict?.existing_file.modified_at) },
     { label: S.LABEL_SIZE, value: formatBytes(conflict?.existing_file.size) },
   ];
   const sourceDetails = [
-    { label: S.LABEL_PATH, value: sourceDirectory, testId: "overwrite-conflict-source-path" },
+    { label: S.LABEL_PATH, value: sourcePath, testId: "overwrite-conflict-source-path" },
     { label: S.LABEL_MODIFIED, value: formatDate(conflict?.incoming_file.modified_at) },
     { label: S.LABEL_SIZE, value: formatBytes(conflict?.incoming_file.size) },
   ];
 
   return (
-    <ResponsiveFormDialog
+    <ResponsiveDialogShell
       open={open}
       onClose={onCancel}
       onKeyDown={handleKeyDown}
@@ -316,6 +276,7 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
       maxWidth="sm"
       disableClose={isSubmittingOrPending}
       onTransitionEntered={focusInitialControl}
+      actionNotice={<DialogNotice message={displayedError} testId="overwrite-conflict-notice" />}
       actions={
         <>
           <Button onClick={onCancel} disabled={isSubmittingOrPending}>
@@ -333,23 +294,6 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
         tabIndex={hasAvailableResolution ? undefined : -1}
         aria-busy={isSubmittingOrPending}
       >
-        {displayedError ? (
-          <Alert ref={errorAlertRef} severity="error" tabIndex={-1}>
-            {displayedError}
-          </Alert>
-        ) : null}
-        <DialogReadOnlyField
-          ariaLabel={S.LABEL_TARGET_NAME}
-          value={displayedTargetName}
-          editable={isRename && !isSubmittingOrPending}
-          onChange={(event) => setRenameDraft(event.target.value)}
-          inputRef={targetNameRef}
-          error={Boolean(targetNameError)}
-          helperText={targetNameError ?? " "}
-          autoFocus={safeDefaultResolution === "rename" && isRename}
-          showFormSurface={!isRename}
-          sx={{ mb: 2 }}
-        />
         <Box component="section" aria-label={S.METADATA_LABEL} sx={{ mb: CONFLICT_METADATA_SECTION_MARGIN_BOTTOM }}>
           {[
             { label: S.LABEL_EXISTING, details: targetDetails, testId: "overwrite-conflict-target-details" },
@@ -372,12 +316,12 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
                 <Box component="dl" sx={{ display: "grid", gap: 0.25, m: 0 }}>
                   {details.map((detail) => (
                     <Box component="div" key={detail.label} sx={{ display: "grid", gridTemplateColumns: DETAIL_ROW_COLUMNS }}>
-                      <Typography component="dt" variant="caption" color="text.secondary">
+                      <Typography component="dt" variant="caption" sx={{ color: (theme) => theme.palette.text.secondary }}>
                         {detail.label}
                       </Typography>
                       <Box component="dd" data-testid={detail.testId} sx={{ gridColumn: 3, m: 0, minWidth: 0 }}>
                         {detail.testId ? (
-                          <PathValue path={detail.value} testId={`${detail.testId}-value`} blockLayout removeHorizontalMargin />
+                          <DialogIdentifierDisplay value={detail.value} kind="path" testId={`${detail.testId}-value`} />
                         ) : (
                           <Typography variant="body2">{detail.value}</Typography>
                         )}
@@ -432,8 +376,24 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
             {S.PROGRESS_CONTEXT(progress.current, progress.total, progress.conflictsSoFar)}
           </Typography>
         )}
+        {isRename ? (
+          <Box sx={{ mt: 2 }}>
+            <DialogReadOnlyField
+              ariaLabel={S.LABEL_TARGET_NAME}
+              label={S.LABEL_TARGET_NAME}
+              value={renameDraft}
+              editable={!isSubmittingOrPending}
+              onChange={(event) => setRenameDraft(event.target.value)}
+              inputRef={targetNameRef}
+              error={Boolean(targetNameError)}
+              helperText={targetNameError}
+              autoFocus={safeDefaultResolution === "rename"}
+              showFormSurface
+            />
+          </Box>
+        ) : null}
       </Box>
-    </ResponsiveFormDialog>
+    </ResponsiveDialogShell>
   );
 };
 

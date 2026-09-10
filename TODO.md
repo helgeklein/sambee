@@ -2,18 +2,6 @@
 
 ## Bugs
 
-- Image viewer: while swiping through images in a directory (not an archive), rendering the last image (in either direction) times out.
-
-## Settings
-
-### Styling
-
-- Apply the new dialog styling to dialogs we missed previously:
-   - "Choose viewer"
-- Apply the new dialog styling to the settings pages, too, e.g.:
-   - 2-column design on desktop, 1-column on smaller devices
-   - background colors, etc.
-
 ## Misc. commands
 
 - Add a command to open the current file list location in a new browser tab (which keyboard shortcut to assign? Ctrl+(Shift)+Tab is needed by the browser)

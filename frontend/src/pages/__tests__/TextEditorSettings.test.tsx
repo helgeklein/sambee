@@ -4,17 +4,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "../../test/utils/test-utils";
 import { TextEditorSettings } from "../TextEditorSettings";
 
-const { setTextEditorMaxFileSizeBytesMock } = vi.hoisted(() => ({
-  setTextEditorMaxFileSizeBytesMock: vi.fn(),
+const { commitMock } = vi.hoisted(() => ({
+  commitMock: vi.fn(),
 }));
 
-vi.mock("../FileBrowser/preferences", () => ({
-  useTextEditorMaxFileSizeBytesPreference: () => [52428800, setTextEditorMaxFileSizeBytesMock],
+vi.mock("../../services/userSettingsStore", () => ({
+  useCurrentUserSetting: (field: string) => ({
+    confirmedValue: field === "text_editor.max_file_size_bytes" ? 52428800 : "browser",
+    pending: false,
+    error: null,
+    commit: commitMock,
+    clearError: vi.fn(),
+  }),
 }));
 
 describe("TextEditorSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    commitMock.mockResolvedValue(undefined);
   });
 
   it("renders the text editor limits settings group", () => {
@@ -33,11 +40,9 @@ describe("TextEditorSettings", () => {
     await user.clear(input);
     await user.type(input, "8");
 
-    expect(setTextEditorMaxFileSizeBytesMock).not.toHaveBeenCalled();
+    await user.tab();
 
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-
-    expect(setTextEditorMaxFileSizeBytesMock).toHaveBeenLastCalledWith(8388608);
+    expect(commitMock).toHaveBeenLastCalledWith(8388608);
   });
 
   it("rejects non-numeric input", async () => {

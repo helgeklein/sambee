@@ -325,6 +325,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
   const [viewInfo, setViewInfo] = useState<UseFileBrowserPaneReturn["viewInfo"]>(null);
   const [browserViewerPickerState, setBrowserViewerPickerState] = useState<UseFileBrowserPaneReturn["browserViewerPickerState"]>(null);
+  const browserViewerPickerConfirmationTokenRef = React.useRef(0);
 
   // ──────────────────────────────────────────────────────────────────────────
   // CRUD Dialog State
@@ -2798,6 +2799,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   );
 
   const closeBrowserViewerPicker = useCallback(() => {
+    browserViewerPickerConfirmationTokenRef.current += 1;
     setBrowserViewerPickerState(null);
   }, []);
 
@@ -2812,8 +2814,6 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         setBrowserViewerPickerState(null);
         return;
       }
-
-      setBrowserViewerPickerState(null);
 
       const activeDirectoryFile = pickerState.virtualSource
         ? filesRef.current.find((entry) => entry.path === pickerState.filePath)
@@ -2835,14 +2835,33 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         if (pickerState.virtualSource) {
           return;
         }
+        setBrowserViewerPickerState(null);
         await openNativeFile(file, undefined, { connectionId: targetConnectionId, path: pickerState.filePath });
         return;
       }
 
       if (selection.rememberSelection) {
-        await setPreferredViewerId(file.name, pickerState.mimeType, selection.viewerId);
+        const confirmationToken = browserViewerPickerConfirmationTokenRef.current + 1;
+        browserViewerPickerConfirmationTokenRef.current = confirmationToken;
+        setBrowserViewerPickerState((current) => (current === pickerState ? { ...current, saving: true, saveError: null } : current));
+        try {
+          await setPreferredViewerId(file.name, pickerState.mimeType, selection.viewerId);
+        } catch (error) {
+          if (browserViewerPickerConfirmationTokenRef.current === confirmationToken) {
+            setBrowserViewerPickerState((current) =>
+              current
+                ? { ...current, saving: false, saveError: error instanceof Error ? error.message : "Unable to save viewer preference." }
+                : current
+            );
+          }
+          return;
+        }
+        if (browserViewerPickerConfirmationTokenRef.current !== confirmationToken) {
+          return;
+        }
       }
 
+      setBrowserViewerPickerState(null);
       openFileInViewer(file, pickerState.filePath, pickerState.mimeType, selection.viewerId, targetConnectionId, pickerState.virtualSource);
     },
     [browserViewerPickerState, openFileInViewer, openNativeFile]

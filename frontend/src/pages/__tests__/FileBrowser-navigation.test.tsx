@@ -352,18 +352,7 @@ describe("Browser Component - Navigation", () => {
     });
   });
 
-  it("uses localStorage for default connection when no URL param", async () => {
-    localStorage.setItem("selectedConnectionId", "conn-2");
-
-    renderBrowser("/browse");
-
-    await waitFor(() => {
-      expectDirectoryLoad("conn-2", "");
-    });
-  });
-
-  it("prefers the persisted user setting over local storage when no URL param", async () => {
-    localStorage.setItem("selectedConnectionId", "conn-2");
+  it("uses the persisted user setting for the default connection when no URL param", async () => {
     vi.mocked(api.getCurrentUserSettings).mockResolvedValue({
       appearance: { theme_id: "sambee-light", custom_themes: [] },
       localization: {
@@ -384,8 +373,6 @@ describe("Browser Component - Navigation", () => {
     await waitFor(() => {
       expectDirectoryLoad("conn-1", "");
     });
-
-    expect(localStorage.getItem("selectedConnectionId")).toBe("conn-1");
   });
 
   it("falls back to first connection when no saved preference", async () => {

@@ -1,6 +1,7 @@
 import os
 from typing import Any, Generator
 
+from fastapi import Depends
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
@@ -128,3 +129,11 @@ def get_session() -> Generator[Session, None, None]:
 
     with Session(engine) as session:
         yield session
+
+
+def get_immediate_session(session: Session = Depends(get_session)) -> Session:
+    bind = session.get_bind()
+    bind_engine = bind if isinstance(bind, Engine) else bind.engine
+    if bind.dialect.name == "sqlite" and not isinstance(bind_engine.pool, StaticPool):
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+    return session

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import api from "../../services/api";
 import { authSession } from "../../services/authSession";
-import { clearCurrentUserSettingsCache } from "../../services/userSettingsSync";
+import { resetCurrentUserSettingsStoreForTests } from "../../services/userSettingsStore";
 import { type ApiMock, setupSuccessfulApiMocks } from "../../test/helpers";
 import { SambeeThemeProvider } from "../../theme/ThemeContext";
 import { FileType, type LocalLinkTargetListing } from "../../types";
@@ -57,7 +57,7 @@ describe("useFileBrowserPane", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    clearCurrentUserSettingsCache();
+    resetCurrentUserSettingsStoreForTests();
     authSession.setAuthenticated({ access_token: "fake-token", token_type: "bearer" }, false);
     setupSuccessfulApiMocks(api as unknown as ApiMock);
     vi.mocked(getPreferredViewerId).mockResolvedValue(null);
@@ -1548,6 +1548,53 @@ describe("useFileBrowserPane", () => {
     await waitFor(() => {
       expect(result.current.viewInfo).toMatchObject({ viewerId: "text", virtualSource: { kind: "virtual" } });
     });
+  });
+
+  it("keeps the viewer picker open when saving a remembered selection fails", async () => {
+    const archive = { name: "backup.zip", path: "backup.zip", type: FileType.FILE, is_readable: true, is_hidden: false };
+    vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+      archive: { path: "backup.zip", size: 1 },
+      path: "",
+      items: [{ name: "readme.md", path: "docs/readme.md", type: FileType.FILE, state: "readable", is_hidden: false }],
+      total: 1,
+      page_size: 100,
+    });
+    vi.mocked(getPreferredViewerId).mockResolvedValue(null);
+    vi.mocked(setPreferredViewerId).mockRejectedValue(new Error("Unable to save viewer preference."));
+
+    const { result } = renderHook(() => useFileBrowserPane({ rowHeight: 40, connections: mockConnections }), { wrapper });
+    act(() => {
+      result.current.applyLocation("conn-1", "");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-1");
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(archive, 0);
+    });
+    await waitFor(() => {
+      expect(result.current.files).toHaveLength(1);
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(result.current.files[0]!, 0, "force-viewer-picker");
+    });
+    await waitFor(() => {
+      expect(result.current.browserViewerPickerState).not.toBeNull();
+    });
+
+    await act(async () => {
+      await result.current.confirmBrowserViewerPicker({ viewerId: "text", rememberSelection: true });
+    });
+
+    expect(result.current.browserViewerPickerState).toMatchObject({ saving: false, saveError: "Unable to save viewer preference." });
+    expect(result.current.viewInfo).toBeNull();
+
+    await act(async () => {
+      await result.current.confirmBrowserViewerPicker({ viewerId: "text", rememberSelection: false });
+    });
+
+    expect(result.current.browserViewerPickerState).toBeNull();
+    expect(result.current.viewInfo).toMatchObject({ path: "docs/readme.md", viewerId: "text", virtualSource: { kind: "virtual" } });
   });
 
   it("extends an open virtual image gallery when another archive page loads", async () => {

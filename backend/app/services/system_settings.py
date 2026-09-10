@@ -32,13 +32,15 @@ from app.models.oidc import OidcFlow, OidcProviderConfiguration
 from app.models.system_settings import (
     AboutSettingsRead,
     AdvancedSystemSettingsRead,
-    AdvancedSystemSettingsUpdate,
+    AdvancedSystemSettingUpdate,
     FileSearchSettings,
     FileSearchSettingsRead,
     FileSearchSettingsUpdate,
+    FileSearchSettingsUpdateResult,
     IntegerSystemSettingRead,
     NetworkSettingsRead,
     NetworkSettingsUpdate,
+    NetworkSettingsUpdateResult,
     PdfAdvancedSettingsRead,
     PreprocessorAdvancedSettingsRead,
     PublicSupportReportRead,
@@ -47,6 +49,7 @@ from app.models.system_settings import (
     SmbPolicySettings,
     SmbSettingsRead,
     SmbSettingsUpdate,
+    SmbSettingsUpdateResult,
     SystemSetting,
 )
 from app.services.authentication_config import (
@@ -68,7 +71,17 @@ CGROUP_MEMORY_LIMIT_PATHS = (Path("/sys/fs/cgroup/memory.max"), Path("/sys/fs/cg
 UNLIMITED_MEMORY_THRESHOLD_BYTES = 1 << 60
 PUBLIC_SUPPORT_REPORT_FORMAT_VERSION = 1
 PUBLIC_SUPPORT_REPORT_TITLE = "Sambee public support report"
-FILE_SEARCH_POLICY_KEY = SystemSettingKey.FILE_SEARCH_POLICY
+FILE_SEARCH_SETTING_KEYS = {
+    "retention_limit": SystemSettingKey.FILE_SEARCH_RETENTION_LIMIT,
+    "result_limit": SystemSettingKey.FILE_SEARCH_RESULT_LIMIT,
+    "excluded_categories": SystemSettingKey.FILE_SEARCH_EXCLUDED_CATEGORIES,
+    "excluded_extensions": SystemSettingKey.FILE_SEARCH_EXCLUDED_EXTENSIONS,
+}
+SMB_POLICY_SETTING_KEYS = {
+    "authentication_mode": SystemSettingKey.SMB_AUTHENTICATION_MODE,
+    "encryption_mode": SystemSettingKey.SMB_ENCRYPTION_MODE,
+    "connection_timeout_seconds": SystemSettingKey.SMB_CONNECTION_TIMEOUT_SECONDS,
+}
 STANDARD_OIDC_CLAIMS = frozenset({"sub", "name", "email", "groups", "preferred_username"})
 STANDARD_OIDC_SCOPES = frozenset({"openid", "profile", "email", "address", "phone", "offline_access"})
 CONFIG_FILE_SETTING_FIELDS = (
@@ -269,14 +282,47 @@ def get_integer_setting_value(key: SystemSettingKey) -> int:
     return _resolve_integer_setting(SYSTEM_SETTING_DEFINITIONS[key]).value
 
 
-def build_file_search_settings_read(session: Session) -> FileSearchSettingsRead:
-    raw_value = session.get(SystemSetting, FILE_SEARCH_POLICY_KEY.value)
+def _decode_string_set(raw_value: str | None, *, key: SystemSettingKey) -> set[str]:
     if raw_value is None:
-        return FileSearchSettingsRead(settings=FileSearchSettings(), source=SystemSettingSource.DEFAULT)
+        return set()
     try:
-        return FileSearchSettingsRead(settings=FileSearchSettings.model_validate_json(raw_value.value), source=SystemSettingSource.DATABASE)
+        decoded = json.loads(raw_value)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Stored override for {key.value} is not a valid JSON string array") from exc
+    if not isinstance(decoded, list) or any(not isinstance(item, str) for item in decoded):
+        raise ValueError(f"Stored override for {key.value} is not a valid JSON string array")
+    return set(decoded)
+
+
+def _encode_string_set(values: set[str]) -> str:
+    return json.dumps(sorted(values), separators=(",", ":"))
+
+
+def _begin_immediate_transaction(session: Session) -> None:
+    if session.get_bind().dialect.name == "sqlite" and not session.in_transaction():
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+
+
+def build_file_search_settings_read(session: Session) -> FileSearchSettingsRead:
+    try:
+        values = {field: session.get(SystemSetting, key.value) for field, key in FILE_SEARCH_SETTING_KEYS.items()}
+        overrides: dict[str, object] = {}
+        if values["retention_limit"] is not None:
+            overrides["retention_limit"] = int(values["retention_limit"].value)
+        if values["result_limit"] is not None:
+            overrides["result_limit"] = int(values["result_limit"].value)
+        if values["excluded_categories"] is not None:
+            overrides["excluded_categories"] = _decode_string_set(
+                values["excluded_categories"].value, key=FILE_SEARCH_SETTING_KEYS["excluded_categories"]
+            )
+        if values["excluded_extensions"] is not None:
+            overrides["excluded_extensions"] = _decode_string_set(
+                values["excluded_extensions"].value, key=FILE_SEARCH_SETTING_KEYS["excluded_extensions"]
+            )
+        source = SystemSettingSource.DATABASE if overrides else SystemSettingSource.DEFAULT
+        return FileSearchSettingsRead(settings=FileSearchSettings(**overrides), source=source)
     except ValueError as exc:
-        logger.critical("Invalid persisted File Search policy: %s", exc)
+        logger.critical("Invalid persisted File Search setting: %s", exc)
         raise ValueError("The persisted File Search policy is invalid") from exc
 
 
@@ -292,25 +338,22 @@ def get_file_search_settings(session: Session | None = None) -> FileSearchSettin
 
 def update_file_search_settings(
     payload: FileSearchSettingsUpdate, *, updated_by_user_id: uuid.UUID, session: Session
-) -> FileSearchSettingsRead:
+) -> FileSearchSettingsUpdateResult:
+    _begin_immediate_transaction(session)
     current = build_file_search_settings_read(session).settings
-    if payload.reset_to_default:
-        setting = session.get(SystemSetting, FILE_SEARCH_POLICY_KEY.value)
-        if setting is not None:
-            session.delete(setting)
-        next_settings = FileSearchSettings()
-    elif payload.settings is not None:
-        next_settings = payload.settings
-        _write_system_setting(session, FILE_SEARCH_POLICY_KEY, next_settings.model_dump_json(), updated_by_user_id)
-    else:
-        return build_file_search_settings_read(session)
+    next_settings = current.model_copy(update={payload.field: payload.value})
+    next_settings = FileSearchSettings.model_validate(next_settings)
 
     if next_settings.retention_limit < current.retention_limit:
         from app.services.recent_files import trim_all_recent_files
 
         trim_all_recent_files(retention_limit=next_settings.retention_limit, session=session)
+
+    value = getattr(next_settings, payload.field)
+    serialized_value = _encode_string_set(value) if isinstance(value, set) else str(value)
+    _write_system_setting(session, FILE_SEARCH_SETTING_KEYS[payload.field], serialized_value, updated_by_user_id)
     session.commit()
-    return build_file_search_settings_read(session)
+    return payload.model_copy(update={"value": value})
 
 
 def build_advanced_system_settings_read() -> AdvancedSystemSettingsRead:
@@ -343,15 +386,16 @@ def build_advanced_system_settings_read() -> AdvancedSystemSettingsRead:
 
 
 def _resolve_smb_policy() -> tuple[SmbPolicySettings, SystemSettingSource]:
-    raw_value = store.get_override(SystemSettingKey.SMB_POLICY)
-    if raw_value is not None:
-        try:
-            return SmbPolicySettings.model_validate_json(raw_value), SystemSettingSource.DATABASE
-        except ValueError as exc:
-            logger.critical("Invalid database override for SMB policy; SMB access is disabled: %s", exc)
-            raise SmbPolicyConfigurationError("The persisted SMB policy is invalid") from exc
-
-    return SmbPolicySettings(), SystemSettingSource.DEFAULT
+    overrides = {field: store.get_override(key) for field, key in SMB_POLICY_SETTING_KEYS.items()}
+    if not any(value is not None for value in overrides.values()):
+        return SmbPolicySettings(), SystemSettingSource.DEFAULT
+    try:
+        return SmbPolicySettings.model_validate(
+            {field: value for field, value in overrides.items() if value is not None}
+        ), SystemSettingSource.DATABASE
+    except ValueError as exc:
+        logger.critical("Invalid database override for SMB policy; SMB access is disabled: %s", exc)
+        raise SmbPolicyConfigurationError("The persisted SMB policy is invalid") from exc
 
 
 def get_smb_policy_settings() -> SmbPolicySettings:
@@ -386,7 +430,6 @@ def build_smb_settings_read() -> SmbSettingsRead:
     return SmbSettingsRead(
         read_chunk_size_bytes=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES]),
         policy=policy,
-        policy_source=policy_source,
         require_encryption=policy.encryption_mode is SmbEncryptionMode.ENCRYPTION_REQUIRED,
     )
 
@@ -530,11 +573,11 @@ def _append_smb_settings_report(lines: list[str]) -> None:
     _append_report_setting(
         lines, smb.read_chunk_size_bytes.key.value, smb.read_chunk_size_bytes.value, smb.read_chunk_size_bytes.source.value
     )
-    _append_report_setting(lines, "authentication_mode", smb.policy.authentication_mode.value, smb.policy_source.value)
-    _append_report_setting(lines, "encryption_mode", smb.policy.encryption_mode.value, smb.policy_source.value)
-    _append_report_setting(lines, "connection_timeout_seconds", smb.policy.connection_timeout_seconds, smb.policy_source.value)
+    _append_report_setting(lines, "authentication_mode", smb.policy.authentication_mode.value, "ui")
+    _append_report_setting(lines, "encryption_mode", smb.policy.encryption_mode.value, "ui")
+    _append_report_setting(lines, "connection_timeout_seconds", smb.policy.connection_timeout_seconds, "ui")
     _append_report_setting(lines, "signing_required", smb.require_signing, "built_in")
-    _append_report_setting(lines, "encryption_required", smb.require_encryption, smb.policy_source.value)
+    _append_report_setting(lines, "encryption_required", smb.require_encryption, "ui")
 
 
 def _append_network_settings_report(lines: list[str], session: Session, aliases: PublicSupportReportAliases) -> None:
@@ -636,86 +679,15 @@ def build_public_support_report_read(session: Session) -> PublicSupportReportRea
     return PublicSupportReportRead(content="\n".join(lines))
 
 
-def _extract_updates(payload: AdvancedSystemSettingsUpdate) -> dict[SystemSettingKey, int]:
-    updates: dict[SystemSettingKey, int] = {}
-
-    preprocessors = payload.preprocessors
-    if preprocessors and preprocessors.imagemagick:
-        imagemagick = preprocessors.imagemagick
-        if imagemagick.max_file_size_bytes is not None:
-            updates[SystemSettingKey.PREPROCESSOR_IMAGEMAGICK_MAX_FILE_SIZE_BYTES] = imagemagick.max_file_size_bytes
-        if imagemagick.timeout_seconds is not None:
-            updates[SystemSettingKey.PREPROCESSOR_IMAGEMAGICK_TIMEOUT_SECONDS] = imagemagick.timeout_seconds
-
-    pdf = payload.pdf
-    if pdf:
-        if pdf.cache_quota_bytes is not None:
-            updates[SystemSettingKey.PDF_VIEWER_CACHE_QUOTA_BYTES] = pdf.cache_quota_bytes
-        if pdf.cache_inactivity_ttl_seconds is not None:
-            updates[SystemSettingKey.PDF_VIEWER_CACHE_INACTIVITY_TTL_SECONDS] = pdf.cache_inactivity_ttl_seconds
-        if pdf.max_source_size_bytes is not None:
-            updates[SystemSettingKey.PDF_NORMALIZER_MAX_SOURCE_SIZE_BYTES] = pdf.max_source_size_bytes
-        if pdf.max_output_size_bytes is not None:
-            updates[SystemSettingKey.PDF_NORMALIZER_MAX_OUTPUT_SIZE_BYTES] = pdf.max_output_size_bytes
-        if pdf.address_space_bytes is not None:
-            updates[SystemSettingKey.PDF_NORMALIZER_ADDRESS_SPACE_BYTES] = pdf.address_space_bytes
-        if pdf.temporary_disk_bytes is not None:
-            updates[SystemSettingKey.PDF_NORMALIZER_TEMPORARY_DISK_BYTES] = pdf.temporary_disk_bytes
-        if pdf.timeout_seconds is not None:
-            updates[SystemSettingKey.PDF_NORMALIZER_TIMEOUT_SECONDS] = pdf.timeout_seconds
-        if pdf.cpu_time_seconds is not None:
-            updates[SystemSettingKey.PDF_NORMALIZER_CPU_TIME_SECONDS] = pdf.cpu_time_seconds
-        if pdf.max_concurrent is not None:
-            updates[SystemSettingKey.PDF_NORMALIZER_MAX_CONCURRENT] = pdf.max_concurrent
-        if pdf.queue_wait_seconds is not None:
-            updates[SystemSettingKey.PDF_NORMALIZER_QUEUE_WAIT_SECONDS] = pdf.queue_wait_seconds
-        if pdf.screen_derivative_enabled is not None:
-            updates[SystemSettingKey.PDF_SCREEN_DERIVATIVE_ENABLED] = pdf.screen_derivative_enabled
-        if pdf.screen_max_decoded_pixels is not None:
-            updates[SystemSettingKey.PDF_SCREEN_MAX_DECODED_PIXELS] = pdf.screen_max_decoded_pixels
-
-    return updates
-
-
-def _extract_reset_keys(payload: AdvancedSystemSettingsUpdate) -> set[SystemSettingKey]:
-    return set(payload.reset_keys)
-
-
 def update_advanced_system_settings(
-    payload: AdvancedSystemSettingsUpdate, *, updated_by_user_id: Optional[uuid.UUID], session: Session
-) -> None:
-    updates = _extract_updates(payload)
-    reset_keys = _extract_reset_keys(payload)
-
-    conflicting_keys = reset_keys.intersection(updates.keys())
-    if conflicting_keys:
-        conflicts = ", ".join(sorted(key.value for key in conflicting_keys))
-        raise ValueError(f"Cannot update and reset the same setting in one request: {conflicts}")
-
-    if not updates and not reset_keys:
-        return
-
-    for key in reset_keys:
-        setting = session.get(SystemSetting, key.value)
-        if setting is not None:
-            session.delete(setting)
-
-    for key, value in updates.items():
-        definition = SYSTEM_SETTING_DEFINITIONS[key]
-        validated_value = _validate_integer_value(definition, int(value))
-        setting = session.get(SystemSetting, key.value)
-
-        if setting is None:
-            setting = SystemSetting(key=key.value, value=str(validated_value), updated_by_user_id=updated_by_user_id)
-        else:
-            setting.value = str(validated_value)
-            setting.updated_at = datetime.now(timezone.utc)
-            setting.updated_by_user_id = updated_by_user_id
-
-        session.add(setting)
-
+    payload: AdvancedSystemSettingUpdate, *, updated_by_user_id: Optional[uuid.UUID], session: Session
+) -> AdvancedSystemSettingUpdate:
+    definition = SYSTEM_SETTING_DEFINITIONS[payload.field]
+    value = _validate_integer_value(definition, payload.value)
+    _write_system_setting(session, payload.field, str(value), updated_by_user_id)
     session.commit()
     store.refresh_from_session(session)
+    return payload.model_copy(update={"value": value})
 
 
 def _write_system_setting(session: Session, key: SystemSettingKey, value: str, updated_by_user_id: Optional[uuid.UUID]) -> None:
@@ -730,50 +702,40 @@ def _write_system_setting(session: Session, key: SystemSettingKey, value: str, u
     session.add(setting)
 
 
-def update_smb_settings(payload: SmbSettingsUpdate, *, updated_by_user_id: Optional[uuid.UUID], session: Session) -> SmbSettingsRead:
-    """Persist validated SMB policy and resource settings atomically."""
+def update_smb_settings(
+    payload: SmbSettingsUpdate, *, updated_by_user_id: Optional[uuid.UUID], session: Session
+) -> SmbSettingsUpdateResult:
+    """Persist one validated SMB setting and return its canonical field/value pair."""
 
-    if payload.reset_read_chunk_size_bytes:
-        setting = session.get(SystemSetting, SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES.value)
-        if setting is not None:
-            session.delete(setting)
-    elif payload.read_chunk_size_bytes is not None:
+    if payload.field == "read_chunk_size_bytes":
         definition = SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES]
-        value = _validate_integer_value(definition, payload.read_chunk_size_bytes)
-        _write_system_setting(session, SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES, str(value), updated_by_user_id)
+        value = _validate_integer_value(definition, payload.value)
+        key = SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES
+    else:
+        next_policy = SmbPolicySettings.model_validate(build_smb_settings_read().policy.model_dump() | {payload.field: payload.value})
+        value = getattr(next_policy, payload.field)
+        key = SMB_POLICY_SETTING_KEYS[payload.field]
 
-    if payload.reset_policy:
-        setting = session.get(SystemSetting, SystemSettingKey.SMB_POLICY.value)
-        if setting is not None:
-            session.delete(setting)
-    elif payload.policy is not None:
-        _write_system_setting(session, SystemSettingKey.SMB_POLICY, payload.policy.model_dump_json(), updated_by_user_id)
-
+    _write_system_setting(session, key, str(value), updated_by_user_id)
     session.commit()
     store.refresh_from_session(session)
-    return build_smb_settings_read()
+    return payload.model_copy(update={"value": value})
 
 
 def smb_policy_will_change(payload: SmbSettingsUpdate, session: Session) -> bool:
     """Return whether an update changes the effective SMB policy."""
 
-    current_setting = session.get(SystemSetting, SystemSettingKey.SMB_POLICY.value)
-    if payload.reset_policy:
-        if current_setting is None:
-            return False
+    if payload.field == "read_chunk_size_bytes":
+        return False
+    current_setting = session.get(SystemSetting, SMB_POLICY_SETTING_KEYS[payload.field].value)
+    if current_setting is None:
+        current_value = getattr(SmbPolicySettings(), payload.field)
+    else:
         try:
-            return SmbPolicySettings.model_validate_json(current_setting.value) != SmbPolicySettings()
+            current_value = getattr(SmbPolicySettings.model_validate({payload.field: current_setting.value}), payload.field)
         except ValueError:
             return True
-    if payload.policy is None:
-        return False
-    if current_setting is None:
-        return payload.policy != SmbPolicySettings()
-    try:
-        current_policy = SmbPolicySettings.model_validate_json(current_setting.value)
-    except ValueError:
-        return True
-    return current_policy != payload.policy
+    return bool(current_value != payload.value)
 
 
 async def retire_smb_runtime_policy() -> None:
@@ -822,30 +784,34 @@ def build_network_settings_read(session: Session) -> NetworkSettingsRead:
 
 def update_network_settings(
     payload: NetworkSettingsUpdate, *, updated_by_user_id: Optional[uuid.UUID], session: Session
-) -> NetworkSettingsRead:
-    public_url = canonicalize_public_url(payload.public_url)
-    if urlparse(public_url).path:
-        raise ValueError("Public URL must not include a path")
-    trusted_proxy_cidrs = _normalized_trusted_proxy_cidrs(payload.trusted_proxy_cidrs)
-    current_public_url = _network_setting_value(session, NETWORK_PUBLIC_URL_KEY)
+) -> NetworkSettingsUpdateResult:
     now = datetime.now(timezone.utc)
 
-    for key, value in (
-        (NETWORK_PUBLIC_URL_KEY, public_url),
-        (NETWORK_TRUSTED_PROXY_CIDRS_KEY, ",".join(trusted_proxy_cidrs)),
-    ):
-        setting = session.get(SystemSetting, key)
-        if setting is None:
-            session.add(SystemSetting(key=key, value=value, updated_by_user_id=updated_by_user_id))
-        else:
-            setting.value = value
-            setting.updated_at = now
-            setting.updated_by_user_id = updated_by_user_id
-            session.add(setting)
+    value: str | list[str]
+    if payload.field == "public_url":
+        value = canonicalize_public_url(payload.value)
+        if urlparse(value).path:
+            raise ValueError("Public URL must not include a path")
+        key = NETWORK_PUBLIC_URL_KEY
+        current_public_url = _network_setting_value(session, key)
+    else:
+        value = _normalized_trusted_proxy_cidrs(payload.value)
+        key = NETWORK_TRUSTED_PROXY_CIDRS_KEY
+        current_public_url = ""
 
-    if current_public_url and current_public_url != public_url:
+    setting = session.get(SystemSetting, key)
+    serialized_value = value if isinstance(value, str) else ",".join(value)
+    if setting is None:
+        session.add(SystemSetting(key=key, value=serialized_value, updated_by_user_id=updated_by_user_id))
+    else:
+        setting.value = serialized_value
+        setting.updated_at = now
+        setting.updated_by_user_id = updated_by_user_id
+        session.add(setting)
+
+    if current_public_url and current_public_url != value:
         for flow in session.exec(select(OidcFlow)).all():
             session.delete(flow)
 
     session.commit()
-    return build_network_settings_read(session)
+    return payload.model_copy(update={"value": value})

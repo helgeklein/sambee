@@ -30,9 +30,8 @@ describe("ConfirmDeleteDialog", () => {
 
     expect(screen.getByText(CONFIRM_DELETE_STRINGS.TITLE_FILE)).toBeInTheDocument();
     expect(screen.getByText(CONFIRM_DELETE_STRINGS.CONFIRM_FILE)).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Item to delete" })).toHaveValue("readme.txt");
-    expect(screen.getByRole("textbox", { name: "Item to delete" })).toHaveAttribute("readonly");
-    expect(screen.queryByLabelText(/file to delete/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Item to delete:")).toBeInTheDocument();
+    expect(screen.getByLabelText("readme.txt")).toHaveTextContent("readme.txt");
   });
 
   it("renders directory title and prompt when itemType is DIRECTORY", () => {
@@ -42,14 +41,32 @@ describe("ConfirmDeleteDialog", () => {
     expect(screen.getByText(CONFIRM_DELETE_STRINGS.CONFIRM_DIRECTORY)).toBeInTheDocument();
   });
 
-  it("lists every selected item in a read-only multiline field", () => {
-    render(<ConfirmDeleteDialog {...defaultProps} items={[defaultProps.items[0]!, { ...defaultProps.items[0]!, name: "notes.md" }]} />);
+  it("lists selected items as independent one-line values", () => {
+    render(
+      <ConfirmDeleteDialog
+        {...defaultProps}
+        items={[defaultProps.items[0]!, { ...defaultProps.items[0]!, name: "notes.md", path: "notes.md" }]}
+      />
+    );
 
     expect(screen.getByText(CONFIRM_DELETE_STRINGS.TITLE_MULTI)).toBeInTheDocument();
     expect(screen.getByText(CONFIRM_DELETE_STRINGS.CONFIRM_MULTI(2))).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Items to delete" })).toHaveValue("readme.txt\nnotes.md");
-    expect(screen.getByRole("textbox", { name: "Items to delete" })).toHaveAttribute("readonly");
-    expect(screen.getByRole("textbox", { name: "Items to delete" })).not.toHaveAttribute("wrap");
+    expect(screen.getByText("Items to delete")).toBeInTheDocument();
+    expect(screen.getByLabelText("readme.txt")).toHaveTextContent("readme.txt");
+    expect(screen.getByLabelText("notes.md")).toHaveTextContent("notes.md");
+  });
+
+  it("limits the preview to six items and identifies the remainder", () => {
+    const items = Array.from({ length: 8 }, (_, index) => ({
+      ...defaultProps.items[0]!,
+      name: `item-${index}.txt`,
+      path: `item-${index}.txt`,
+    }));
+    render(<ConfirmDeleteDialog {...defaultProps} items={items} />);
+
+    expect(screen.getByLabelText("item-5.txt")).toBeInTheDocument();
+    expect(screen.queryByLabelText("item-6.txt")).not.toBeInTheDocument();
+    expect(screen.getByText("and 2 more items")).toBeInTheDocument();
   });
 
   it("calls onClose when Cancel is clicked", async () => {

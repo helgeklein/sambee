@@ -486,10 +486,15 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
           defaultViewerId={renderedBrowserViewerPickerState.defaultViewerId}
           preferredViewerId={renderedBrowserViewerPickerState.preferredViewerId}
           showNativeOption={renderedBrowserViewerPickerState.showNativeOption}
+          saving={renderedBrowserViewerPickerState.saving ?? false}
+          saveError={renderedBrowserViewerPickerState.saveError ?? null}
           onClose={handleCloseBrowserViewerPicker}
           onTransitionExited={handleBrowserViewerPickerExited}
           onConfirm={(selection) => {
             void confirmBrowserViewerPicker(selection);
+          }}
+          onOpenWithoutSaving={({ viewerId }) => {
+            void confirmBrowserViewerPicker({ viewerId, rememberSelection: false });
           }}
         />
       ) : null}

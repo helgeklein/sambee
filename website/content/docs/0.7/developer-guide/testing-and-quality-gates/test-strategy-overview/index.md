@@ -21,7 +21,7 @@ Do not default to either no validation or every possible check.
 | Frontend behavior | `cd frontend && npm test`, `cd frontend && npx tsc --noEmit`, `cd frontend && npm run lint` |
 | Companion behavior | `cd companion && npx tsc --noEmit`, `cd companion && npm run lint`, `cd companion/src-tauri && cargo test` |
 
-For fast local iteration, `./scripts/test` runs the main backend, frontend, and companion suites together. Its backend pass mirrors CI by running non-performance tests in parallel and `@performance` tests in a separate serial pass. Use `COVERAGE=1 ./scripts/test` when you want the broader CI-style coverage pass.
+For fast local iteration, `./scripts/test` runs the main backend, frontend, companion, and archive-topology suites together. It stops at the first failed check so you can fix that subsystem before spending time on later suites. The order is backend type checking and tests, frontend type checking, linting, and tests, companion checks and tests, then archive-specific topology verification. Its backend pass mirrors CI by running non-performance tests in parallel and `@performance` tests in a separate serial pass. Use `COVERAGE=1 ./scripts/test` when you want the broader CI-style coverage pass.
 
 ## Cross-Boundary Changes Need Cross-Boundary Checks
 

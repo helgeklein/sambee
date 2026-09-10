@@ -1318,7 +1318,17 @@ describe("UserManagementSettings", () => {
 
     await openUserActions(user, "unmapped-user");
     expect(screen.getByRole("menuitem", { name: "Map OIDC account" })).toBeEnabled();
+    await user.click(screen.getByRole("menuitem", { name: "Map OIDC account" }));
+    const newExpectedUsername = await screen.findByLabelText("Expected provider username");
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(await screen.findByText("Provider username is required.")).toBeInTheDocument();
+    expect(newExpectedUsername).toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.type(newExpectedUsername, "unmapped-user");
+    expect(newExpectedUsername).toHaveAttribute("aria-invalid", "false");
+    expect(screen.queryByText("Provider username is required.")).not.toBeInTheDocument();
     await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Map OIDC account" })).not.toBeInTheDocument());
     vi.mocked(api.getUsers).mockResolvedValue({
       items: [
         {
@@ -1368,6 +1378,8 @@ describe("UserManagementSettings", () => {
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Close" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("oidc-mapping-contextual-error")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("oidc-mapping-action-error")).not.toBeInTheDocument();
 
     await user.keyboard("{Escape}");
     await waitFor(() => {
@@ -1390,17 +1402,25 @@ describe("UserManagementSettings", () => {
       })
     );
     await user.click(screen.getByRole("button", { name: "Confirm" }));
-    const mappingError = await screen.findByRole("alert");
-    expect(mappingError).toHaveTextContent("Select an available local account.");
-    expect(
-      screen.getByTestId("oidc-mapping-editor-form-surface").compareDocumentPosition(mappingError) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
+    expect(await screen.findByText("Select an available local account.")).toBeInTheDocument();
+    expect(targetAccount).toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await user.click(targetAccount);
     expect(await screen.findByRole("option", { name: "unmapped-user" })).toBeInTheDocument();
     await user.keyboard("{ArrowDown}{Enter}");
     expect(targetAccount).toHaveValue("unmapped-user");
+    expect(targetAccount).toHaveAttribute("aria-invalid", "false");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(api.moveOidcIdentity).not.toHaveBeenCalled();
+    vi.mocked(api.moveOidcIdentity).mockRejectedValueOnce({ response: { data: { detail: "OIDC mapping rejected." } } });
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    const mappingActionError = await screen.findByTestId("oidc-mapping-action-error");
+    expect(mappingActionError).toHaveTextContent("OIDC mapping rejected.");
+    expect(mappingActionError).toHaveAttribute("role", "alert");
+    expect(
+      mappingActionError.compareDocumentPosition(screen.getByTestId("responsive-form-dialog-desktop-actions")) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Confirm" }));
     await waitFor(() => expect(api.moveOidcIdentity).toHaveBeenCalledWith("identity-1", 1, "user-2"));
     await waitFor(() => {

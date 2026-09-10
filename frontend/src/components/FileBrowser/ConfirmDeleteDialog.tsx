@@ -11,14 +11,16 @@
  * accidentally trigger the destructive action.
  */
 
-import { Button, CircularProgress } from "@mui/material";
+import { Box, Button, CircularProgress, Typography } from "@mui/material";
 import type React from "react";
 import { useEffect, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { type FileEntry, FileType } from "../../types";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
-import { DialogReadOnlyField } from "../Admin/DialogReadOnlyField";
-import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
+import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
 import { CONFIRM_DELETE_STRINGS } from "./confirmDeleteDialogStrings";
+import { DialogIdentifierDisplay } from "./DialogIdentifierDisplay";
+import { DialogOperationContext } from "./DialogOperationContext";
 
 // ============================================================================
 // Props
@@ -47,6 +49,7 @@ const DELETE_LIST_MAX_VISIBLE_ROWS = 6;
 // ConfirmDeleteDialog
 //
 const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({ open, items, isDeleting, onClose, onConfirm }) => {
+  const { t } = useTranslation();
   const isSingleItem = items.length === 1;
   const item = items[0];
   const isDirectory = item?.type === FileType.DIRECTORY;
@@ -70,13 +73,14 @@ const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({ open, items, 
       ? CONFIRM_DELETE_STRINGS.CONFIRM_DIRECTORY
       : CONFIRM_DELETE_STRINGS.CONFIRM_FILE
     : CONFIRM_DELETE_STRINGS.CONFIRM_MULTI(items.length);
-  const itemNames = items.map((currentItem) => currentItem.name).join("\n");
+  const visibleItems = items.slice(0, DELETE_LIST_MAX_VISIBLE_ROWS);
+  const remainingItemCount = items.length - visibleItems.length;
 
   /** ENTER activates the focused button; no default fallback (Cancel has focus). */
   const handleKeyDown = useMemo(() => dialogEnterKeyHandler(), []);
 
   return (
-    <ResponsiveFormDialog
+    <ResponsiveDialogShell
       open={open}
       onClose={onClose}
       disableClose={isDeleting}
@@ -101,15 +105,26 @@ const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({ open, items, 
         </>
       }
     >
-      <DialogReadOnlyField
-        ariaLabel={isSingleItem ? CONFIRM_DELETE_STRINGS.ARIA_LABEL_ITEM : CONFIRM_DELETE_STRINGS.ARIA_LABEL_ITEMS}
-        value={itemNames}
-        multiline={!isSingleItem}
-        minRows={isSingleItem ? undefined : Math.min(items.length, DELETE_LIST_MAX_VISIBLE_ROWS)}
-        maxRows={isSingleItem ? undefined : DELETE_LIST_MAX_VISIBLE_ROWS}
-        showFormSurface
-      />
-    </ResponsiveFormDialog>
+      {isSingleItem && item ? (
+        <DialogOperationContext entries={[{ label: CONFIRM_DELETE_STRINGS.ARIA_LABEL_ITEM, value: item.name, kind: "fileName" }]} />
+      ) : (
+        <Box
+          component="section"
+          aria-label={CONFIRM_DELETE_STRINGS.ARIA_LABEL_ITEMS}
+          sx={{ display: "flex", flexDirection: "column", gap: 0.75, minWidth: 0 }}
+        >
+          <Typography variant="body2" sx={{ color: (theme) => theme.palette.text.secondary }}>
+            {CONFIRM_DELETE_STRINGS.ARIA_LABEL_ITEMS}
+          </Typography>
+          {visibleItems.map((visibleItem) => (
+            <DialogIdentifierDisplay key={visibleItem.path} value={visibleItem.name} kind="fileName" />
+          ))}
+          {remainingItemCount > 0 ? (
+            <Typography variant="body2">{t("fileBrowser.confirmDelete.moreItems", { count: remainingItemCount })}</Typography>
+          ) : null}
+        </Box>
+      )}
+    </ResponsiveDialogShell>
   );
 };
 

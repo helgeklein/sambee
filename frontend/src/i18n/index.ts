@@ -112,56 +112,6 @@ function resolveRegionalLocale(localePreference: RegionalLocalePreference, langu
   return resolveLanguageFromPreference(languagePreference);
 }
 
-function readStoredLanguagePreference(): LanguagePreference | undefined {
-  if (typeof window === "undefined") {
-    return undefined;
-  }
-
-  try {
-    const storedLanguage = window.localStorage.getItem(LOCALE_STORAGE_KEY);
-    return storedLanguage ? resolveLanguagePreference(storedLanguage) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function readStoredRegionalLocalePreference(): RegionalLocalePreference | undefined {
-  if (typeof window === "undefined") {
-    return undefined;
-  }
-
-  try {
-    const storedLocale = window.localStorage.getItem(REGIONAL_LOCALE_STORAGE_KEY);
-    return storedLocale ? resolveRegionalLocalePreference(storedLocale) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function persistLanguagePreference(languagePreference: LanguagePreference): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(LOCALE_STORAGE_KEY, resolveLanguagePreference(languagePreference));
-  } catch {
-    // Ignore storage failures; locale changes should still work for the current session.
-  }
-}
-
-function persistRegionalLocalePreference(regionalLocalePreference: RegionalLocalePreference): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(REGIONAL_LOCALE_STORAGE_KEY, resolveRegionalLocalePreference(regionalLocalePreference));
-  } catch {
-    // Ignore storage failures; locale changes should still work for the current session.
-  }
-}
-
 function syncDocumentLanguage(language: string): void {
   if (typeof document === "undefined") {
     return;
@@ -213,9 +163,6 @@ function updateResolvedRegionalLocale(): void {
   }
 }
 
-currentLanguagePreference = readStoredLanguagePreference() ?? DEFAULT_LANGUAGE_PREFERENCE;
-currentRegionalLocalePreference = readStoredRegionalLocalePreference() ?? DEFAULT_REGIONAL_LOCALE_PREFERENCE;
-
 const initialLanguage = resolveLanguageFromPreference(currentLanguagePreference);
 currentRegionalLocale = resolveRegionalLocale(currentRegionalLocalePreference, currentLanguagePreference);
 
@@ -245,14 +192,12 @@ export function translate(...args: Parameters<typeof i18n.t>): string {
 
 export async function setLanguagePreference(languagePreference: string): Promise<void> {
   currentLanguagePreference = resolveLanguagePreference(languagePreference);
-  persistLanguagePreference(currentLanguagePreference);
   updateResolvedRegionalLocale();
   await i18n.changeLanguage(resolveLanguageFromPreference(currentLanguagePreference));
 }
 
 export async function setRegionalLocalePreference(regionalLocalePreference: string): Promise<void> {
   currentRegionalLocalePreference = resolveRegionalLocalePreference(regionalLocalePreference);
-  persistRegionalLocalePreference(currentRegionalLocalePreference);
   updateResolvedRegionalLocale();
 }
 

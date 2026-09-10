@@ -11,7 +11,7 @@ import {
   readVirtualContent,
   useContentProviderRegistry,
 } from "../../pages/FileBrowser/contentProviders";
-import { readTextEditorMaxFileSizeBytesPreference, useTextEditorWordWrapPreference } from "../../pages/FileBrowser/preferences";
+import { useTextEditorMaxFileSizeBytesPreference, useTextEditorWordWrapPreference } from "../../pages/FileBrowser/preferences";
 import { clearDraft, type DraftSnapshot, loadDraft, registerDraftSnapshot, saveDraft } from "../../services/draftRecovery";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
@@ -26,7 +26,7 @@ import { openExternalUrl } from "../../utils/externalLinks";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
-import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
+import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
 import { HelpMenu } from "../FileBrowser/HelpMenu";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { CodeMirrorFindReplacePopover } from "./CodeMirrorFindReplacePopover";
@@ -163,7 +163,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
   const { viewerBg, toolbarBg, toolbarText, viewerText, linkColor } = getViewerColors(currentTheme, "markdown");
   const searchHighlightColors = useMemo(() => getSearchHighlightColors(muiTheme, currentTheme), [currentTheme, muiTheme]);
   const filename = path.split("/").pop() || path;
-  const maxFileSizeBytes = readTextEditorMaxFileSizeBytesPreference();
+  const [maxFileSizeBytes] = useTextEditorMaxFileSizeBytesPreference();
   const [wordWrapEnabled, setWordWrapEnabled] = useTextEditorWordWrapPreference(false);
   const contentSizeBytes = useMemo(() => new Blob([content]).size, [content]);
   const exceedsEditorLimit = !loading && !error && contentSizeBytes > maxFileSizeBytes;
@@ -1198,7 +1198,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
         </Box>
       </Dialog>
 
-      <ResponsiveFormDialog
+      <ResponsiveDialogShell
         open={recoveryDraft !== null}
         onClose={() => setRecoveryDraft(null)}
         onKeyDown={(event) => {
@@ -1238,9 +1238,9 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
         }
       >
         {null}
-      </ResponsiveFormDialog>
+      </ResponsiveDialogShell>
 
-      <ResponsiveFormDialog
+      <ResponsiveDialogShell
         open={unsavedChangesDialogOpen}
         onClose={() => {
           setPendingUnsavedChangesAction(null);
@@ -1288,7 +1288,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
         }
       >
         {null}
-      </ResponsiveFormDialog>
+      </ResponsiveDialogShell>
 
       <KeyboardShortcutsHelp
         open={showViewerHelp}

@@ -16,13 +16,9 @@ import {
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { adminDialogActionButtonSx, adminDialogEndActionRowSx } from "../components/Admin/dialogActionStyles";
-import { ResponsiveFormDialog } from "../components/Admin/ResponsiveFormDialog";
-import {
-  SettingsFormGroup,
-  SettingsFormRow,
-  SettingsFormSurface,
-  settingsFormOutlinedControlSx,
-} from "../components/Settings/SettingsFormLayout";
+import { DialogNotice } from "../components/Dialog/DialogNotice";
+import { ResponsiveDialogShell } from "../components/Dialog/ResponsiveDialogShell";
+import { FormGroup, FormRow, FormSurface, formOutlinedControlSx } from "../components/Form/FormLayout";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsList } from "../components/Settings/SettingsList";
 import { SettingsPage } from "../components/Settings/SettingsPage";
@@ -402,19 +398,20 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
         )}
       </SettingsPage>
 
-      <ResponsiveFormDialog
+      <ResponsiveDialogShell
         open={passwordDialogOpen}
         onClose={closePasswordDialog}
         disableClose={passwordSubmitting}
         title="Change password"
         description="Enter your current password and choose a new one. You will be signed out after the change."
+        actionNotice={<DialogNotice message={passwordError} testId="change-password-error" />}
         actions={
           <Box sx={adminDialogEndActionRowSx}>
             <Button
               onClick={closePasswordDialog}
               disabled={passwordSubmitting}
               variant="outlined"
-              sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
+              sx={{ ...settingsUtilityButtonSx, ...adminDialogActionButtonSx }}
             >
               Cancel
             </Button>
@@ -423,7 +420,7 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
               variant="contained"
               disabled={passwordSubmitting || passwordConfirmationError !== null}
               startIcon={passwordSubmitting ? <CircularProgress size={18} color="inherit" /> : undefined}
-              sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+              sx={{ ...settingsPrimaryButtonSx, ...adminDialogActionButtonSx }}
             >
               {passwordSubmitting ? "Changing password" : "Change password"}
             </Button>
@@ -439,9 +436,9 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
         }}
       >
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <SettingsFormSurface testId="change-password-form-surface">
-            <SettingsFormGroup>
-              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+          <FormSurface testId="change-password-form-surface">
+            <FormGroup>
+              <FormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
                 <TextField
                   autoFocus
                   inputRef={currentPasswordInputRef}
@@ -455,7 +452,7 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
                   }}
                   disabled={passwordSubmitting}
                   fullWidth
-                  sx={settingsFormOutlinedControlSx}
+                  sx={formOutlinedControlSx}
                   slotProps={{
                     input: {
                       endAdornment: (
@@ -469,8 +466,8 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
                     },
                   }}
                 />
-              </SettingsFormRow>
-              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+              </FormRow>
+              <FormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
                 <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
                   <TextField
                     label="New password"
@@ -480,7 +477,7 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
                     onChange={(event) => updateNewPassword(event.target.value)}
                     disabled={passwordSubmitting}
                     fullWidth
-                    sx={settingsFormOutlinedControlSx}
+                    sx={formOutlinedControlSx}
                     slotProps={{
                       input: {
                         endAdornment: (
@@ -503,9 +500,9 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
                     onChange={(event) => updatePasswordConfirmation(event.target.value)}
                     disabled={passwordSubmitting}
                     error={passwordConfirmationError !== null}
-                    helperText={passwordConfirmationError ?? " "}
+                    helperText={passwordConfirmationError}
                     fullWidth
-                    sx={settingsFormOutlinedControlSx}
+                    sx={formOutlinedControlSx}
                     slotProps={{
                       input: {
                         endAdornment: (
@@ -520,19 +517,11 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
                     }}
                   />
                 </Box>
-              </SettingsFormRow>
-            </SettingsFormGroup>
-          </SettingsFormSurface>
-          <Alert
-            aria-hidden={passwordError === null}
-            data-testid="change-password-error"
-            severity="error"
-            sx={{ visibility: passwordError ? "visible" : "hidden" }}
-          >
-            {passwordError ?? " "}
-          </Alert>
+              </FormRow>
+            </FormGroup>
+          </FormSurface>
         </Box>
-      </ResponsiveFormDialog>
+      </ResponsiveDialogShell>
     </>
   );
 }

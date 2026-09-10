@@ -2,7 +2,7 @@
 # Download or generate test images for image conversion testing
 # This script ensures we have minimal test images for CMYK/RGB conversion testing
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"

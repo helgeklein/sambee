@@ -50,16 +50,26 @@ describe("NameInputDialog", () => {
     expect(screen.getByLabelText("Folder name").closest(".MuiInputBase-root")).not.toHaveClass("MuiInputBase-sizeSmall");
   });
 
-  it("reserves validation helper text space when no validation error is present", () => {
+  it("renders no validation helper text when no validation error is present", () => {
     render(<NameInputDialog {...defaultProps} />);
 
-    expect(screen.getByLabelText("Name").closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).toBeInTheDocument();
+    expect(screen.getByLabelText("Name").closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).not.toBeInTheDocument();
   });
 
-  it("reserves a hidden API error alert below the input", () => {
+  it("renders a readable validation message without a tooltip", async () => {
+    const user = userEvent.setup();
     render(<NameInputDialog {...defaultProps} />);
 
-    expect(screen.getByTestId("name-input-api-error")).toHaveAttribute("aria-hidden", "true");
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+    const feedback = screen.getByText(NAME_DIALOG_STRINGS.VALIDATION_EMPTY);
+    expect(feedback).not.toHaveStyle({ overflow: "hidden", whiteSpace: "nowrap" });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+
+  it("renders no API error alert when the API has not failed", () => {
+    render(<NameInputDialog {...defaultProps} />);
+
+    expect(screen.queryByTestId("name-input-api-error")).not.toBeInTheDocument();
   });
 
   it("renders with initial value pre-filled", async () => {
@@ -95,6 +105,12 @@ describe("NameInputDialog", () => {
     await user.click(screen.getByRole("button", { name: "Cancel archive creation" }));
 
     expect(onCancelSubmitting).toHaveBeenCalledOnce();
+  });
+
+  it("focuses the active-operation cancellation action while submitting", async () => {
+    render(<NameInputDialog {...defaultProps} isSubmitting cancelSubmittingLabel="Cancel archive creation" onCancelSubmitting={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel archive creation" })).toHaveFocus());
   });
 
   it("replaces the form with active-operation content while submitting", () => {
@@ -322,14 +338,14 @@ describe("NameInputDialog", () => {
     render(<NameInputDialog {...defaultProps} apiError="Item already exists" />);
 
     expect(screen.getByRole("alert")).toHaveTextContent("Item already exists");
-    expect(screen.getByTestId("name-input-api-error")).toHaveAttribute("aria-hidden", "false");
+    expect(screen.getByTestId("name-input-api-error")).toBeInTheDocument();
   });
 
-  it("does not repeat API error text in the reserved helper text", () => {
+  it("does not repeat API error text in field helper text", () => {
     render(<NameInputDialog {...defaultProps} apiError="Item already exists" />);
 
     const input = screen.getByLabelText("Name");
-    expect(input.closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).not.toHaveTextContent("Item already exists");
+    expect(input.closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).not.toBeInTheDocument();
   });
 
   it("shows validation error when submitting with empty name despite API error", async () => {

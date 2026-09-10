@@ -6,6 +6,7 @@ import { Breadcrumbs, Link, Typography } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createEscapeHandler } from "../../utils/keyboardUtils";
+import { truncateTextByGrapheme } from "../../utils/pathDisplay";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -51,20 +52,6 @@ interface DisplaySegment {
 }
 
 // ─── Utility Functions ───────────────────────────────────────────────────────
-
-//
-// truncateSegmentName
-//
-/**
- * Truncate a segment name with a trailing ellipsis when it exceeds maxChars.
- * Preserves the beginning of the name because path segments typically carry
- * the most meaning at the start (dates, prefixes, project names).
- */
-function truncateSegmentName(name: string, maxChars: number): string {
-  if (name.length <= maxChars) return name;
-  if (maxChars <= 1) return "…";
-  return `${name.slice(0, maxChars - 1)}…`;
-}
 
 //
 // estimateSegmentsWidth
@@ -206,7 +193,7 @@ function tryFitWithTruncation(segments: DisplaySegment[], maxWidth: number): Dis
   let budgetIdx = 0;
   for (const seg of result) {
     if (seg.type === "segment") {
-      seg.label = truncateSegmentName(seg.fullLabel, budgets[budgetIdx] ?? MIN_SEGMENT_CHARS);
+      seg.label = truncateTextByGrapheme(seg.fullLabel, budgets[budgetIdx] ?? MIN_SEGMENT_CHARS);
       budgetIdx++;
     }
   }
@@ -244,7 +231,7 @@ function calculateBreadcrumbSegments(pathParts: string[], containerWidth: number
     return [
       {
         type: "segment",
-        label: truncateSegmentName(last, MIN_SEGMENT_CHARS),
+        label: truncateTextByGrapheme(last, MIN_SEGMENT_CHARS),
         fullLabel: last,
         pathIndex: pathParts.length - 1,
       },
@@ -275,7 +262,7 @@ function calculateBreadcrumbSegments(pathParts: string[], containerWidth: number
   // Phase 4: Just the last segment, truncated to fit
   const last = pathParts[n - 1] ?? "";
   const maxChars = Math.max(MIN_SEGMENT_CHARS, Math.floor(maxWidth / CHAR_WIDTH_PX));
-  return [{ type: "segment", label: truncateSegmentName(last, maxChars), fullLabel: last, pathIndex: n - 1 }];
+  return [{ type: "segment", label: truncateTextByGrapheme(last, maxChars), fullLabel: last, pathIndex: n - 1 }];
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────

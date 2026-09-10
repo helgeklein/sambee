@@ -14,6 +14,7 @@ import {
   mobileSafeAreaToolbarSx,
   mobileScrollableContentSx,
 } from "../../theme/mobileShell";
+import { FORM_SURFACE_CSS_VARIABLE, getOverlaySurfaceTokens, OVERLAY_SURFACE_CSS_VARIABLE } from "../../theme/palette";
 import { SettingsCategoryContent } from "../Settings/SettingsCategoryContent";
 import { SettingsCategoryList } from "../Settings/SettingsCategoryList";
 import { prefetchSettingsDataForItems } from "../Settings/settingsDataSources";
@@ -68,7 +69,14 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({
       onClose={onClose}
       slotProps={{
         paper: {
-          sx: mobileFullscreenDrawerPaperSx,
+          sx: (theme) => {
+            const surfaces = getOverlaySurfaceTokens(theme.palette.background.default, theme.palette.mode);
+            return {
+              ...mobileFullscreenDrawerPaperSx,
+              [OVERLAY_SURFACE_CSS_VARIABLE]: surfaces.paper,
+              [FORM_SURFACE_CSS_VARIABLE]: surfaces.form,
+            };
+          },
         },
       }}
     >

@@ -36,10 +36,10 @@ describe("FileSearchSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(api.getFileSearchSettings).mockResolvedValue(systemOverride);
-    vi.mocked(api.updateFileSearchSettings).mockResolvedValue(systemOverride);
+    vi.mocked(api.updateFileSearchSettings).mockImplementation(async (update) => update);
   });
 
-  it("validates values locally and saves normalized extensions added to the list", async () => {
+  it("validates values locally and immediately saves normalized field updates", async () => {
     const user = userEvent.setup();
     render(<FileSearchSettings />);
 
@@ -48,28 +48,24 @@ describe("FileSearchSettings", () => {
     await user.type(retentionLimit, "501");
 
     expect(screen.getByText("Enter a whole number from 0 to 500.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+    expect(api.updateFileSearchSettings).not.toHaveBeenCalled();
 
     await user.clear(retentionLimit);
     await user.type(retentionLimit, "25");
+    await user.tab();
     const extensionInput = screen.getByLabelText("Add excluded extension");
     await user.type(extensionInput, "bak");
     expect(screen.getByText("Will be saved as .bak.")).toBeInTheDocument();
     await user.keyboard("{Enter}");
     await user.type(extensionInput, ".TMP");
     await user.click(screen.getByRole("button", { name: "Add extension" }));
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => {
-      expect(api.updateFileSearchSettings).toHaveBeenCalledWith({
-        settings: {
-          ...systemOverride.settings,
-          retention_limit: 25,
-          excluded_extensions: [".bak", ".tmp"],
-        },
-      });
+      expect(api.updateFileSearchSettings).toHaveBeenCalledWith({ field: "retention_limit", value: 25 });
+      expect(api.updateFileSearchSettings).toHaveBeenCalledWith({ field: "excluded_extensions", value: [".bak"] });
+      expect(api.updateFileSearchSettings).toHaveBeenCalledWith({ field: "excluded_extensions", value: [".bak", ".tmp"] });
     });
-    expect(publishRecentFilesChangedMock).toHaveBeenCalledOnce();
+    expect(publishRecentFilesChangedMock).toHaveBeenCalled();
   });
 
   it("groups category exclusions and omits the policy-source message", async () => {

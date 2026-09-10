@@ -7,15 +7,7 @@ import { VIEW_MODE_SELECTOR_STRINGS } from "../../components/FileBrowser/viewMod
 import { THEME_SELECTOR_STRINGS } from "../../components/themeSelectorStrings";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { compareLocalizedStrings, formatLocalizedDateTime, formatLocalizedNumber } from "../../utils/localeFormatting";
-import {
-  getAvailableLanguages,
-  isPseudoLanguageEnabled,
-  LOCALE_STORAGE_KEY,
-  REGIONAL_LOCALE_STORAGE_KEY,
-  setLocale,
-  setRegionalLocalePreference,
-  translate,
-} from "../index";
+import { getAvailableLanguages, isPseudoLanguageEnabled, setLocale, setRegionalLocalePreference, translate } from "../index";
 
 describe("frontend i18n", () => {
   afterEach(async () => {
@@ -77,7 +69,7 @@ describe("frontend i18n", () => {
     expect(translate("viewer.fallback.failedTitle")).toBe("[Ṽíéŵéŕ úńåṽåíĺåƀĺé]");
     expect(document.documentElement.lang).toBe("en-XA");
     expect(document.documentElement.dir).toBe("ltr");
-    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("en-XA");
+    expect(window.localStorage.getItem("sambee.locale")).toBeNull();
   });
 
   it("updates regional formatting independently from the display language", async () => {
@@ -89,7 +81,7 @@ describe("frontend i18n", () => {
       new Date("2026-03-22T14:35:00Z").toLocaleString("de-DE", { timeZone: "UTC", year: "numeric", month: "2-digit", day: "2-digit" })
     );
     expect(compareLocalizedStrings("ä", "z")).toBe("ä".localeCompare("z", "de-DE", undefined));
-    expect(window.localStorage.getItem(REGIONAL_LOCALE_STORAGE_KEY)).toBe("de-DE");
+    expect(window.localStorage.getItem("sambee.regional-locale")).toBeNull();
   });
 
   it("hides the pseudo locale from production language options", () => {

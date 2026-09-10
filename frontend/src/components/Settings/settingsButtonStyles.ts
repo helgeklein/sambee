@@ -22,13 +22,13 @@ function getUtilityBorderColor(theme: Theme): string {
   return alpha(getSettingsAccentColor(theme), theme.palette.mode === "dark" ? 0.48 : 0.32);
 }
 
-const settingsButtonBaseSx: SxProps<Theme> = {
+const settingsButtonBaseSx = {
   minHeight: SETTINGS_BUTTON_MIN_HEIGHT_PX,
   fontWeight: 500,
   whiteSpace: "nowrap",
-};
+} satisfies SxProps<Theme>;
 
-export const settingsUtilityButtonSx: SxProps<Theme> = {
+export const settingsUtilityButtonSx = {
   ...settingsButtonBaseSx,
   color: "text.primary",
   borderColor: (theme) => getUtilityBorderColor(theme),
@@ -43,17 +43,17 @@ export const settingsUtilityButtonSx: SxProps<Theme> = {
     bgcolor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.3 : 0.2),
     boxShadow: (theme) => getSettingsFocusRing(theme),
   },
-};
+} satisfies SxProps<Theme>;
 
-export const settingsPrimaryButtonSx: SxProps<Theme> = {
+export const settingsPrimaryButtonSx = {
   ...settingsButtonBaseSx,
   boxShadow: 2,
   "&:hover": {
     boxShadow: 3,
   },
-};
+} satisfies SxProps<Theme>;
 
-export const settingsDestructiveButtonSx: SxProps<Theme> = {
+export const settingsDestructiveButtonSx = {
   ...settingsButtonBaseSx,
   borderColor: (theme) => alpha(theme.palette.error.main, theme.palette.mode === "dark" ? 0.64 : 0.38),
   color: "error.main",
@@ -68,9 +68,9 @@ export const settingsDestructiveButtonSx: SxProps<Theme> = {
     bgcolor: (theme) => alpha(theme.palette.error.main, theme.palette.mode === "dark" ? 0.28 : 0.14),
     boxShadow: (theme) => getSettingsFocusRing(theme, "error"),
   },
-};
+} satisfies SxProps<Theme>;
 
-export const settingsUtilityIconButtonSx: SxProps<Theme> = {
+export const settingsUtilityIconButtonSx = {
   color: (theme) => getSettingsAccentColor(theme),
   border: 1,
   borderColor: (theme) => getUtilityBorderColor(theme),
@@ -87,16 +87,16 @@ export const settingsUtilityIconButtonSx: SxProps<Theme> = {
     bgcolor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.3 : 0.2),
     boxShadow: (theme) => getSettingsFocusRing(theme),
   },
-};
+} satisfies SxProps<Theme>;
 
-export const settingsSubduedIconButtonSx: SxProps<Theme> = {
+export const settingsSubduedIconButtonSx = {
   color: "text.secondary",
   "&:hover": {
     color: "text.primary",
   },
-};
+} satisfies SxProps<Theme>;
 
-export const settingsDestructiveIconButtonSx: SxProps<Theme> = {
+export const settingsDestructiveIconButtonSx = {
   ...settingsUtilityIconButtonSx,
   color: "error.main",
   borderColor: (theme) => alpha(theme.palette.error.main, theme.palette.mode === "dark" ? 0.64 : 0.38),
@@ -111,9 +111,9 @@ export const settingsDestructiveIconButtonSx: SxProps<Theme> = {
     bgcolor: (theme) => alpha(theme.palette.error.main, theme.palette.mode === "dark" ? 0.28 : 0.14),
     boxShadow: (theme) => getSettingsFocusRing(theme, "error"),
   },
-};
+} satisfies SxProps<Theme>;
 
-export const settingsMetadataChipSx: SxProps<Theme> = {
+export const settingsMetadataChipSx = {
   height: 20,
   fontSize: "0.7rem",
   color: "text.primary",
@@ -125,9 +125,9 @@ export const settingsMetadataChipSx: SxProps<Theme> = {
   "& .MuiChip-icon": {
     color: "inherit",
   },
-};
+} satisfies SxProps<Theme>;
 
-export const settingsPrimaryFabSx: SxProps<Theme> = {
+export const settingsPrimaryFabSx = {
   position: "fixed",
   right: `calc(${SETTINGS_FAB_OFFSET_PX}px + env(safe-area-inset-right))`,
   bottom: `calc(${SETTINGS_FAB_OFFSET_PX}px + env(safe-area-inset-bottom))`,
@@ -140,4 +140,4 @@ export const settingsPrimaryFabSx: SxProps<Theme> = {
     outline: "none",
     boxShadow: (theme) => getContainedButtonFocusVisibleBoxShadow(theme, 5),
   },
-};
+} satisfies SxProps<Theme>;

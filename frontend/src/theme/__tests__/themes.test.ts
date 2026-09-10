@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import builtInThemeIds from "../../../../shared/built_in_theme_ids.json";
 import { builtInThemes, getDefaultTheme, getThemeById } from "../themes";
 
 //
@@ -25,6 +26,10 @@ describe("Theme System - themes.ts", () => {
       const ids = builtInThemes.map((t) => t.id);
       const uniqueIds = new Set(ids);
       expect(uniqueIds.size).toBe(ids.length);
+    });
+
+    it("matches the backend built-in theme ID manifest", () => {
+      expect([...builtInThemes.map((theme) => theme.id)].sort()).toEqual([...builtInThemeIds].sort());
     });
 
     it("should have valid theme structure", () => {

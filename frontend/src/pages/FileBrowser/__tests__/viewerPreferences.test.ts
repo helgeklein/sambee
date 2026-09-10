@@ -1,13 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { loadCurrentUserSettingsMock, patchCurrentUserSettingsMock } = vi.hoisted(() => ({
-  loadCurrentUserSettingsMock: vi.fn(),
-  patchCurrentUserSettingsMock: vi.fn(),
+const { associations, commitMock, refreshMock } = vi.hoisted(() => ({
+  associations: { value: {} as Record<string, string> },
+  commitMock: vi.fn(),
+  refreshMock: vi.fn(),
 }));
 
-vi.mock("../../../services/userSettingsSync", () => ({
-  loadCurrentUserSettings: loadCurrentUserSettingsMock,
-  patchCurrentUserSettings: patchCurrentUserSettingsMock,
+vi.mock("../../../services/userSettingsStore", () => ({
+  refreshCurrentUserSettings: refreshMock,
+  userSettingsStore: {
+    getValue: () => ({ confirmedValue: associations.value, commit: commitMock }),
+  },
 }));
 
 import { getPreferredViewerId, getViewerAssociationKeys, setPreferredViewerId } from "../viewerPreferences";
@@ -15,77 +18,38 @@ import { getPreferredViewerId, getViewerAssociationKeys, setPreferredViewerId } 
 describe("viewerPreferences", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    refreshMock.mockResolvedValue(undefined);
+    commitMock.mockResolvedValue(undefined);
+    associations.value = {};
   });
 
   it("returns MIME-based associations before extension fallback", async () => {
-    loadCurrentUserSettingsMock.mockResolvedValue({
-      browser: {
-        viewer_associations: {
-          "mime:application/pdf": "pdf",
-          "ext:.pdf": "markdown",
-        },
-      },
-    });
+    associations.value = { "mime:application/pdf": "pdf", "ext:.pdf": "markdown" };
 
     await expect(getPreferredViewerId("report.pdf", "application/pdf")).resolves.toBe("pdf");
   });
 
   it("falls back to the extension when MIME is generic", async () => {
-    loadCurrentUserSettingsMock.mockResolvedValue({
-      browser: {
-        viewer_associations: {
-          "ext:.md": "markdown",
-        },
-      },
-    });
+    associations.value = { "ext:.md": "markdown" };
 
     await expect(getPreferredViewerId("notes.md", "application/octet-stream")).resolves.toBe("markdown");
   });
 
   it("ignores invalid stored viewer identifiers", async () => {
-    loadCurrentUserSettingsMock.mockResolvedValue({
-      browser: {
-        viewer_associations: {
-          "mime:application/pdf": "spreadsheet",
-        },
-      },
-    });
+    associations.value = { "mime:application/pdf": "spreadsheet" };
 
     await expect(getPreferredViewerId("report.pdf", "application/pdf")).resolves.toBeNull();
   });
 
-  it("accepts the text viewer as a valid stored association", async () => {
-    loadCurrentUserSettingsMock.mockResolvedValue({
-      browser: {
-        viewer_associations: {
-          "ext:.ts": "text",
-        },
-      },
-    });
-
-    await expect(getPreferredViewerId("app.ts", "application/octet-stream")).resolves.toBe("text");
-  });
-
-  it("stores both MIME and extension associations when available", async () => {
-    loadCurrentUserSettingsMock.mockResolvedValue({
-      browser: {
-        viewer_associations: {
-          "mime:text/plain": "markdown",
-        },
-      },
-    });
-    patchCurrentUserSettingsMock.mockResolvedValue(null);
+  it("commits both MIME and extension associations as one field", async () => {
+    associations.value = { "mime:text/plain": "markdown" };
 
     await setPreferredViewerId("report.pdf", "application/pdf", "pdf");
 
-    expect(patchCurrentUserSettingsMock).toHaveBeenCalledWith({
-      browser: {
-        viewer_associations: {
-          "mime:text/plain": "markdown",
-          "mime:application/pdf": "pdf",
-          "ext:.pdf": "pdf",
-        },
-      },
+    expect(commitMock).toHaveBeenCalledWith({
+      "mime:text/plain": "markdown",
+      "mime:application/pdf": "pdf",
+      "ext:.pdf": "pdf",
     });
   });
 

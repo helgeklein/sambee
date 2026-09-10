@@ -61,10 +61,6 @@ describe("FileBrowserSettings", () => {
     render(<FileBrowserSettings />);
 
     await user.click(screen.getByRole("checkbox", { name: "Include dot directories in quick nav" }));
-    expect(setIncludeDotDirectoriesMock).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-
     expect(setIncludeDotDirectoriesMock).toHaveBeenCalledWith(true);
   });
 
@@ -74,7 +70,6 @@ describe("FileBrowserSettings", () => {
 
     await user.click(screen.getByRole("combobox", { name: "Keyboard shortcut hints" }));
     await user.click(screen.getByRole("option", { name: "Never show" }));
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(setShortcutHintVisibilityMock).toHaveBeenCalledWith("never");
   });

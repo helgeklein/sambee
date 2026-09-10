@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { CODEMIRROR_EDITOR_SHORTCUTS, COMMON_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
 import { SCROLLBAR, TOOLBAR_HEIGHT } from "../../theme/constants";
-import { getDialogSurfaceTokens } from "../../theme/palette";
+import { getOverlaySurfaceTokens } from "../../theme/palette";
 import {
   CODEMIRROR_FIND_HISTORY_STORAGE_KEY,
   CODEMIRROR_FIND_REPLACE_REPLACE_INPUT_ATTRIBUTE,
@@ -127,7 +127,7 @@ export function CodeMirrorFindReplacePopover({
   const [replaceHistory, setReplaceHistory] = useState(() => readCodeMirrorFindReplaceHistory(CODEMIRROR_REPLACE_HISTORY_STORAGE_KEY));
   const hasMatches = isSearchValid && searchMatches > 0;
   const replaceDisabled = disabled || !hasMatches;
-  const dialogSurfaces = getDialogSurfaceTokens(theme.palette.background.default, theme.palette.mode);
+  const dialogSurfaces = getOverlaySurfaceTokens(theme.palette.background.default, theme.palette.mode);
 
   useEffect(() => {
     if (open) {

@@ -1,4 +1,4 @@
-import { loadCurrentUserSettings, patchCurrentUserSettings } from "../../services/userSettingsSync";
+import { refreshCurrentUserSettings, userSettingsStore } from "../../services/userSettingsStore";
 import type { ViewerId } from "../../utils/FileTypeRegistry";
 
 const GENERIC_MIME_TYPES = new Set(["", "application/octet-stream"]);
@@ -38,8 +38,8 @@ export function getViewerAssociationKeys(filename: string, mimeType: string): st
 }
 
 export async function getPreferredViewerId(filename: string, mimeType: string): Promise<ViewerId | null> {
-  const settings = await loadCurrentUserSettings();
-  const associations = settings?.browser.viewer_associations ?? {};
+  await refreshCurrentUserSettings();
+  const associations = userSettingsStore.getValue("browser.viewer_associations").confirmedValue ?? {};
 
   for (const key of getViewerAssociationKeys(filename, mimeType)) {
     const viewerId = associations[key];
@@ -52,16 +52,12 @@ export async function getPreferredViewerId(filename: string, mimeType: string): 
 }
 
 export async function setPreferredViewerId(filename: string, mimeType: string, viewerId: ViewerId): Promise<void> {
-  const settings = await loadCurrentUserSettings();
-  const associations = { ...(settings?.browser.viewer_associations ?? {}) };
+  await refreshCurrentUserSettings();
+  const associations = { ...(userSettingsStore.getValue("browser.viewer_associations").confirmedValue ?? {}) };
 
   for (const key of getViewerAssociationKeys(filename, mimeType)) {
     associations[key] = viewerId;
   }
 
-  await patchCurrentUserSettings({
-    browser: {
-      viewer_associations: associations,
-    },
-  });
+  await userSettingsStore.getValue("browser.viewer_associations").commit(associations);
 }

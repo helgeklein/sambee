@@ -1,6 +1,6 @@
 import { alpha, Box, type SxProps, type Theme } from "@mui/material";
 import { forwardRef, type ReactNode } from "react";
-import { DIALOG_FORM_SURFACE_CSS_VARIABLE, getModeAdjustedSurfaceColor } from "../../theme/palette";
+import { FORM_SURFACE_CSS_VARIABLE, getModeAdjustedSurfaceColor } from "../../theme/palette";
 
 export type InlineItemNameVariant = "prose" | "metadata";
 
@@ -32,7 +32,7 @@ export const InlineItemName = forwardRef<HTMLElement, InlineItemNameProps>(funct
       sx={[
         {
           bgcolor: (theme) =>
-            `var(${DIALOG_FORM_SURFACE_CSS_VARIABLE}, ${getModeAdjustedSurfaceColor(theme.palette.background.default, theme.palette.mode)})`,
+            `var(${FORM_SURFACE_CSS_VARIABLE}, ${getModeAdjustedSurfaceColor(theme.palette.background.default, theme.palette.mode)})`,
           border: (theme) => `1px solid ${alpha(theme.palette.text.primary, 0.2)}`,
           borderRadius: 0.5,
           color: "text.primary",

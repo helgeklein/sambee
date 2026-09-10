@@ -4,9 +4,9 @@ import type React from "react";
 import { useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
+import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
 import { settingsDestructiveButtonSx, settingsPrimaryButtonSx, settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
 import { adminDialogActionButtonSx, adminDialogEndActionRowSx } from "./dialogActionStyles";
-import { ResponsiveFormDialog } from "./ResponsiveFormDialog";
 
 interface DeleteDialogProps {
   open: boolean;
@@ -77,7 +77,7 @@ const DeleteDialog: React.FC<DeleteDialogProps> = ({
   );
 
   return (
-    <ResponsiveFormDialog
+    <ResponsiveDialogShell
       open={open}
       onClose={handleClose}
       disableClose={submitting}
@@ -90,7 +90,7 @@ const DeleteDialog: React.FC<DeleteDialogProps> = ({
       onTransitionEntered={() => cancelButtonRef.current?.focus()}
     >
       {null}
-    </ResponsiveFormDialog>
+    </ResponsiveDialogShell>
   );
 };
 

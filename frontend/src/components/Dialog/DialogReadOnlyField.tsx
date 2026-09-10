@@ -1,8 +1,7 @@
-import type { SxProps, Theme } from "@mui/material";
-import { TextField } from "@mui/material";
-import type { ChangeEventHandler, FocusEventHandler, Ref } from "react";
-import { DIALOG_FORM_SURFACE_CSS_VARIABLE, getModeAdjustedSurfaceColor } from "../../theme/palette";
-import { settingsFormOutlinedControlSx } from "../Settings/SettingsFormLayout";
+import { type SxProps, TextField, type Theme } from "@mui/material";
+import type { ChangeEventHandler, FocusEventHandler, ReactNode, Ref } from "react";
+import { FORM_SURFACE_CSS_VARIABLE, getModeAdjustedSurfaceColor } from "../../theme/palette";
+import { formOutlinedControlSx } from "../Form/FormLayout";
 
 interface DialogReadOnlyFieldProps {
   id?: string;
@@ -14,7 +13,7 @@ interface DialogReadOnlyFieldProps {
   onChange?: ChangeEventHandler<HTMLInputElement | HTMLTextAreaElement>;
   inputRef?: Ref<HTMLInputElement>;
   error?: boolean;
-  helperText?: string;
+  helperText?: ReactNode;
   autoFocus?: boolean;
   onFocus?: FocusEventHandler<HTMLInputElement | HTMLTextAreaElement>;
   size?: "small" | "medium";
@@ -24,6 +23,12 @@ interface DialogReadOnlyFieldProps {
   showFormSurface?: boolean;
   sx?: SxProps<Theme>;
 }
+
+const dialogFormHelperTextSx = {
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
 
 /** Displays a selectable, optionally labelled value in a dialog without allowing edits. */
 export function DialogReadOnlyField({
@@ -71,27 +76,21 @@ export function DialogReadOnlyField({
           "aria-describedby": ariaDescribedBy,
           "aria-readonly": !editable,
         },
+        formHelperText: { sx: dialogFormHelperTextSx },
       }}
       sx={[
-        settingsFormOutlinedControlSx,
+        formOutlinedControlSx,
         {
           "& .MuiOutlinedInput-root": {
             bgcolor: showFormSurface
               ? (theme) =>
-                  `var(${DIALOG_FORM_SURFACE_CSS_VARIABLE}, ${getModeAdjustedSurfaceColor(theme.palette.background.default, theme.palette.mode)})`
+                  `var(${FORM_SURFACE_CSS_VARIABLE}, ${getModeAdjustedSurfaceColor(theme.palette.background.default, theme.palette.mode)})`
               : "transparent",
             cursor: "default",
           },
-          "& .MuiInputBase-input": {
-            color: "text.primary",
-            cursor: "text",
-          },
-          "& .MuiInputLabel-root.MuiInputLabel-shrink": {
-            bgcolor: showFormSurface ? undefined : "transparent",
-          },
-          "& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline": {
-            borderColor: "divider",
-          },
+          "& .MuiInputBase-input": { color: "text.primary", cursor: "text" },
+          "& .MuiInputLabel-root.MuiInputLabel-shrink": { bgcolor: showFormSurface ? undefined : "transparent" },
+          "& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline": { borderColor: "divider" },
         },
         ...(Array.isArray(sx) ? sx : sx ? [sx] : []),
       ]}

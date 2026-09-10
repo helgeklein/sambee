@@ -6,18 +6,21 @@ from sqlmodel import Session
 from app.core.authorization import Capability
 from app.core.logging import set_user
 from app.core.security import require_capability
-from app.db.database import get_session
+from app.db.database import get_immediate_session, get_session
 from app.models.system_settings import (
     AboutSettingsRead,
     AdvancedSystemSettingsRead,
-    AdvancedSystemSettingsUpdate,
+    AdvancedSystemSettingUpdate,
     FileSearchSettingsRead,
     FileSearchSettingsUpdate,
+    FileSearchSettingsUpdateResult,
     NetworkSettingsRead,
     NetworkSettingsUpdate,
+    NetworkSettingsUpdateResult,
     PublicSupportReportRead,
     SmbSettingsRead,
     SmbSettingsUpdate,
+    SmbSettingsUpdateResult,
 )
 from app.models.user import User
 from app.services.system_settings import (
@@ -48,12 +51,12 @@ async def get_file_search_settings(
     return build_file_search_settings_read(session)
 
 
-@router.put("/settings/file-search", response_model=FileSearchSettingsRead)
+@router.put("/settings/file-search", response_model=FileSearchSettingsUpdateResult)
 async def put_file_search_settings(
     payload: FileSearchSettingsUpdate,
+    session: Session = Depends(get_immediate_session),
     current_user: User = Depends(require_capability(Capability.ACCESS_ADMIN_SETTINGS)),
-    session: Session = Depends(get_session),
-) -> FileSearchSettingsRead:
+) -> FileSearchSettingsUpdateResult:
     set_user(current_user.username)
     try:
         return update_file_search_settings(payload, updated_by_user_id=current_user.id, session=session)
@@ -86,18 +89,17 @@ async def get_advanced_system_settings(
     return build_advanced_system_settings_read()
 
 
-@router.put("/settings/advanced", response_model=AdvancedSystemSettingsRead)
+@router.put("/settings/advanced", response_model=AdvancedSystemSettingUpdate)
 async def put_advanced_system_settings(
-    payload: AdvancedSystemSettingsUpdate,
+    payload: AdvancedSystemSettingUpdate,
     current_user: User = Depends(require_capability(Capability.ACCESS_ADMIN_SETTINGS)),
     session: Session = Depends(get_session),
-) -> AdvancedSystemSettingsRead:
+) -> AdvancedSystemSettingUpdate:
     set_user(current_user.username)
     try:
-        update_advanced_system_settings(payload, updated_by_user_id=current_user.id, session=session)
+        return update_advanced_system_settings(payload, updated_by_user_id=current_user.id, session=session)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return build_advanced_system_settings_read()
 
 
 @router.get("/settings/smb", response_model=SmbSettingsRead)
@@ -108,12 +110,12 @@ async def get_smb_settings(
     return build_smb_settings_read()
 
 
-@router.put("/settings/smb", response_model=SmbSettingsRead)
+@router.put("/settings/smb", response_model=SmbSettingsUpdateResult)
 async def put_smb_settings(
     payload: SmbSettingsUpdate,
     current_user: User = Depends(require_capability(Capability.ACCESS_ADMIN_SETTINGS)),
     session: Session = Depends(get_session),
-) -> SmbSettingsRead:
+) -> SmbSettingsUpdateResult:
     set_user(current_user.username)
     try:
         policy_changed = smb_policy_will_change(payload, session)
@@ -135,12 +137,12 @@ async def get_network_settings(
     return build_network_settings_read(session)
 
 
-@router.put("/settings/network", response_model=NetworkSettingsRead)
+@router.put("/settings/network", response_model=NetworkSettingsUpdateResult)
 async def put_network_settings(
     payload: NetworkSettingsUpdate,
     current_user: User = Depends(require_capability(Capability.ACCESS_ADMIN_SETTINGS)),
     session: Session = Depends(get_session),
-) -> NetworkSettingsRead:
+) -> NetworkSettingsUpdateResult:
     set_user(current_user.username)
     try:
         return update_network_settings(payload, updated_by_user_id=current_user.id, session=session)

@@ -17,18 +17,19 @@
  * progress. Both panes refresh via WebSocket after completion.
  */
 
-import { Alert, Box, Button, CircularProgress, LinearProgress, TextField, Typography } from "@mui/material";
+import { Box, Button, CircularProgress, LinearProgress, TextField, Typography } from "@mui/material";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Trans } from "react-i18next";
+import { useTranslation } from "react-i18next";
 import type { FileEntry } from "../../types";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
-import { DialogReadOnlyField } from "../Admin/DialogReadOnlyField";
-import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
-import { SettingsFormGroup, SettingsFormRow, SettingsFormSurface, settingsFormOutlinedControlSx } from "../Settings/SettingsFormLayout";
+import { DialogNoticeRegion } from "../Dialog/DialogNotice";
+import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
+import { FormGroup, FormRow, FormSurface, formOutlinedControlSx } from "../Form/FormLayout";
 import { COPY_MOVE_STRINGS as S } from "./copyMoveDialogStrings";
+import { DialogIdentifierDisplay } from "./DialogIdentifierDisplay";
+import { DialogOperationContext } from "./DialogOperationContext";
 import { FILENAME_FIELD_PROPS, FILENAME_INPUT_PROPS, FILENAME_INPUT_SX } from "./filenameFieldProps";
-import { InlineItemName } from "./InlineItemName";
 import { validateItemName } from "./nameDialogStrings";
 
 // ============================================================================
@@ -108,6 +109,7 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   warning,
   isTerminal = false,
 }) => {
+  const { t } = useTranslation();
   // Editable file name — only used for single-item operations
   const isSingleItem = files.length === 1;
   const originalFileName = isSingleItem ? (files[0]!.name ?? "") : "";
@@ -116,6 +118,7 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   const [destFileName, setDestFileName] = useState(initialFileName);
   const inputRef = useRef<HTMLInputElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   // Reset state when the dialog opens and restore focus after a nested workflow finishes.
@@ -138,21 +141,20 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
     }
   }, [open, initialFileName, isSingleItem, isTerminal]);
 
+  useEffect(() => {
+    if (!open || !isProcessing || isTerminal) return;
+    const frame = requestAnimationFrame(() => cancelButtonRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [isProcessing, isTerminal, open]);
+
   const title = isCopy ? S.TITLE_COPY : S.TITLE_MOVE;
-  const prompt = isCopy ? S.PROMPT_COPY_MULTI(files.length) : S.PROMPT_MOVE_MULTI(files.length);
+  const batchDescription = isCopy ? S.DESCRIPTION_COPY_MULTI(files.length) : S.DESCRIPTION_MOVE_MULTI(files.length);
   const description = isSingleItem ? (
     <Typography variant="body2" sx={{ color: "text.secondary" }}>
-      <Trans
-        i18nKey={isCopy ? "fileBrowser.copyMove.promptCopySingle" : "fileBrowser.copyMove.promptMoveSingle"}
-        values={{ name: originalFileName, destination: destinationLabel }}
-        components={{
-          item: <InlineItemName testId="copy-move-prompt-item-name" />,
-          destination: <InlineItemName testId="copy-move-prompt-destination" />,
-        }}
-      />
+      {t(isCopy ? "fileBrowser.copyMove.descriptionCopySingle" : "fileBrowser.copyMove.descriptionMoveSingle")}
     </Typography>
   ) : (
-    prompt
+    batchDescription
   );
 
   const confirmLabel = isProcessing ? (isCopy ? S.BUTTON_COPYING : S.BUTTON_MOVING) : isCopy ? S.BUTTON_COPY : S.BUTTON_MOVE;
@@ -180,12 +182,18 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
 
   const formContent = (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-      {error ? <Alert severity="error">{error}</Alert> : null}
-      {warning ? <Alert severity="warning">{warning}</Alert> : null}
+      <DialogOperationContext
+        entries={[
+          ...(isSingleItem
+            ? [{ label: t("fileBrowser.operationContext.sourceItem"), value: originalFileName, kind: "fileName" as const }]
+            : []),
+          { label: t("fileBrowser.operationContext.destinationDirectory"), value: destinationLabel, kind: "path" },
+        ]}
+      />
       {isSingleItem ? (
-        <SettingsFormSurface>
-          <SettingsFormGroup>
-            <SettingsFormRow sx={{ display: { md: "block" } }}>
+        <FormSurface>
+          <FormGroup>
+            <FormRow sx={{ display: { md: "block" } }}>
               <TextField
                 id="copy-move-filename"
                 inputRef={inputRef}
@@ -194,35 +202,15 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
                 onChange={(event) => setDestFileName(event.target.value)}
                 disabled={isProcessing}
                 error={Boolean(fileNameError)}
-                helperText={fileNameError ?? " "}
+                helperText={fileNameError}
                 {...FILENAME_FIELD_PROPS}
                 slotProps={{ htmlInput: FILENAME_INPUT_PROPS }}
-                sx={[settingsFormOutlinedControlSx, FILENAME_INPUT_SX]}
+                sx={[formOutlinedControlSx, FILENAME_INPUT_SX]}
               />
-            </SettingsFormRow>
-          </SettingsFormGroup>
-        </SettingsFormSurface>
-      ) : (
-        <SettingsFormSurface>
-          <SettingsFormGroup>
-            <SettingsFormRow sx={{ display: { md: "block" }, py: 0 }}>
-              <DialogReadOnlyField ariaLabel={S.LABEL_DESTINATION} value={destinationLabel} showFormSurface />
-            </SettingsFormRow>
-          </SettingsFormGroup>
-        </SettingsFormSurface>
-      )}
-
-      {!isSingleItem ? (
-        <Alert
-          aria-hidden={!isNoOpDestination}
-          data-testid="copy-move-destination-error"
-          severity="error"
-          sx={{ visibility: isNoOpDestination ? "visible" : "hidden" }}
-        >
-          {S.ERROR_SAME_DIRECTORY}
-        </Alert>
+            </FormRow>
+          </FormGroup>
+        </FormSurface>
       ) : null}
-
       {isProcessing && progress ? (
         <Box>
           <Typography variant="body2" sx={{ mb: 0.5, color: "text.secondary" }}>
@@ -234,12 +222,16 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
 
       {isProcessing && transferProgress ? (
         <Box>
-          <Typography variant="body2" sx={{ mb: 0.5, color: "text.secondary" }}>
-            {transferProgress.itemName}:{" "}
-            {transferProgress.totalBytes != null && transferProgress.totalBytes > 0
-              ? `${formatBytes(transferProgress.bytesTransferred)} / ${formatBytes(transferProgress.totalBytes)}`
-              : formatBytes(transferProgress.bytesTransferred)}
-          </Typography>
+          <Box sx={{ alignItems: "baseline", display: "flex", gap: 0.5, mb: 0.5, minWidth: 0 }}>
+            <Box sx={{ flex: "1 1 auto", minWidth: 0 }}>
+              <DialogIdentifierDisplay value={transferProgress.itemName} kind="fileName" />
+            </Box>
+            <Typography component="span" sx={{ color: "text.secondary", flex: "0 0 auto", whiteSpace: "nowrap" }} variant="body2">
+              {transferProgress.totalBytes != null && transferProgress.totalBytes > 0
+                ? `${formatBytes(transferProgress.bytesTransferred)} / ${formatBytes(transferProgress.totalBytes)}`
+                : formatBytes(transferProgress.bytesTransferred)}
+            </Typography>
+          </Box>
           {transferProgress.totalBytes != null && transferProgress.totalBytes > 0 ? (
             <LinearProgress
               variant="determinate"
@@ -255,7 +247,7 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
 
   const actions = (
     <>
-      <Button ref={isTerminal ? closeButtonRef : undefined} onClick={onCancel}>
+      <Button ref={isTerminal ? closeButtonRef : cancelButtonRef} onClick={onCancel}>
         {isTerminal ? "Close" : S.BUTTON_CANCEL}
       </Button>
       {!isTerminal ? (
@@ -273,18 +265,36 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   );
 
   return (
-    <ResponsiveFormDialog
+    <ResponsiveDialogShell
       open={open}
       onClose={onCancel}
       disableClose={isProcessing}
+      onEscape={isProcessing ? onCancel : undefined}
       onKeyDown={handleKeyDown}
       title={title}
+      contextualNotice={
+        <DialogNoticeRegion
+          testId="copy-move-notice-region"
+          notices={
+            isSingleItem ? [] : [{ message: isNoOpDestination ? S.ERROR_SAME_DIRECTORY : null, testId: "copy-move-destination-error" }]
+          }
+        />
+      }
+      actionNotice={
+        <DialogNoticeRegion
+          testId="copy-move-action-notice-region"
+          notices={[
+            { message: error, testId: "copy-move-notice" },
+            { message: warning, severity: "warning", testId: "copy-move-warning" },
+          ]}
+        />
+      }
       description={description}
       actions={actions}
       maxWidth="sm"
     >
       {formContent}
-    </ResponsiveFormDialog>
+    </ResponsiveDialogShell>
   );
 };
 

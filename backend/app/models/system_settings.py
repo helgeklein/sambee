@@ -3,10 +3,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from enum import StrEnum
-from typing import Optional
+from typing import Annotated, Literal, Optional
 
 from pydantic import field_validator, model_validator
 from sqlmodel import Field, SQLModel
+from sqlmodel._compat import SQLModelConfig
 
 from app.core.system_setting_definitions import SystemSettingKey, SystemSettingSource
 
@@ -76,24 +77,52 @@ class SmbPolicySettings(SQLModel):
 class SmbSettingsRead(SQLModel):
     read_chunk_size_bytes: IntegerSystemSettingRead
     policy: SmbPolicySettings
-    policy_source: SystemSettingSource
     require_signing: bool = True
     require_encryption: bool = False
 
 
-class SmbSettingsUpdate(SQLModel):
-    read_chunk_size_bytes: Optional[int] = None
-    policy: Optional[SmbPolicySettings] = None
-    reset_read_chunk_size_bytes: bool = False
-    reset_policy: bool = False
+class StrictSettingUpdate(SQLModel):
+    model_config = SQLModelConfig(extra="forbid")
+
+
+class AdvancedSystemSettingUpdate(StrictSettingUpdate):
+    field: SystemSettingKey
+    value: int
 
     @model_validator(mode="after")
-    def prevent_conflicting_resets(self) -> "SmbSettingsUpdate":
-        if self.read_chunk_size_bytes is not None and self.reset_read_chunk_size_bytes:
-            raise ValueError("Cannot update and reset the SMB read chunk size in one request")
-        if self.policy is not None and self.reset_policy:
-            raise ValueError("Cannot update and reset the SMB policy in one request")
+    def validate_supported_field(self) -> "AdvancedSystemSettingUpdate":
+        from app.core.system_setting_definitions import SYSTEM_SETTING_DEFINITIONS
+
+        if self.field not in SYSTEM_SETTING_DEFINITIONS or self.field is SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES:
+            raise ValueError("Field is not an editable advanced system setting")
         return self
+
+
+class SmbReadChunkSizeUpdate(StrictSettingUpdate):
+    field: Literal["read_chunk_size_bytes"]
+    value: int
+
+
+class SmbAuthenticationModeUpdate(StrictSettingUpdate):
+    field: Literal["authentication_mode"]
+    value: SmbAuthenticationMode
+
+
+class SmbEncryptionModeUpdate(StrictSettingUpdate):
+    field: Literal["encryption_mode"]
+    value: SmbEncryptionMode
+
+
+class SmbConnectionTimeoutUpdate(StrictSettingUpdate):
+    field: Literal["connection_timeout_seconds"]
+    value: int
+
+
+SmbSettingsUpdate = Annotated[
+    SmbReadChunkSizeUpdate | SmbAuthenticationModeUpdate | SmbEncryptionModeUpdate | SmbConnectionTimeoutUpdate,
+    Field(discriminator="field"),
+]
+SmbSettingsUpdateResult = SmbSettingsUpdate
 
 
 class PreprocessorAdvancedSettingsUpdate(SQLModel):
@@ -172,15 +201,31 @@ class FileSearchSettingsRead(SQLModel):
     source: SystemSettingSource
 
 
-class FileSearchSettingsUpdate(SQLModel):
-    settings: FileSearchSettings | None = None
-    reset_to_default: bool = False
+class FileSearchRetentionLimitUpdate(StrictSettingUpdate):
+    field: Literal["retention_limit"]
+    value: int
 
-    @model_validator(mode="after")
-    def prevent_conflicting_reset(self) -> "FileSearchSettingsUpdate":
-        if self.settings is not None and self.reset_to_default:
-            raise ValueError("Cannot update and reset File Search settings in one request")
-        return self
+
+class FileSearchResultLimitUpdate(StrictSettingUpdate):
+    field: Literal["result_limit"]
+    value: int
+
+
+class FileSearchExcludedCategoriesUpdate(StrictSettingUpdate):
+    field: Literal["excluded_categories"]
+    value: set[str]
+
+
+class FileSearchExcludedExtensionsUpdate(StrictSettingUpdate):
+    field: Literal["excluded_extensions"]
+    value: set[str]
+
+
+FileSearchSettingsUpdate = Annotated[
+    FileSearchRetentionLimitUpdate | FileSearchResultLimitUpdate | FileSearchExcludedCategoriesUpdate | FileSearchExcludedExtensionsUpdate,
+    Field(discriminator="field"),
+]
+FileSearchSettingsUpdateResult = FileSearchSettingsUpdate
 
 
 class NetworkSettingsRead(SQLModel):
@@ -188,9 +233,18 @@ class NetworkSettingsRead(SQLModel):
     trusted_proxy_cidrs: list[str]
 
 
-class NetworkSettingsUpdate(SQLModel):
-    public_url: str = Field(max_length=2048)
-    trusted_proxy_cidrs: list[str] = Field(default_factory=list, max_length=100)
+class NetworkPublicUrlUpdate(StrictSettingUpdate):
+    field: Literal["public_url"]
+    value: str = Field(max_length=2048)
+
+
+class NetworkTrustedProxyCidrsUpdate(StrictSettingUpdate):
+    field: Literal["trusted_proxy_cidrs"]
+    value: list[str] = Field(default_factory=list, max_length=100)
+
+
+NetworkSettingsUpdate = Annotated[NetworkPublicUrlUpdate | NetworkTrustedProxyCidrsUpdate, Field(discriminator="field")]
+NetworkSettingsUpdateResult = NetworkSettingsUpdate
 
 
 class AboutSettingsRead(SQLModel):

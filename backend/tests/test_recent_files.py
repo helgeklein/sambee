@@ -289,7 +289,7 @@ class TestRecentFilesApi:
 
 
 class TestFileSearchSettingsApi:
-    def test_admin_reads_updates_and_resets_file_search_policy(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
+    def test_admin_reads_and_updates_individual_file_search_fields(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
         initial = client.get("/api/admin/settings/file-search", headers=auth_headers_admin)
         assert initial.status_code == 200
         assert initial.json()["source"] == "default"
@@ -297,22 +297,13 @@ class TestFileSearchSettingsApi:
         update = client.put(
             "/api/admin/settings/file-search",
             headers=auth_headers_admin,
-            json={
-                "settings": {
-                    "retention_limit": 2,
-                    "result_limit": 1,
-                    "excluded_categories": ["images", "temporary_backup"],
-                    "excluded_extensions": ["bak"],
-                }
-            },
+            json={"field": "excluded_extensions", "value": ["bak"]},
         )
         assert update.status_code == 200
-        assert update.json()["source"] == "database"
-        assert update.json()["settings"]["excluded_extensions"] == [".bak"]
+        assert update.json() == {"field": "excluded_extensions", "value": [".bak"]}
 
-        reset = client.put("/api/admin/settings/file-search", headers=auth_headers_admin, json={"reset_to_default": True})
-        assert reset.status_code == 200
-        assert reset.json()["source"] == "default"
+        invalid_legacy_payload = client.put("/api/admin/settings/file-search", headers=auth_headers_admin, json={"reset_to_default": True})
+        assert invalid_legacy_payload.status_code == 422
 
     def test_policy_clamps_results_trims_history_and_does_not_retroactively_exclude(
         self,
@@ -327,19 +318,13 @@ class TestFileSearchSettingsApi:
         )
         assert initial_record.status_code == 200
 
-        update = client.put(
-            "/api/admin/settings/file-search",
-            headers=auth_headers_admin,
-            json={
-                "settings": {
-                    "retention_limit": 2,
-                    "result_limit": 1,
-                    "excluded_categories": ["images", "temporary_backup"],
-                    "excluded_extensions": ["txt"],
-                }
-            },
-        )
-        assert update.status_code == 200
+        for payload in (
+            {"field": "retention_limit", "value": 2},
+            {"field": "result_limit", "value": 1},
+            {"field": "excluded_extensions", "value": ["txt"]},
+        ):
+            update = client.put("/api/admin/settings/file-search", headers=auth_headers_admin, json=payload)
+            assert update.status_code == 200
 
         excluded_record = client.post(
             "/api/browse/recent-files",
@@ -357,14 +342,7 @@ class TestFileSearchSettingsApi:
         reduced = client.put(
             "/api/admin/settings/file-search",
             headers=auth_headers_admin,
-            json={
-                "settings": {
-                    "retention_limit": 0,
-                    "result_limit": 1,
-                    "excluded_categories": ["images", "temporary_backup"],
-                    "excluded_extensions": ["txt"],
-                }
-            },
+            json={"field": "retention_limit", "value": 0},
         )
         assert reduced.status_code == 200
         assert client.get("/api/browse/recent-files", headers=auth_headers_user).json()["results"] == []
@@ -388,17 +366,10 @@ class TestFileSearchSettingsApi:
         update = client.put(
             "/api/admin/settings/file-search",
             headers=auth_headers_admin,
-            json={
-                "settings": {
-                    "retention_limit": 0,
-                    "result_limit": 10,
-                    "excluded_categories": ["images", "temporary_backup"],
-                    "excluded_extensions": ["bak"],
-                }
-            },
+            json={"field": "retention_limit", "value": 0},
         )
         assert update.status_code == 200
-        assert update.json()["settings"]["retention_limit"] == 0
+        assert update.json() == {"field": "retention_limit", "value": 0}
         assert client.get("/api/browse/recent-files", headers=auth_headers_user).json()["results"] == []
 
         disabled_record = client.post(

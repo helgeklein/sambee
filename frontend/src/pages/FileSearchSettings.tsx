@@ -1,13 +1,18 @@
 import { Add as AddIcon, Cancel as CancelIcon } from "@mui/icons-material";
-import { Button, Checkbox, Chip, FormControl, FormControlLabel, FormGroup, FormLabel, Stack, TextField } from "@mui/material";
+import { Alert, Button, Checkbox, Chip, FormControl, FormControlLabel, FormGroup, FormLabel, Stack, TextField } from "@mui/material";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsPage } from "../components/Settings/SettingsPage";
+import {
+  SettingPersistenceAdornment,
+  SettingPersistenceIndicator,
+  useSystemSettingPersistence,
+} from "../hooks/useSystemSettingPersistence";
 import api from "../services/api";
 import { publishRecentFilesChanged } from "../services/recentFilesSync";
-import type { FileSearchSettings as FileSearchSettingsModel } from "../types";
+import type { FileSearchSettings as FileSearchSettingsModel, FileSearchSettingsUpdate } from "../types";
 
 const DEFAULT_SETTINGS: FileSearchSettingsModel = {
   retention_limit: 50,
@@ -46,35 +51,40 @@ function validateSettings(settings: FileSearchSettingsModel): {
 export function FileSearchSettings() {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<FileSearchSettingsModel>(DEFAULT_SETTINGS);
-  const [savedSettings, setSavedSettings] = useState<FileSearchSettingsModel>(DEFAULT_SETTINGS);
   const [extensionInput, setExtensionInput] = useState("");
   const [extensionInputError, setExtensionInputError] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const persistence = useSystemSettingPersistence<FileSearchSettingsUpdate>(api.updateFileSearchSettings, () =>
+    t("settings.fileSearch.saveFailed")
+  );
   const validation = validateSettings(settings);
-  const isValid = !validation.retention && !validation.results && !validation.extensions;
-  const isDirty = JSON.stringify(settings) !== JSON.stringify(savedSettings);
 
   useEffect(() => {
     void api
       .getFileSearchSettings()
       .then((response) => {
         setSettings(response.settings);
-        setSavedSettings(response.settings);
         setExtensionInput("");
         setExtensionInputError(null);
-        setError(null);
+        setLoadError(null);
       })
-      .catch(() => setError(t("settings.fileSearch.loadFailed")));
+      .catch(() => setLoadError(t("settings.fileSearch.loadFailed")));
   }, [t]);
 
+  const persistField = async (update: FileSearchSettingsUpdate) => {
+    const result = await persistence.persist(update);
+    if (result.status === "completed") {
+      setSettings((current) => ({ ...current, [result.update.field]: result.update.value }));
+      publishRecentFilesChanged();
+    }
+  };
+
   const updateCategories = (category: "images" | "temporary_backup", checked: boolean) => {
-    setSettings((current) => ({
-      ...current,
-      excluded_categories: checked
-        ? [...new Set([...current.excluded_categories, category])]
-        : current.excluded_categories.filter((entry) => entry !== category),
-    }));
+    const excluded_categories = checked
+      ? [...new Set([...settings.excluded_categories, category])]
+      : settings.excluded_categories.filter((entry) => entry !== category);
+    setSettings((current) => ({ ...current, excluded_categories }));
+    void persistField({ field: "excluded_categories", value: excluded_categories });
   };
 
   const addExtension = () => {
@@ -88,72 +98,96 @@ export function FileSearchSettings() {
       return;
     }
     setSettings((current) => ({ ...current, excluded_extensions: [...current.excluded_extensions, normalizedExtension] }));
+    void persistField({ field: "excluded_extensions", value: [...settings.excluded_extensions, normalizedExtension] });
     setExtensionInput("");
     setExtensionInputError(null);
   };
 
   const removeExtension = (extension: string) => {
-    setSettings((current) => ({ ...current, excluded_extensions: current.excluded_extensions.filter((entry) => entry !== extension) }));
+    const excluded_extensions = settings.excluded_extensions.filter((entry) => entry !== extension);
+    setSettings((current) => ({ ...current, excluded_extensions }));
+    void persistField({ field: "excluded_extensions", value: excluded_extensions });
   };
 
   const normalizedExtensionPreview = extensionInput.trim() ? normalizeExtension(extensionInput) : null;
 
-  const save = async () => {
-    if (!isValid) return;
-    setSaving(true);
-    try {
-      const response = await api.updateFileSearchSettings({ settings });
-      setSettings(response.settings);
-      setSavedSettings(response.settings);
-      setExtensionInput("");
-      setExtensionInputError(null);
-      setError(null);
-      publishRecentFilesChanged();
-    } catch {
-      setError(t("settings.fileSearch.saveFailed"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
-    <SettingsPage
-      category="admin-file-search"
-      footerPrimaryActions={
-        <Button variant="contained" disabled={saving || !isDirty || !isValid} onClick={() => void save()}>
-          {t("settings.fileSearch.saveChanges")}
-        </Button>
-      }
-    >
+    <SettingsPage category="admin-file-search" contextualNotice={loadError ? <Alert severity="error">{loadError}</Alert> : null}>
       <SettingsGroup title={t("settings.fileSearch.title")}>
         <Stack spacing={2} sx={{ maxWidth: 480 }}>
           <TextField
             label={t("settings.fileSearch.retentionLimit")}
             type="number"
             value={Number.isNaN(settings.retention_limit) ? "" : settings.retention_limit}
-            slotProps={{ htmlInput: { min: 0, max: 500 } }}
             error={Boolean(validation.retention)}
-            helperText={validation.retention ? t("settings.fileSearch.retentionLimitError") : undefined}
-            onChange={(event) =>
+            helperText={
+              persistence.fieldErrors.retention_limit ?? (validation.retention ? t("settings.fileSearch.retentionLimitError") : undefined)
+            }
+            onChange={(event) => {
+              persistence.clearFieldFeedback("retention_limit");
               setSettings((current) => ({
                 ...current,
                 retention_limit: event.target.value === "" ? Number.NaN : Number(event.target.value),
-              }))
-            }
+              }));
+            }}
+            onBlur={() => {
+              if (!validation.retention) void persistField({ field: "retention_limit", value: settings.retention_limit });
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+            }}
+            disabled={persistence.isPending("retention_limit")}
+            slotProps={{
+              htmlInput: { min: 0, max: 500 },
+              input: {
+                endAdornment:
+                  persistence.isPending("retention_limit") || persistence.isSaved("retention_limit") ? (
+                    <SettingPersistenceAdornment
+                      pending={persistence.isPending("retention_limit")}
+                      saved={persistence.isSaved("retention_limit")}
+                      savingLabel="Saving recent-files retention"
+                      savedLabel="Recent-files retention saved"
+                    />
+                  ) : null,
+              },
+            }}
           />
           <TextField
             label={t("settings.fileSearch.resultLimit")}
             type="number"
             value={Number.isNaN(settings.result_limit) ? "" : settings.result_limit}
-            slotProps={{ htmlInput: { min: 1, max: 50 } }}
             error={Boolean(validation.results)}
-            helperText={validation.results ? t("settings.fileSearch.resultLimitError") : undefined}
-            onChange={(event) =>
+            helperText={
+              persistence.fieldErrors.result_limit ?? (validation.results ? t("settings.fileSearch.resultLimitError") : undefined)
+            }
+            onChange={(event) => {
+              persistence.clearFieldFeedback("result_limit");
               setSettings((current) => ({
                 ...current,
                 result_limit: event.target.value === "" ? Number.NaN : Number(event.target.value),
-              }))
-            }
+              }));
+            }}
+            onBlur={() => {
+              if (!validation.results) void persistField({ field: "result_limit", value: settings.result_limit });
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+            }}
+            disabled={persistence.isPending("result_limit")}
+            slotProps={{
+              htmlInput: { min: 1, max: 50 },
+              input: {
+                endAdornment:
+                  persistence.isPending("result_limit") || persistence.isSaved("result_limit") ? (
+                    <SettingPersistenceAdornment
+                      pending={persistence.isPending("result_limit")}
+                      saved={persistence.isSaved("result_limit")}
+                      savingLabel="Saving result limit"
+                      savedLabel="Result limit saved"
+                    />
+                  ) : null,
+              },
+            }}
           />
           <FormControl
             component="fieldset"
@@ -167,7 +201,15 @@ export function FileSearchSettings() {
             }}
           >
             <FormLabel component="legend" sx={{ color: "text.primary", fontSize: "0.875rem", fontWeight: 500 }}>
-              {t("settings.fileSearch.excludedCategories")}
+              <Stack direction="row" spacing={1} alignItems="center">
+                {t("settings.fileSearch.excludedCategories")}
+                <SettingPersistenceIndicator
+                  pending={persistence.isPending("excluded_categories")}
+                  saved={persistence.isSaved("excluded_categories")}
+                  savingLabel="Saving excluded categories"
+                  savedLabel="Excluded categories saved"
+                />
+              </Stack>
             </FormLabel>
             <SettingsFieldHelp>{t("settings.fileSearch.excludedCategoriesHelp")}</SettingsFieldHelp>
             <FormGroup sx={{ gap: 0.25, mt: 0.5 }}>
@@ -176,6 +218,7 @@ export function FileSearchSettings() {
                   <Checkbox
                     checked={settings.excluded_categories.includes("images")}
                     onChange={(event) => updateCategories("images", event.target.checked)}
+                    disabled={persistence.isPending("excluded_categories")}
                   />
                 }
                 label={t("settings.fileSearch.excludeImages")}
@@ -185,11 +228,15 @@ export function FileSearchSettings() {
                   <Checkbox
                     checked={settings.excluded_categories.includes("temporary_backup")}
                     onChange={(event) => updateCategories("temporary_backup", event.target.checked)}
+                    disabled={persistence.isPending("excluded_categories")}
                   />
                 }
                 label={t("settings.fileSearch.excludeTemporaryBackup")}
               />
             </FormGroup>
+            {persistence.fieldErrors.excluded_categories ? (
+              <FormHelperText error>{persistence.fieldErrors.excluded_categories}</FormHelperText>
+            ) : null}
           </FormControl>
           <Stack spacing={1}>
             <TextField
@@ -198,6 +245,7 @@ export function FileSearchSettings() {
               error={Boolean(validation.extensions || extensionInputError)}
               helperText={
                 extensionInputError ??
+                persistence.fieldErrors.excluded_extensions ??
                 (validation.extensions
                   ? t("settings.fileSearch.excludedExtensionsError")
                   : normalizedExtensionPreview && isValidExtension(normalizedExtensionPreview)
@@ -207,7 +255,9 @@ export function FileSearchSettings() {
               onChange={(event) => {
                 setExtensionInput(event.target.value);
                 setExtensionInputError(null);
+                persistence.clearFieldFeedback("excluded_extensions");
               }}
+              disabled={persistence.isPending("excluded_extensions")}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
@@ -218,7 +268,7 @@ export function FileSearchSettings() {
             <Button
               variant="outlined"
               startIcon={<AddIcon />}
-              disabled={!extensionInput.trim()}
+              disabled={!extensionInput.trim() || persistence.isPending("excluded_extensions")}
               onClick={addExtension}
               sx={{ alignSelf: "flex-start" }}
             >
@@ -230,6 +280,7 @@ export function FileSearchSettings() {
                   <Chip
                     key={extension}
                     label={extension}
+                    disabled={persistence.isPending("excluded_extensions")}
                     onDelete={() => removeExtension(extension)}
                     deleteIcon={<CancelIcon aria-label={t("settings.fileSearch.excludedExtensionsRemove", { extension })} />}
                   />
@@ -237,7 +288,6 @@ export function FileSearchSettings() {
               </Stack>
             ) : null}
           </Stack>
-          {error ? <SettingsFieldHelp sx={{ color: "error.main" }}>{error}</SettingsFieldHelp> : null}
         </Stack>
       </SettingsGroup>
     </SettingsPage>

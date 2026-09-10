@@ -9,6 +9,11 @@ export type AuthSessionState =
   | "reauthentication-required"
   | "refresh-uncertain";
 
+export interface AuthIdentity {
+  epoch: number;
+  userId: string | null;
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.MODE === "test" ? "http://localhost:3000/api" : "/api");
 const REFRESH_SAFETY_MARGIN_MS = 5 * 60_000;
 const REFRESH_JITTER_RATIO = 0.05;
@@ -39,6 +44,8 @@ export class AuthSessionManager {
   private readonly refreshChannel: BroadcastChannel | null;
   private readonly refreshClient = axios.create({ baseURL: API_BASE_URL, withCredentials: true });
   private readonly clearListeners = new Set<() => void>();
+  private readonly identityListeners = new Set<(identity: AuthIdentity) => void>();
+  private identityEpoch = 0;
 
   constructor() {
     this.refreshChannel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("sambee-oidc-refresh");
@@ -60,6 +67,10 @@ export class AuthSessionManager {
     return this.userId;
   }
 
+  getIdentity(): AuthIdentity {
+    return { epoch: this.identityEpoch, userId: this.userId };
+  }
+
   isBootstrapComplete(): boolean {
     return this.bootstrapComplete;
   }
@@ -69,9 +80,13 @@ export class AuthSessionManager {
   }
 
   setAuthenticated(response: AuthToken, renewable: boolean): void {
+    const nextUserId = response.user_id ?? null;
+    if (this.userId !== nextUserId) {
+      this.userId = nextUserId;
+      this.publishIdentityChange();
+    }
     this.accessToken = response.access_token;
     this.renewable = renewable;
-    this.userId = response.user_id ?? null;
     this.expiresAt = response.access_token_expires_at ? Date.parse(response.access_token_expires_at) : null;
     this.refreshGeneration = response.oidc_refresh_generation ?? this.refreshGeneration;
     this.refreshAt = this.expiresAt === null ? null : Date.now() + Math.max(0, (this.expiresAt - Date.now()) / 2);
@@ -86,17 +101,33 @@ export class AuthSessionManager {
     };
   }
 
+  subscribeToIdentity(listener: (identity: AuthIdentity) => void): () => void {
+    this.identityListeners.add(listener);
+    return () => {
+      this.identityListeners.delete(listener);
+    };
+  }
+
   clear(): void {
     this.accessToken = null;
     this.expiresAt = null;
     this.renewable = false;
     this.userId = null;
+    this.publishIdentityChange();
     this.refreshAt = null;
     this.refreshGeneration = null;
     this.state = "idle";
     this.clearRefreshTimer();
     for (const listener of this.clearListeners) {
       listener();
+    }
+  }
+
+  private publishIdentityChange(): void {
+    this.identityEpoch += 1;
+    const identity = this.getIdentity();
+    for (const listener of this.identityListeners) {
+      listener(identity);
     }
   }
 

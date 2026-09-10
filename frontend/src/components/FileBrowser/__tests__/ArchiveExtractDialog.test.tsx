@@ -15,6 +15,7 @@ const defaultProps = {
   archiveName: "project.zip",
   extractionScope: { kind: "archive" } as const,
   initialDestinationName: "project",
+  destinationLabel: "Demo:/Archive",
   open: true,
   isExtracting: false,
   error: null as string | null,
@@ -44,8 +45,10 @@ describe("ArchiveExtractDialog", () => {
   it("describes full archive extraction", () => {
     render(<ArchiveExtractDialog {...defaultProps} />);
 
-    expect(screen.getByTestId("archive-extract-prompt-name")).toHaveTextContent("project.zip");
-    expect(screen.getByLabelText("fileBrowser.archive.destinationLabel")).toHaveValue("project");
+    expect(screen.getByText("fileBrowser.operationContext.archive:")).toBeInTheDocument();
+    expect(screen.getByLabelText("project.zip")).toHaveTextContent("project.zip");
+    expect(screen.getByLabelText("Demo:/Archive")).toHaveTextContent("Demo:/Archive");
+    expect(screen.getByLabelText("fileBrowser.archive.destinationNameLabel")).toHaveValue("project");
   });
 
   it("describes a single selected member and shows its fixed destination in a read-only field", async () => {
@@ -61,10 +64,10 @@ describe("ArchiveExtractDialog", () => {
       />
     );
 
-    expect(screen.getByTestId("archive-extract-prompt-name")).toHaveTextContent("readme.txt");
-    const destination = screen.getByLabelText("fileBrowser.archive.destinationLabel");
-    expect(destination).toHaveValue("Demo:/Test");
-    expect(destination).toHaveAttribute("readonly");
+    expect(screen.getByLabelText("docs/readme.txt")).toHaveTextContent("docs/readme.txt");
+    expect(screen.getByText("fileBrowser.operationContext.archiveMember:")).toBeInTheDocument();
+    expect(screen.getByLabelText("Demo:/Test")).toHaveTextContent("Demo:/Test");
+    expect(screen.queryByLabelText("fileBrowser.archive.destinationNameLabel")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "fileBrowser.archive.extractTitle" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "fileBrowser.archive.buttonExtract" })).toHaveFocus());
     await user.keyboard("{Enter}");
@@ -82,27 +85,24 @@ describe("ArchiveExtractDialog", () => {
       />
     );
 
-    expect(screen.getByText("2 selected items will be extracted to:")).toBeInTheDocument();
-    expect(screen.getByLabelText("fileBrowser.archive.destinationLabel")).toHaveValue("Demo:/Test");
+    expect(screen.getByText("fileBrowser.archive.extractDescriptionMembers")).toBeInTheDocument();
+    expect(screen.getByLabelText("Demo:/Test")).toHaveTextContent("Demo:/Test");
   });
 
   it("prefills the provider-supplied destination name", () => {
     render(<ArchiveExtractDialog {...defaultProps} />);
 
-    expect(screen.getByLabelText("fileBrowser.archive.destinationLabel")).toHaveValue("project");
+    expect(screen.getByLabelText("fileBrowser.archive.destinationNameLabel")).toHaveValue("project");
   });
 
-  it("focuses Extract and uses code formatting when the destination is fixed", async () => {
+  it("focuses Extract and shows the source separately when the destination is fixed", async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn();
     render(<ArchiveExtractDialog {...defaultProps} requiresDestinationName={false} destinationLabel="Demo:/Test" onConfirm={onConfirm} />);
 
-    const destination = screen.getByLabelText("fileBrowser.archive.destinationLabel");
-    expect(destination).toHaveValue("Demo:/Test");
-    expect(destination).toHaveAttribute("readonly");
-    expect(destination).not.toHaveAttribute("wrap");
-    expect(screen.queryByText("fileBrowser.archive.destinationLabel")).not.toBeInTheDocument();
-    expect(screen.getByTestId("archive-extract-prompt-name").tagName).toBe("CODE");
+    expect(screen.getByLabelText("Demo:/Test")).toHaveTextContent("Demo:/Test");
+    expect(screen.queryByLabelText("fileBrowser.archive.destinationNameLabel")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("project.zip")).toHaveTextContent("project.zip");
     const extractButton = screen.getByRole("button", { name: "fileBrowser.archive.buttonExtract" });
     await waitFor(() => expect(extractButton).toHaveFocus());
     await user.keyboard("{Enter}");
@@ -115,8 +115,8 @@ describe("ArchiveExtractDialog", () => {
     const onConfirm = vi.fn();
     render(<ArchiveExtractDialog {...defaultProps} onConfirm={onConfirm} />);
 
-    await user.clear(screen.getByLabelText("fileBrowser.archive.destinationLabel"));
-    await user.type(screen.getByLabelText("fileBrowser.archive.destinationLabel"), "../outside");
+    await user.clear(screen.getByLabelText("fileBrowser.archive.destinationNameLabel"));
+    await user.type(screen.getByLabelText("fileBrowser.archive.destinationNameLabel"), "../outside");
     await user.click(screen.getByRole("button", { name: "fileBrowser.archive.buttonExtract" }));
 
     expect(await screen.findByText("fileBrowser.archive.validationDestinationUnsafe")).toBeInTheDocument();
@@ -128,8 +128,8 @@ describe("ArchiveExtractDialog", () => {
     const onConfirm = vi.fn();
     render(<ArchiveExtractDialog {...defaultProps} onConfirm={onConfirm} />);
 
-    await user.clear(screen.getByLabelText("fileBrowser.archive.destinationLabel"));
-    await user.type(screen.getByLabelText("fileBrowser.archive.destinationLabel"), "output\\release");
+    await user.clear(screen.getByLabelText("fileBrowser.archive.destinationNameLabel"));
+    await user.type(screen.getByLabelText("fileBrowser.archive.destinationNameLabel"), "output\\release");
     await user.click(screen.getByRole("button", { name: "fileBrowser.archive.buttonExtract" }));
 
     expect(onConfirm).toHaveBeenCalledWith("output/release");
@@ -139,9 +139,15 @@ describe("ArchiveExtractDialog", () => {
     const onCancelExtraction = vi.fn();
     render(<ArchiveExtractDialog {...defaultProps} isExtracting={true} onCancelExtraction={onCancelExtraction} />);
 
-    expect(screen.queryByLabelText("fileBrowser.archive.destinationLabel")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("fileBrowser.archive.destinationNameLabel")).not.toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "fileBrowser.archive.buttonCancelExtraction" })).toBeEnabled();
+  });
+
+  it("focuses Cancel extraction while extraction is pending", async () => {
+    render(<ArchiveExtractDialog {...defaultProps} isExtracting onCancelExtraction={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "fileBrowser.archive.buttonCancelExtraction" })).toHaveFocus());
   });
 
   it("cancels active extraction when Escape is pressed", () => {
@@ -153,7 +159,7 @@ describe("ArchiveExtractDialog", () => {
     expect(onCancelExtraction).toHaveBeenCalledOnce();
   });
 
-  it("shows determinate direct-local extraction progress", () => {
+  it("shows neutral processed-member extraction progress", () => {
     render(
       <ArchiveExtractDialog
         {...defaultProps}
@@ -162,6 +168,7 @@ describe("ArchiveExtractDialog", () => {
           filesExtracted: 2,
           directoriesCreated: 1,
           extractedBytes: 12,
+          membersProcessed: 3,
           totalMembers: 6,
           totalBytes: 24,
           filesSkipped: 0,
@@ -171,8 +178,8 @@ describe("ArchiveExtractDialog", () => {
       />
     );
 
-    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "50");
-    expect(screen.getByText("fileBrowser.archive.progressSourceArchive: project.zip")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).not.toHaveAttribute("aria-valuenow");
+    expect(screen.getByText("fileBrowser.archive.progressProcessedMembers")).toBeInTheDocument();
   });
 
   it("offers direct retry and skip actions for a member error", async () => {
@@ -204,6 +211,26 @@ describe("ArchiveExtractDialog", () => {
 
     expect(onMemberErrorDecision).toHaveBeenCalledWith("ignore");
     expect(onCancelExtraction).toHaveBeenCalledOnce();
+  });
+
+  it("renders one parent-owned action notice for a blocking member error", () => {
+    render(
+      <ArchiveExtractDialog
+        {...defaultProps}
+        isExtracting={true}
+        memberError={{
+          memberPath: "docs/readme.txt",
+          targetPath: "output/docs/readme.txt",
+          message: "Disk full",
+          partialOutput: false,
+        }}
+        onMemberErrorDecision={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId("archive-member-error-notice")).toHaveTextContent("Disk full");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.queryByTestId("archive-extract-notice")).not.toBeInTheDocument();
   });
 
   it("retains direct member-error recovery actions after a failed decision", async () => {
@@ -249,9 +276,9 @@ describe("ArchiveExtractDialog", () => {
     );
 
     expect(screen.getByRole("heading", { name: S.TITLE })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: S.LABEL_TARGET_NAME })).toHaveValue("readme.txt");
-    expect(screen.getByTestId("overwrite-conflict-source-path")).toHaveTextContent("docs");
-    expect(screen.getByTestId("overwrite-conflict-target-path")).toHaveTextContent("output/docs");
+    expect(screen.queryByRole("textbox", { name: S.LABEL_TARGET_NAME })).not.toBeInTheDocument();
+    expect(screen.getByTestId("overwrite-conflict-source-path")).toHaveTextContent("docs/readme.txt");
+    expect(screen.getByTestId("overwrite-conflict-target-path")).toHaveTextContent("output/docs/readme.txt");
     await user.click(screen.getByRole("checkbox", { name: S.APPLY_TO_ALL }));
     await user.click(screen.getByRole("button", { name: S.BUTTON_CONTINUE }));
 
@@ -333,7 +360,7 @@ describe("ArchiveExtractDialog", () => {
     );
 
     await waitFor(() => expect(screen.getByRole("radio", { name: S.BUTTON_SKIP })).toBeChecked());
-    expect(screen.getByRole("textbox", { name: S.LABEL_TARGET_NAME })).toHaveValue("readme.txt");
+    expect(screen.queryByRole("textbox", { name: S.LABEL_TARGET_NAME })).not.toBeInTheDocument();
   });
 
   it("does not show a bulk checkbox when only a bulk archive action is allowed", async () => {
@@ -391,7 +418,7 @@ describe("ArchiveExtractDialog", () => {
       />
     );
 
-    expect(screen.getByTestId("overwrite-conflict-source-path")).toHaveTextContent("/");
+    expect(screen.getByTestId("overwrite-conflict-source-path")).toHaveTextContent("member-0.txt");
     expect(screen.queryByDisplayValue("member-999.txt")).not.toBeInTheDocument();
     expect(within(screen.getByTestId("responsive-form-dialog-desktop-actions")).getAllByRole("button")).toHaveLength(2);
   });

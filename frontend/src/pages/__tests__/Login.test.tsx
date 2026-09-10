@@ -7,6 +7,9 @@ import Login from "../Login";
 
 // Mock the entire API module
 vi.mock("../../services/api", () => ({
+  default: {
+    getCurrentUserSettings: vi.fn().mockResolvedValue(null),
+  },
   login: vi.fn(),
 }));
 

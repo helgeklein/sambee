@@ -40,15 +40,15 @@ describe("OverwriteConflictDialog", () => {
 
     expect(screen.getByRole("heading", { name: S.TITLE })).toBeInTheDocument();
     expect(screen.getByText(S.ALREADY_EXISTS)).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: S.LABEL_TARGET_NAME })).toHaveValue("report.txt");
+    expect(screen.queryByRole("textbox", { name: S.LABEL_TARGET_NAME })).not.toBeInTheDocument();
     const targetDetails = screen.getByTestId("overwrite-conflict-target-details");
     const sourceDetails = screen.getByTestId("overwrite-conflict-source-details");
     expect(within(targetDetails).getByRole("heading", { name: S.LABEL_EXISTING })).toBeInTheDocument();
     expect(within(sourceDetails).getByRole("heading", { name: S.LABEL_INCOMING })).toBeInTheDocument();
-    expect(screen.getByTestId("overwrite-conflict-target-path")).toHaveTextContent("target");
+    expect(screen.getByTestId("overwrite-conflict-target-path")).toHaveTextContent("target/report.txt");
     const sourcePath = screen.getByTestId("overwrite-conflict-source-path");
-    expect(sourcePath).toHaveTextContent("source");
-    expect(within(sourcePath).getByText("source").tagName).toBe("SPAN");
+    expect(sourcePath).toHaveTextContent("source/report.txt");
+    expect(within(sourcePath).getByText("source/report.txt").closest("bdi")).not.toBeNull();
     const metadata = screen.getByRole("region", { name: S.METADATA_LABEL });
     expect(within(metadata).getAllByText(S.LABEL_PATH)).toHaveLength(2);
     expect(within(metadata).getAllByText(S.LABEL_MODIFIED)).toHaveLength(2);
@@ -73,7 +73,7 @@ describe("OverwriteConflictDialog", () => {
     expect(screen.getByTestId("overwrite-conflict-source-path")).toHaveTextContent("Source connection:/archive.zip/source");
   });
 
-  it("preserves long target and path values without creating additional fields", () => {
+  it("preserves long target and path values without creating an input until Rename", async () => {
     const sourceName = `source-${"a".repeat(240)}.txt`;
     const targetName = `target-${"b".repeat(240)}.txt`;
     const targetDirectory = Array.from({ length: 20 }, (_, index) => `directory-${index}`).join("/");
@@ -82,20 +82,20 @@ describe("OverwriteConflictDialog", () => {
       existing_file: { ...conflict.existing_file, name: targetName, path: `${targetDirectory}/${targetName}` },
     };
 
+    const user = userEvent.setup();
     render(<OverwriteConflictDialog {...defaultProps} conflict={longNameConflict} />);
 
-    const targetInput = screen.getByRole("textbox", { name: S.LABEL_TARGET_NAME }) as HTMLInputElement;
     const sourcePath = screen.getByTestId("overwrite-conflict-source-path");
     const targetDirectoryCode = screen.getByTestId("overwrite-conflict-target-path-value");
 
-    expect(targetInput).toHaveValue(targetName);
-    expect(sourcePath).toHaveTextContent("source");
-    expect(within(sourcePath).getByText("source")).toHaveStyle({ overflow: "hidden", whiteSpace: "nowrap" });
-    expect(targetDirectoryCode).toHaveTextContent(targetDirectory);
-    expect(targetDirectoryCode).toHaveStyle({ whiteSpace: "nowrap" });
-    expect(targetInput).toHaveAttribute("readonly");
-    targetInput.setSelectionRange(0, targetInput.value.length);
-    expect(targetInput.selectionEnd).toBe(targetInput.value.length);
+    expect(screen.queryByRole("textbox", { name: S.LABEL_TARGET_NAME })).not.toBeInTheDocument();
+    expect(sourcePath).toHaveTextContent(`source/${sourceName}`);
+    expect(targetDirectoryCode).toHaveTextContent(`${targetDirectory}/${targetName}`);
+    expect(targetDirectoryCode.querySelector("code")).toHaveStyle({ overflow: "hidden", whiteSpace: "nowrap" });
+    await user.click(screen.getByRole("radio", { name: S.BUTTON_RENAME }));
+    const targetInput = screen.getByRole("textbox", { name: S.LABEL_TARGET_NAME }) as HTMLInputElement;
+    expect(targetInput).toHaveValue(`${targetName.slice(0, -4)} (copy).txt`);
+    expect(targetInput).not.toHaveAttribute("readonly");
   });
 
   it("uses a compact grid for desktop resolution choices", () => {
@@ -196,19 +196,22 @@ describe("OverwriteConflictDialog", () => {
     expect(checkbox).not.toBeChecked();
   });
 
-  it("edits the existing Target name field in place for Rename", async () => {
+  it("shows the Target name field below resolution controls for Rename", async () => {
     const onResolve = vi.fn();
     const user = userEvent.setup();
     render(<OverwriteConflictDialog {...defaultProps} onResolve={onResolve} />);
 
-    const targetName = screen.getByRole("textbox", { name: S.LABEL_TARGET_NAME });
-    expect(targetName.closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: S.LABEL_TARGET_NAME })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("radio", { name: S.BUTTON_RENAME }));
 
+    const targetName = screen.getByRole("textbox", { name: S.LABEL_TARGET_NAME });
     expect(targetName).toHaveValue("report (copy).txt");
     expect(targetName).not.toHaveAttribute("readonly");
-    expect(targetName.closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).toBeInTheDocument();
+    expect(targetName.closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("radiogroup").compareDocumentPosition(targetName.closest(".MuiFormControl-root")!) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
     await user.clear(targetName);
     await user.type(targetName, "renamed.txt");
     await user.click(screen.getByRole("button", { name: S.BUTTON_CONTINUE }));
@@ -245,12 +248,12 @@ describe("OverwriteConflictDialog", () => {
     expect(screen.getByRole("button", { name: S.BUTTON_CONTINUE })).toBeDisabled();
   });
 
-  it("explains and focuses the no-resolution state", async () => {
+  it("explains the no-resolution state without moving focus to its alert", () => {
     render(<OverwriteConflictDialog {...defaultProps} allowedActions={[]} />);
 
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent(S.ERROR_NO_RESOLUTION_AVAILABLE);
-    await waitFor(() => expect(alert).toHaveFocus());
+    expect(alert).not.toHaveFocus();
   });
 
   it("resets the selected resolution when owner capabilities change", async () => {
@@ -285,11 +288,11 @@ describe("OverwriteConflictDialog", () => {
     expect(targetName.selectionEnd).toBe(targetName.value.length);
   });
 
-  it("focuses an owner-level error after a failed decision", async () => {
+  it("does not focus an owner-level error after a failed decision", () => {
     render(<OverwriteConflictDialog {...defaultProps} error="Unable to save this decision." />);
 
     const alert = screen.getByRole("alert");
-    await waitFor(() => expect(alert).toHaveFocus());
+    expect(alert).not.toHaveFocus();
   });
 
   it("cancels the operation on Escape", async () => {

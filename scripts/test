@@ -20,6 +20,11 @@ BACKEND_LOCKFILE="$BACKEND_DIR/requirements-dev.lock.txt"
 BACKEND_LOCK_STAMP="$BACKEND_VENV/.requirements-dev.lock.sha256"
 
 require_backend_venv() {
+    if ! command -v sha256sum >/dev/null 2>&1; then
+        echo -e "${RED}✗ sha256sum is required to validate the backend virtual environment${NC}"
+        exit 1
+    fi
+
     if [ ! -x "$BACKEND_PYTHON" ]; then
         echo -e "${RED}✗ Backend virtual environment not found at backend/.venv${NC}"
         echo -e "${YELLOW}Run scripts/setup-backend-venv to install the pinned backend dependencies.${NC}"
@@ -42,36 +47,30 @@ require_backend_venv() {
     fi
 }
 
+run_check() {
+    local passed_message="$1"
+    local failed_message="$2"
+    shift 2
+
+    if "$@"; then
+        echo -e "${GREEN}✓ ${passed_message}${NC}\n"
+    else
+        echo -e "${RED}✗ ${failed_message}${NC}"
+        exit 1
+    fi
+}
+
 echo -e "${BLUE}======================================${NC}"
 echo -e "${BLUE}  Sambee - Test & Analysis Suite${NC}"
 echo -e "${BLUE}======================================${NC}\n"
 
 require_backend_venv
 
-# Track overall status
-OVERALL_STATUS=0
-
 # ============================================
 # SETUP: Generate Test Images
 # ============================================
 echo -e "${YELLOW}=== Setup: Generating Test Images ===${NC}"
-if QUIET=1 "$SCRIPT_DIR/setup-test-images"; then
-    echo -e "${GREEN}✓ Test images generated${NC}\n"
-else
-    echo -e "${RED}✗ Failed to generate test images${NC}\n"
-    OVERALL_STATUS=1
-fi
-
-# ============================================
-# ARCHIVE TOPOLOGY CONFORMANCE
-# ============================================
-echo -e "${YELLOW}=== Archive: Topology Conformance ===${NC}"
-if "$SCRIPT_DIR/test-archive-topology-conformance"; then
-    echo -e "${GREEN}✓ Archive topology conformance passed${NC}\n"
-else
-    echo -e "${RED}✗ Archive topology conformance failed${NC}\n"
-    OVERALL_STATUS=1
-fi
+run_check "Test images generated" "Failed to generate test images" env QUIET=1 "$SCRIPT_DIR/setup-test-images"
 
 # ============================================
 # BACKEND TESTS
@@ -81,12 +80,7 @@ cd "$BACKEND_DIR" || exit 1
 
 # mypy - Type checking (non-fatal, just warnings)
 echo -e "${BLUE}Running mypy (type checking)...${NC}"
-if "$BACKEND_PYTHON" -m mypy app; then
-    echo -e "${GREEN}✓ mypy passed${NC}\n"
-else
-    echo -e "${YELLOW}⚠ mypy found issues (non-fatal)${NC}\n"
-    # Don't fail on mypy errors as they're just type hints
-fi
+run_check "mypy passed" "mypy failed" "$BACKEND_PYTHON" -m mypy app
 
 # Backend: Unit Tests
 echo -e "${YELLOW}=== Backend: Unit Tests ===${NC}"
@@ -114,12 +108,7 @@ else
     echo -e "${BLUE}Coverage: disabled${NC}"
 fi
 
-if "${PYTEST_CMD[@]}"; then
-    echo -e "${GREEN}✓ Backend tests passed${NC}\n"
-else
-    echo -e "${RED}✗ Backend tests failed${NC}\n"
-    OVERALL_STATUS=1
-fi
+run_check "Backend tests passed" "Backend tests failed" "${PYTEST_CMD[@]}"
 
 echo -e "${YELLOW}=== Backend: Performance Tests ===${NC}"
 echo -e "${BLUE}Running performance tests serially...${NC}"
@@ -130,12 +119,7 @@ else
     PERFORMANCE_PYTEST_CMD=("$BACKEND_PYTHON" -m pytest -m performance)
 fi
 
-if "${PERFORMANCE_PYTEST_CMD[@]}"; then
-    echo -e "${GREEN}✓ Backend performance tests passed${NC}\n"
-else
-    echo -e "${RED}✗ Backend performance tests failed${NC}\n"
-    OVERALL_STATUS=1
-fi
+run_check "Backend performance tests passed" "Backend performance tests failed" "${PERFORMANCE_PYTEST_CMD[@]}"
 
 # ============================================
 # FRONTEND TESTS
@@ -145,12 +129,10 @@ cd "$REPO_ROOT/frontend" || exit 1
 
 # TypeScript - Type checking
 echo -e "${BLUE}Running TypeScript compiler (type checking)...${NC}"
-if npx tsc --noEmit; then
-    echo -e "${GREEN}✓ TypeScript type check passed${NC}\n"
-else
-    echo -e "${RED}✗ TypeScript type check failed${NC}\n"
-    OVERALL_STATUS=1
-fi
+run_check "TypeScript type check passed" "TypeScript type check failed" npx tsc --noEmit
+
+echo -e "${BLUE}Running Biome lint...${NC}"
+run_check "Frontend lint passed" "Frontend lint failed" npm run lint
 
 # Frontend: Unit Tests (if they exist)
 if grep -q '"test"' package.json; then
@@ -166,12 +148,7 @@ if grep -q '"test"' package.json; then
     fi
 
     echo -e "${BLUE}Using frontend npm script: ${FRONTEND_TEST_SCRIPT}${NC}"
-    if npm run "$FRONTEND_TEST_SCRIPT"; then
-        echo -e "${GREEN}✓ Frontend tests passed${NC}\n"
-    else
-        echo -e "${RED}✗ Frontend tests failed${NC}\n"
-        OVERALL_STATUS=1
-    fi
+    run_check "Frontend tests passed" "Frontend tests failed" npm run "$FRONTEND_TEST_SCRIPT"
 fi
 
 # ============================================
@@ -183,12 +160,7 @@ if [ -d "$REPO_ROOT/companion/src-tauri" ]; then
 
     # TypeScript - Type checking
     echo -e "${BLUE}Running TypeScript compiler (companion type checking)...${NC}"
-    if npx tsc --noEmit; then
-        echo -e "${GREEN}✓ Companion TypeScript type check passed${NC}\n"
-    else
-        echo -e "${RED}✗ Companion TypeScript type check failed${NC}\n"
-        OVERALL_STATUS=1
-    fi
+    run_check "Companion TypeScript type check passed" "Companion TypeScript type check failed" npx tsc --noEmit
 
     echo -e "${YELLOW}=== Companion: Windows Cross-Check ===${NC}"
     echo -e "${BLUE}Running Windows GNU target cargo check...${NC}"
@@ -196,12 +168,7 @@ if [ -d "$REPO_ROOT/companion/src-tauri" ]; then
         echo -e "${YELLOW}⚠ Companion Windows cross-check skipped in CI${NC}\n"
     elif command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 \
         && rustup target list --installed 2>/dev/null | grep -q '^x86_64-pc-windows-gnu$'; then
-        if npm run check:rust:windows; then
-            echo -e "${GREEN}✓ Companion Windows cross-check passed${NC}\n"
-        else
-            echo -e "${RED}✗ Companion Windows cross-check failed${NC}\n"
-            OVERALL_STATUS=1
-        fi
+        run_check "Companion Windows cross-check passed" "Companion Windows cross-check failed" npm run check:rust:windows
     else
         echo -e "${YELLOW}⚠ Companion Windows cross-check skipped (missing x86_64-pc-windows-gnu target or MinGW toolchain)${NC}\n"
     fi
@@ -211,32 +178,21 @@ if [ -d "$REPO_ROOT/companion/src-tauri" ]; then
 
     echo -e "${YELLOW}=== Companion: Clippy ===${NC}"
     echo -e "${BLUE}Running cargo clippy (--lib --tests -D warnings)...${NC}"
-    if cargo clippy --lib --tests -- -D warnings 2>&1; then
-        echo -e "${GREEN}✓ Companion Clippy passed${NC}\n"
-    else
-        echo -e "${RED}✗ Companion Clippy failed${NC}\n"
-        OVERALL_STATUS=1
-    fi
+    run_check "Companion Clippy passed" "Companion Clippy failed" cargo clippy --lib --tests -- -D warnings
 
     echo -e "${BLUE}Running cargo test...${NC}"
-    if cargo test 2>&1; then
-        echo -e "${GREEN}✓ Companion Rust tests passed${NC}\n"
-    else
-        echo -e "${RED}✗ Companion Rust tests failed${NC}\n"
-        OVERALL_STATUS=1
-    fi
+    run_check "Companion Rust tests passed" "Companion Rust tests failed" cargo test
 fi
+
+# ============================================
+# ARCHIVE TOPOLOGY VERIFICATION
+# ============================================
+echo -e "${YELLOW}=== Archive: Topology Verification ===${NC}"
+run_check "Archive topology verification passed" "Archive topology verification failed" "$SCRIPT_DIR/test-archive-topology-conformance" post-suite
 
 # ============================================
 # SUMMARY
 # ============================================
 echo -e "${BLUE}======================================${NC}"
-if [ $OVERALL_STATUS -eq 0 ]; then
-    echo -e "${GREEN}✓ All tests and checks passed!${NC}"
-    echo -e "${BLUE}======================================${NC}"
-    exit 0
-else
-    echo -e "${RED}✗ Some tests or checks failed!${NC}"
-    echo -e "${BLUE}======================================${NC}"
-    exit 1
-fi
+echo -e "${GREEN}✓ All tests and checks passed!${NC}"
+echo -e "${BLUE}======================================${NC}"

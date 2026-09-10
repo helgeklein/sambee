@@ -1,12 +1,11 @@
 import { alpha, createTheme, type Theme } from "@mui/material";
-import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { loadCurrentUserSettings, patchCurrentUserSettings, USER_SETTINGS_CHANGED_EVENT } from "../services/userSettingsSync";
-import type { CurrentUserSettings, CurrentUserSettingsUpdate } from "../types";
+import { createContext, type ReactNode, useContext, useEffect, useMemo } from "react";
+import { useCurrentUserSetting } from "../services/userSettingsStore";
 import {
-  DIALOG_FORM_SURFACE_CSS_VARIABLE,
-  DIALOG_SURFACE_CSS_VARIABLE,
+  FORM_SURFACE_CSS_VARIABLE,
   getDarkChromeSurfaceColor,
-  getDialogSurfaceTokens,
+  getOverlaySurfaceTokens,
+  OVERLAY_SURFACE_CSS_VARIABLE,
   resolveThemePalette,
 } from "./palette";
 import { builtInThemes, getDefaultTheme } from "./themes";
@@ -15,9 +14,6 @@ import type { ThemeConfig } from "./types";
 //
 // Theme context
 //
-
-const THEME_ID_STORAGE_KEY = "theme-id-current";
-const CUSTOM_THEMES_STORAGE_KEY = "themes-custom";
 
 // Styling constants
 const FOCUS_OUTLINE_WIDTH_PX = 3;
@@ -28,24 +24,6 @@ const SCROLLBAR_THUMB_MIN_HEIGHT_PX = 24;
 const SCROLLBAR_THUMB_BORDER_PX = 3;
 const POPUP_OVERLAY_Z_INDEX_OFFSET = 2;
 
-function readStoredThemeConfigs(key: string): ThemeConfig[] {
-  const saved = localStorage.getItem(key);
-  if (!saved) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(saved);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function areThemeCollectionsEqual(left: ThemeConfig[], right: ThemeConfig[]): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
 interface ThemeContextValue {
   /** Current theme configuration */
   currentTheme: ThemeConfig;
@@ -53,16 +31,6 @@ interface ThemeContextValue {
   muiTheme: Theme;
   /** All available themes */
   availableThemes: ThemeConfig[];
-  /** Preview a different theme by ID without persisting it. */
-  setThemeById: (themeId: string) => void;
-  /** Persist a theme selection after it has been explicitly confirmed. */
-  saveThemeById: (themeId: string, additionalSettings?: Pick<CurrentUserSettingsUpdate, "localization">) => void;
-  /** Add or update a custom theme draft. */
-  addCustomTheme: (theme: ThemeConfig) => void;
-  /** Remove a custom theme draft. */
-  removeCustomTheme: (themeId: string) => void;
-  /** Persist custom-theme edits after they have been explicitly confirmed. */
-  saveCustomThemes: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
@@ -79,18 +47,10 @@ interface ThemeProviderProps {
  * Theme provider that manages theme state and persistence
  */
 export function SambeeThemeProvider({ children }: ThemeProviderProps) {
-  const [currentThemeId, setCurrentThemeId] = useState<string>(() => {
-    // Load saved theme from localStorage
-    const saved = localStorage.getItem(THEME_ID_STORAGE_KEY);
-    return saved || getDefaultTheme().id;
-  });
-
-  const [customThemes, setCustomThemes] = useState<ThemeConfig[]>(() => {
-    // Load custom themes from localStorage
-    return readStoredThemeConfigs(CUSTOM_THEMES_STORAGE_KEY);
-  });
-  const previewThemeIdRef = useRef<string | null>(null);
-  const pendingSavedThemeIdRef = useRef<string | null>(null);
+  const themeIdSetting = useCurrentUserSetting("appearance.theme_id");
+  const customThemesSetting = useCurrentUserSetting("appearance.custom_themes");
+  const currentThemeId = themeIdSetting.confirmedValue ?? getDefaultTheme().id;
+  const customThemes = customThemesSetting.confirmedValue ?? [];
 
   // All available themes (built-in + custom)
   const availableThemes = useMemo(() => [...builtInThemes, ...customThemes], [customThemes]);
@@ -107,7 +67,7 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     const palette = resolveThemePalette(currentTheme);
     const { appBar, action, background, link, statusBar, text } = palette;
     const focusColor = action.focus;
-    const dialogSurfaces = getDialogSurfaceTokens(background.default, currentTheme.mode);
+    const dialogSurfaces = getOverlaySurfaceTokens(background.default, currentTheme.mode);
     const menuBackground = isDark ? getDarkChromeSurfaceColor() : background.default;
     const alertColors = currentTheme.components?.alert;
     const getStandardAlertStyle = (severity: "info" | "success" | "warning" | "error") => {
@@ -223,8 +183,8 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
               backgroundColor: dialogSurfaces.paper,
               backgroundImage: "none",
               boxShadow: "none",
-              [DIALOG_SURFACE_CSS_VARIABLE]: dialogSurfaces.paper,
-              [DIALOG_FORM_SURFACE_CSS_VARIABLE]: dialogSurfaces.form,
+              [OVERLAY_SURFACE_CSS_VARIABLE]: dialogSurfaces.paper,
+              [FORM_SURFACE_CSS_VARIABLE]: dialogSurfaces.form,
             },
           },
         },
@@ -390,134 +350,10 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     }
   }, [currentTheme.primary.main]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const applyAppearanceSettings = (settings: CurrentUserSettings | null) => {
-      if (!settings || cancelled) {
-        return;
-      }
-
-      const backendCustomThemes = Array.isArray(settings.appearance.custom_themes) ? settings.appearance.custom_themes : [];
-      const resolvedThemes = [...builtInThemes, ...backendCustomThemes];
-
-      setCustomThemes((previousThemes) =>
-        areThemeCollectionsEqual(backendCustomThemes, previousThemes) ? previousThemes : backendCustomThemes
-      );
-
-      const backendThemeId = settings.appearance.theme_id;
-      if (!resolvedThemes.some((theme) => theme.id === backendThemeId)) {
-        return;
-      }
-
-      const pendingSavedThemeId = pendingSavedThemeIdRef.current;
-      if (pendingSavedThemeId) {
-        if (backendThemeId === pendingSavedThemeId) {
-          pendingSavedThemeIdRef.current = null;
-          setCurrentThemeId(backendThemeId);
-        }
-        return;
-      }
-
-      const previewThemeId = previewThemeIdRef.current;
-      if (previewThemeId) {
-        if (backendThemeId === previewThemeId) {
-          previewThemeIdRef.current = null;
-          setCurrentThemeId(backendThemeId);
-        }
-        return;
-      }
-
-      setCurrentThemeId(backendThemeId);
-    };
-
-    const syncFromBackend = async () => {
-      const settings = await loadCurrentUserSettings();
-      applyAppearanceSettings(settings);
-    };
-
-    const handleUserSettingsChanged = (event: Event) => {
-      applyAppearanceSettings((event as CustomEvent<CurrentUserSettings>).detail);
-    };
-
-    window.addEventListener(USER_SETTINGS_CHANGED_EVENT, handleUserSettingsChanged);
-    void syncFromBackend();
-
-    return () => {
-      cancelled = true;
-      window.removeEventListener(USER_SETTINGS_CHANGED_EVENT, handleUserSettingsChanged);
-    };
-  }, []);
-
-  const setThemeById = (themeId: string) => {
-    if (availableThemes.find((t) => t.id === themeId)) {
-      previewThemeIdRef.current = themeId;
-      pendingSavedThemeIdRef.current = null;
-      setCurrentThemeId(themeId);
-    }
-  };
-
-  const saveThemeById = (themeId: string, additionalSettings?: Pick<CurrentUserSettingsUpdate, "localization">) => {
-    if (!availableThemes.find((theme) => theme.id === themeId)) {
-      return;
-    }
-
-    previewThemeIdRef.current = null;
-    pendingSavedThemeIdRef.current = themeId;
-    setCurrentThemeId(themeId);
-    localStorage.setItem(THEME_ID_STORAGE_KEY, themeId);
-    localStorage.setItem(CUSTOM_THEMES_STORAGE_KEY, JSON.stringify(customThemes));
-    void patchCurrentUserSettings({
-      ...additionalSettings,
-      appearance: { theme_id: themeId, custom_themes: customThemes },
-    });
-  };
-
-  const addCustomTheme = (theme: ThemeConfig) => {
-    setCustomThemes((prev) => {
-      // Replace if exists, add if new
-      const existing = prev.findIndex((t) => t.id === theme.id);
-      if (existing >= 0) {
-        const updated = [...prev];
-        updated[existing] = theme;
-        return updated;
-      }
-      return [...prev, theme];
-    });
-  };
-
-  const removeCustomTheme = (themeId: string) => {
-    if (builtInThemes.some((theme) => theme.id === themeId)) {
-      return;
-    }
-
-    const nextThemeId = currentThemeId === themeId ? getDefaultTheme().id : undefined;
-
-    setCustomThemes((prev) => {
-      return prev.filter((theme) => theme.id !== themeId);
-    });
-
-    // If removing current theme, switch to default
-    if (nextThemeId) {
-      setCurrentThemeId(nextThemeId);
-    }
-  };
-
-  const saveCustomThemes = () => {
-    localStorage.setItem(CUSTOM_THEMES_STORAGE_KEY, JSON.stringify(customThemes));
-    localStorage.setItem(THEME_ID_STORAGE_KEY, currentThemeId);
-    void patchCurrentUserSettings({ appearance: { theme_id: currentThemeId, custom_themes: customThemes } });
-  };
-
   const value: ThemeContextValue = {
     currentTheme,
     muiTheme,
     availableThemes,
-    setThemeById,
-    saveThemeById,
-    addCustomTheme,
-    removeCustomTheme,
-    saveCustomThemes,
   };
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

@@ -48,22 +48,23 @@ import {
 import { startTransition, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import DeleteDialog from "../components/Admin/DeleteDialog";
-import { DialogReadOnlyField } from "../components/Admin/DialogReadOnlyField";
 import { adminDialogActionButtonSx, adminDialogEndActionRowSx } from "../components/Admin/dialogActionStyles";
-import { ResponsiveFormDialog } from "../components/Admin/ResponsiveFormDialog";
-import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
+import { DialogNotice } from "../components/Dialog/DialogNotice";
+import { DialogReadOnlyField } from "../components/Dialog/DialogReadOnlyField";
+import { ResponsiveDialogShell } from "../components/Dialog/ResponsiveDialogShell";
 import {
-  SettingsFormFieldLabel,
-  SettingsFormGroup,
-  SettingsFormRow,
-  SettingsFormSection,
-  SettingsFormSurface,
-  settingsFormFieldControlSx,
-  settingsFormOutlinedControlSx,
-  settingsFormSelectControlSx,
-  settingsSelectMenuProps,
-  settingsSelectSx,
-} from "../components/Settings/SettingsFormLayout";
+  FormFieldLabel,
+  FormGroup,
+  FormRow,
+  FormSurface,
+  formFieldControlSx,
+  formOutlinedControlSx,
+  formSelectControlSx,
+  formSelectMenuProps,
+  formSelectSx,
+} from "../components/Form/FormLayout";
+import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
+import { SettingsFormSection } from "../components/Settings/SettingsFormLayout";
 import { SettingsPage } from "../components/Settings/SettingsPage";
 import { SettingsPasswordVisibilityToggle } from "../components/Settings/SettingsPasswordVisibilityToggle";
 import { SettingsSelectMenuItem } from "../components/Settings/SettingsSelectMenuItem";
@@ -131,6 +132,7 @@ interface UserManagementSettingsProps {
 type OidcMappingEditorMode = "create" | "change" | "move";
 
 type UserEditorField = "username";
+type OidcMappingEditorField = "targetUser" | "expectedUsername";
 const OIDC_INHERITED_ROLE_VALUE = "inherited";
 
 const USER_EDITOR_IDS = {
@@ -701,7 +703,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     expectedUsername: string;
   }>({ open: false, mode: "create", user: null, expectedUsername: "" });
   const [mappingSubmitting, setMappingSubmitting] = useState(false);
-  const [mappingError, setMappingError] = useState<string | null>(null);
+  const [mappingContextualError, setMappingContextualError] = useState<string | null>(null);
+  const [mappingFieldErrors, setMappingFieldErrors] = useState<Partial<Record<OidcMappingEditorField, string>>>({});
+  const [mappingActionError, setMappingActionError] = useState<string | null>(null);
   const [mappingTargetSearch, setMappingTargetSearch] = useState("");
   const [mappingTargetQuery, setMappingTargetQuery] = useState("");
   const [mappingTargetUsers, setMappingTargetUsers] = useState<AdminUser[]>([]);
@@ -826,6 +830,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     }
 
     let disposed = false;
+    setMappingContextualError(null);
     setMappingTargetsLoading(true);
     void api
       .getUsers({
@@ -837,6 +842,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       })
       .then((response) => {
         if (!disposed) {
+          setMappingContextualError(null);
           setMappingTargetUsers(
             response.items.filter((user) => user.is_active && !user.oidc && !user.pending_oidc && user.id !== mappingEditor.user?.id)
           );
@@ -844,7 +850,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       })
       .catch((error: unknown) => {
         if (!disposed) {
-          setMappingError(getApiErrorMessage(error, "Available local accounts could not be loaded."));
+          setMappingContextualError(getApiErrorMessage(error, "Available local accounts could not be loaded."));
           setMappingTargetUsers([]);
         }
       })
@@ -866,7 +872,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   };
 
   const openMappingEditor = (user: AdminUser, mode: OidcMappingEditorMode) => {
-    setMappingError(null);
+    setMappingContextualError(null);
+    setMappingFieldErrors({});
+    setMappingActionError(null);
     setMappingTargetUser(null);
     setMappingEditor({
       open: true,
@@ -883,7 +891,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     setMappingTargetSearch("");
     setMappingTargetQuery("");
     setMappingTargetUser(null);
-    setMappingError(null);
+    setMappingContextualError(null);
+    setMappingFieldErrors({});
+    setMappingActionError(null);
   };
 
   const handleMappingSubmit = async () => {
@@ -891,26 +901,27 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     if (!user || !oidcConfiguration) return;
     try {
       setMappingSubmitting(true);
-      setMappingError(null);
+      setMappingFieldErrors({});
+      setMappingActionError(null);
       if (mappingEditor.mode === "move") {
         const targetUser = mappingTargetUser;
         if (!user.oidc || !targetUser) {
-          setMappingError("Select an available local account.");
+          setMappingFieldErrors({ targetUser: "Select an available local account." });
           return;
         }
         if (!targetUser.is_active || targetUser.oidc || targetUser.pending_oidc || targetUser.id === user.id) {
-          setMappingError("Select an available local account.");
+          setMappingFieldErrors({ targetUser: "Select an available local account." });
           return;
         }
         await api.moveOidcIdentity(user.oidc.identity_id, oidcConfiguration.identity_mapping_revision, targetUser.id);
       } else {
         if (!pendingOidcMappingsAllowed) {
-          setMappingError("Confirm that the provider username claim is stable and unique before creating pending mappings.");
+          setMappingActionError("Confirm that the provider username claim is stable and unique before creating pending mappings.");
           return;
         }
         const expectedUsername = mappingEditor.expectedUsername.trim();
         if (!expectedUsername) {
-          setMappingError("Provider username is required.");
+          setMappingFieldErrors({ expectedUsername: "Provider username is required." });
           return;
         }
         if (mappingEditor.mode === "change") {
@@ -922,11 +933,12 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         }
       }
       setMappingEditor({ open: false, mode: "create", user: null, expectedUsername: "" });
-      setMappingError(null);
+      setMappingFieldErrors({});
+      setMappingActionError(null);
       showNotification("OIDC mapping updated.", "success");
       await refreshDirectory();
     } catch (error: unknown) {
-      setMappingError(getApiErrorMessage(error, "The OIDC mapping could not be updated."));
+      setMappingActionError(getApiErrorMessage(error, "The OIDC mapping could not be updated."));
     } finally {
       setMappingSubmitting(false);
     }
@@ -1215,21 +1227,21 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     hasError = false
   ) =>
     usesDesktopFormLayout ? (
-      <SettingsFormFieldLabel
+      <FormFieldLabel
         label={label}
         description={description}
         descriptionId={descriptionId}
         htmlFor={htmlFor}
         required={required}
         id={id}
-        hasError={hasError}
+        feedback={hasError ? { message: description, severity: "error" } : null}
       />
     ) : null;
 
   const renderOidcDetailsRow = (id: string, label: string, description: string, value: string, multiline = false) => (
-    <SettingsFormRow>
+    <FormRow>
       {renderDesktopLabel(label, description, `${id}-description`, id)}
-      <Box sx={settingsFormFieldControlSx}>
+      <Box sx={formFieldControlSx}>
         <DialogReadOnlyField
           id={id}
           label={usesDesktopFormLayout ? undefined : label}
@@ -1241,15 +1253,15 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           size={usesDesktopFormLayout ? "small" : "medium"}
         />
       </Box>
-    </SettingsFormRow>
+    </FormRow>
   );
 
   const editorContent = (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
       {submissionError && <SettingsInlineAlert sx={{ mb: 0 }}>{submissionError}</SettingsInlineAlert>}
-      <SettingsFormSurface testId="user-editor-form-surface">
-        <SettingsFormGroup testId="user-editor-identity-fields">
-          <SettingsFormRow>
+      <FormSurface testId="user-editor-form-surface">
+        <FormGroup testId="user-editor-identity-fields">
+          <FormRow>
             {renderDesktopLabel(
               t("settings.userManagement.editor.usernameLabel"),
               fieldErrors.username || t("settings.userManagement.editor.usernameHelp"),
@@ -1259,7 +1271,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               undefined,
               Boolean(fieldErrors.username)
             )}
-            <Box sx={settingsFormFieldControlSx}>
+            <Box sx={formFieldControlSx}>
               <TextField
                 id={USER_EDITOR_IDS.username}
                 label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.usernameLabel")}
@@ -1281,21 +1293,21 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 required
                 variant="outlined"
                 size={usesDesktopFormLayout ? "small" : "medium"}
-                sx={settingsFormOutlinedControlSx}
+                sx={formOutlinedControlSx}
                 slotProps={{
                   htmlInput: { "aria-describedby": usesDesktopFormLayout ? USER_EDITOR_IDS.usernameDescription : undefined },
                 }}
               />
             </Box>
-          </SettingsFormRow>
-          <SettingsFormRow>
+          </FormRow>
+          <FormRow>
             {renderDesktopLabel(
               t("settings.userManagement.editor.nameLabel"),
               hasOidcManagedIdentity ? t("settings.userManagement.editor.oidcNameHelp") : t("settings.userManagement.editor.nameHelp"),
               USER_EDITOR_IDS.nameDescription,
               USER_EDITOR_IDS.name
             )}
-            <Box sx={settingsFormFieldControlSx}>
+            <Box sx={formFieldControlSx}>
               {hasOidcManagedIdentity ? (
                 <>
                   <DialogReadOnlyField
@@ -1319,20 +1331,20 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                   fullWidth
                   variant="outlined"
                   size={usesDesktopFormLayout ? "small" : "medium"}
-                  sx={settingsFormOutlinedControlSx}
+                  sx={formOutlinedControlSx}
                   slotProps={{ htmlInput: { "aria-describedby": usesDesktopFormLayout ? USER_EDITOR_IDS.nameDescription : undefined } }}
                 />
               )}
             </Box>
-          </SettingsFormRow>
-          <SettingsFormRow>
+          </FormRow>
+          <FormRow>
             {renderDesktopLabel(
               t("settings.userManagement.editor.emailLabel"),
               hasOidcManagedIdentity ? t("settings.userManagement.editor.oidcEmailHelp") : t("settings.userManagement.editor.emailHelp"),
               USER_EDITOR_IDS.emailDescription,
               USER_EDITOR_IDS.email
             )}
-            <Box sx={settingsFormFieldControlSx}>
+            <Box sx={formFieldControlSx}>
               {hasOidcManagedIdentity ? (
                 <>
                   <DialogReadOnlyField
@@ -1357,16 +1369,16 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                   fullWidth
                   variant="outlined"
                   size={usesDesktopFormLayout ? "small" : "medium"}
-                  sx={settingsFormOutlinedControlSx}
+                  sx={formOutlinedControlSx}
                   slotProps={{ htmlInput: { "aria-describedby": usesDesktopFormLayout ? USER_EDITOR_IDS.emailDescription : undefined } }}
                 />
               )}
             </Box>
-          </SettingsFormRow>
-        </SettingsFormGroup>
+          </FormRow>
+        </FormGroup>
         <SettingsFormSection title={t("settings.userManagement.editor.sections.access")} />
-        <SettingsFormGroup>
-          <SettingsFormRow>
+        <FormGroup>
+          <FormRow>
             {renderDesktopLabel(
               t("settings.userManagement.editor.roleLabel"),
               hasOidcRoleAssignment
@@ -1385,7 +1397,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               fullWidth={!usesDesktopFormLayout}
               variant="outlined"
               size={usesDesktopFormLayout ? "small" : "medium"}
-              sx={usesDesktopFormLayout ? [settingsFormOutlinedControlSx, settingsFormSelectControlSx] : settingsFormOutlinedControlSx}
+              sx={usesDesktopFormLayout ? [formOutlinedControlSx, formSelectControlSx] : formOutlinedControlSx}
             >
               {!usesDesktopFormLayout && (
                 <InputLabel id={USER_EDITOR_IDS.roleLabel}>{t("settings.userManagement.editor.roleLabel")}</InputLabel>
@@ -1401,8 +1413,8 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                     : formState.role
                 }
                 size={usesDesktopFormLayout ? "small" : "medium"}
-                sx={settingsSelectSx}
-                MenuProps={settingsSelectMenuProps}
+                sx={formSelectSx}
+                MenuProps={formSelectMenuProps}
                 disabled={isEditingSelf}
                 onChange={(event) => {
                   const selectedRole = event.target.value as UserRole | typeof OIDC_INHERITED_ROLE_VALUE;
@@ -1458,15 +1470,15 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 </FormHelperText>
               )}
             </FormControl>
-          </SettingsFormRow>
-          <SettingsFormRow>
+          </FormRow>
+          <FormRow>
             {renderDesktopLabel(
               t("settings.userManagement.editor.expiresAtLabel"),
               t("settings.userManagement.editor.expiresAtHelp"),
               USER_EDITOR_IDS.expiresAtDescription,
               USER_EDITOR_IDS.expiresAt
             )}
-            <Box sx={[settingsFormFieldControlSx, { maxWidth: { md: 260 } }]}>
+            <Box sx={[formFieldControlSx, { maxWidth: { md: 260 } }]}>
               <TextField
                 id={USER_EDITOR_IDS.expiresAt}
                 label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.expiresAtLabel")}
@@ -1478,16 +1490,16 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 variant="outlined"
                 size={usesDesktopFormLayout ? "small" : "medium"}
                 helperText={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.expiresAtHelp")}
-                sx={settingsFormOutlinedControlSx}
+                sx={formOutlinedControlSx}
                 slotProps={{
                   inputLabel: { shrink: true },
                   htmlInput: { "aria-describedby": usesDesktopFormLayout ? USER_EDITOR_IDS.expiresAtDescription : undefined },
                 }}
               />
             </Box>
-          </SettingsFormRow>
+          </FormRow>
           {isEditing && (
-            <SettingsFormRow>
+            <FormRow>
               {renderDesktopLabel(
                 t("settings.userManagement.editor.accountActiveLabel"),
                 t("settings.userManagement.editor.accountActiveHelp"),
@@ -1496,7 +1508,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 false,
                 USER_EDITOR_IDS.isActiveLabel
               )}
-              <Box sx={settingsFormFieldControlSx}>
+              <Box sx={formFieldControlSx}>
                 <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
                   {!usesDesktopFormLayout && (
                     <Typography id={USER_EDITOR_IDS.isActiveLabel} variant="body2" sx={{ mr: "auto" }}>
@@ -1523,21 +1535,21 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 </Box>
                 {!usesDesktopFormLayout && <FormHelperText>{t("settings.userManagement.editor.accountActiveHelp")}</FormHelperText>}
               </Box>
-            </SettingsFormRow>
+            </FormRow>
           )}
-        </SettingsFormGroup>
+        </FormGroup>
         {!isEditing && (
           <>
             <SettingsFormSection title={t("settings.userManagement.editor.sections.credentials")} />
-            <SettingsFormGroup>
-              <SettingsFormRow>
+            <FormGroup>
+              <FormRow>
                 {renderDesktopLabel(
                   t("settings.userManagement.editor.initialPasswordLabel"),
                   t("settings.userManagement.editor.initialPasswordHelp"),
                   USER_EDITOR_IDS.passwordDescription,
                   USER_EDITOR_IDS.password
                 )}
-                <Box sx={settingsFormFieldControlSx}>
+                <Box sx={formFieldControlSx}>
                   <TextField
                     id={USER_EDITOR_IDS.password}
                     label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.initialPasswordLabel")}
@@ -1549,7 +1561,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                     fullWidth
                     variant="outlined"
                     size={usesDesktopFormLayout ? "small" : "medium"}
-                    sx={settingsFormOutlinedControlSx}
+                    sx={formOutlinedControlSx}
                     slotProps={{
                       htmlInput: { "aria-describedby": usesDesktopFormLayout ? USER_EDITOR_IDS.passwordDescription : undefined },
                       input: {
@@ -1565,8 +1577,8 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                     }}
                   />
                 </Box>
-              </SettingsFormRow>
-              <SettingsFormRow>
+              </FormRow>
+              <FormRow>
                 {renderDesktopLabel(
                   t("settings.userManagement.editor.requirePasswordChangeLabel"),
                   t("settings.userManagement.editor.requirePasswordChangeHelp"),
@@ -1575,7 +1587,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                   false,
                   USER_EDITOR_IDS.mustChangePasswordLabel
                 )}
-                <Box sx={settingsFormFieldControlSx}>
+                <Box sx={formFieldControlSx}>
                   <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
                     {!usesDesktopFormLayout && (
                       <Typography id={USER_EDITOR_IDS.mustChangePasswordLabel} variant="body2" sx={{ mr: "auto" }}>
@@ -1607,11 +1619,11 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                     <FormHelperText>{t("settings.userManagement.editor.requirePasswordChangeHelp")}</FormHelperText>
                   )}
                 </Box>
-              </SettingsFormRow>
-            </SettingsFormGroup>
+              </FormRow>
+            </FormGroup>
           </>
         )}
-      </SettingsFormSurface>
+      </FormSurface>
     </Box>
   );
 
@@ -1673,9 +1685,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const resetPasswordEditorContent = (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
       {resetPasswordError && <SettingsInlineAlert sx={{ mb: 0 }}>{resetPasswordError}</SettingsInlineAlert>}
-      <SettingsFormSurface testId="reset-password-editor-form-surface">
-        <SettingsFormGroup>
-          <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+      <FormSurface testId="reset-password-editor-form-surface">
+        <FormGroup>
+          <FormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
             <TextField
               label={t("settings.userManagement.resetPasswordEditor.passwordLabel")}
               type={showResetPassword ? "text" : "password"}
@@ -1686,7 +1698,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               inputRef={resetPasswordInputRef}
               fullWidth
               variant="outlined"
-              sx={settingsFormOutlinedControlSx}
+              sx={formOutlinedControlSx}
               slotProps={{
                 input: {
                   endAdornment: (
@@ -1700,8 +1712,8 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 },
               }}
             />
-          </SettingsFormRow>
-          <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+          </FormRow>
+          <FormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
             <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
               <Typography variant="body2" sx={{ mr: "auto" }}>
                 {t("settings.userManagement.resetPasswordEditor.requirePasswordChangeLabel")}
@@ -1725,9 +1737,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 }}
               />
             </Box>
-          </SettingsFormRow>
-        </SettingsFormGroup>
-      </SettingsFormSurface>
+          </FormRow>
+        </FormGroup>
+      </FormSurface>
     </Box>
   );
 
@@ -2521,7 +2533,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         )}
       </Menu>
 
-      <ResponsiveFormDialog
+      <ResponsiveDialogShell
         open={oidcAuthenticationEnabled && oidcDetailsUser !== null}
         onClose={() => setOidcDetailsUser(null)}
         title={oidcDetailsUser ? `OIDC identity details for ${oidcDetailsUser.username}` : "OIDC identity details"}
@@ -2538,8 +2550,8 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         }
       >
         {oidcDetailsUser?.oidc && (
-          <SettingsFormSurface testId="oidc-details-form-surface">
-            <SettingsFormGroup>
+          <FormSurface testId="oidc-details-form-surface">
+            <FormGroup>
               {renderOidcDetailsRow(
                 OIDC_DETAILS_IDS.provider,
                 "Identity provider",
@@ -2583,12 +2595,12 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 "The most recent sign-in verified with this identity",
                 oidcDetailsUser.oidc.last_login_at ? formatLocalTimestamp(oidcDetailsUser.oidc.last_login_at) : "Never"
               )}
-            </SettingsFormGroup>
-          </SettingsFormSurface>
+            </FormGroup>
+          </FormSurface>
         )}
-      </ResponsiveFormDialog>
+      </ResponsiveDialogShell>
 
-      <ResponsiveFormDialog
+      <ResponsiveDialogShell
         open={mappingEditor.open}
         onClose={closeMappingEditor}
         disableClose={mappingSubmitting}
@@ -2600,15 +2612,17 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               : "Map OIDC account"
         }
         description="Mapping does not override provider admission or role policy."
+        contextualNotice={<DialogNotice message={mappingContextualError} testId="oidc-mapping-contextual-error" />}
+        actionNotice={<DialogNotice message={mappingActionError} testId="oidc-mapping-action-error" />}
         actions={mappingEditorActions}
         onKeyDown={dialogEnterKeyHandler(() => {
           void handleMappingSubmit();
         })}
       >
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <SettingsFormSurface testId="oidc-mapping-editor-form-surface">
-            <SettingsFormGroup>
-              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+          <FormSurface testId="oidc-mapping-editor-form-surface">
+            <FormGroup>
+              <FormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
                 {mappingEditor.mode === "move" ? (
                   <Autocomplete
                     autoHighlight
@@ -2633,13 +2647,14 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                     onChange={(_, user) => {
                       setMappingTargetUser(user);
                       setMappingTargetSearch(user ? (user.name ? `${user.name} (${user.username})` : user.username) : "");
-                      setMappingError(null);
+                      setMappingFieldErrors((current) => ({ ...current, targetUser: undefined }));
                     }}
                     onInputChange={(_, value, reason) => {
                       if (reason === "input" || reason === "clear") {
                         setMappingTargetSearch(value);
                         setMappingTargetQuery(value);
                         setMappingTargetUser(null);
+                        setMappingFieldErrors((current) => ({ ...current, targetUser: undefined }));
                       }
                     }}
                     renderInput={(params) => (
@@ -2647,8 +2662,11 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                         {...params}
                         autoFocus
                         label="Move identity to"
-                        helperText="Search eligible active, unlinked local accounts by username, name, or email"
-                        sx={settingsFormOutlinedControlSx}
+                        error={Boolean(mappingFieldErrors.targetUser)}
+                        helperText={
+                          mappingFieldErrors.targetUser ?? "Search eligible active, unlinked local accounts by username, name, or email"
+                        }
+                        sx={formOutlinedControlSx}
                       />
                     )}
                   />
@@ -2658,21 +2676,25 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                     fullWidth
                     label="Expected provider username"
                     value={mappingEditor.expectedUsername}
-                    onChange={(event) => setMappingEditor((current) => ({ ...current, expectedUsername: event.target.value }))}
-                    helperText="The first admitted, unmapped OIDC identity with this exact username will claim the account."
-                    sx={settingsFormOutlinedControlSx}
+                    onChange={(event) => {
+                      setMappingEditor((current) => ({ ...current, expectedUsername: event.target.value }));
+                      setMappingFieldErrors((current) => ({ ...current, expectedUsername: undefined }));
+                    }}
+                    error={Boolean(mappingFieldErrors.expectedUsername)}
+                    helperText={
+                      mappingFieldErrors.expectedUsername ??
+                      "The first admitted, unmapped OIDC identity with this exact username will claim the account."
+                    }
+                    sx={formOutlinedControlSx}
                   />
                 )}
-              </SettingsFormRow>
-            </SettingsFormGroup>
-          </SettingsFormSurface>
-          <Box aria-live="assertive" sx={{ minHeight: 48 }}>
-            {mappingError && <SettingsInlineAlert sx={{ mb: 0 }}>{mappingError}</SettingsInlineAlert>}
-          </Box>
+              </FormRow>
+            </FormGroup>
+          </FormSurface>
         </Box>
-      </ResponsiveFormDialog>
+      </ResponsiveDialogShell>
 
-      <ResponsiveFormDialog
+      <ResponsiveDialogShell
         open={editorOpen}
         onClose={handleEditorClose}
         disableClose={submitting}
@@ -2681,9 +2703,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         onKeyDown={handleEditorKeyDown}
       >
         {editorContent}
-      </ResponsiveFormDialog>
+      </ResponsiveDialogShell>
 
-      <ResponsiveFormDialog
+      <ResponsiveDialogShell
         open={resetPasswordEditorOpen}
         onClose={handleResetPasswordEditorClose}
         disableClose={resetPasswordSubmitting}
@@ -2700,7 +2722,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         onTransitionEntered={() => resetPasswordInputRef.current?.focus()}
       >
         {resetPasswordEditorContent}
-      </ResponsiveFormDialog>
+      </ResponsiveDialogShell>
 
       <DeleteDialog
         open={deleteDialogOpen}
@@ -2715,7 +2737,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         descriptionItemName={selectedUser?.username ?? null}
       />
 
-      <ResponsiveFormDialog
+      <ResponsiveDialogShell
         open={credentialsDialog.open}
         onClose={() => setCredentialsDialog((current) => ({ ...current, open: false }))}
         title={credentialsDialog.title}
@@ -2724,7 +2746,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         maxWidth="xs"
       >
         {credentialsDialogContent}
-      </ResponsiveFormDialog>
+      </ResponsiveDialogShell>
 
       <SettingsNotificationSnackbar
         notification={notification}
