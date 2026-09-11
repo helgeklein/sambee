@@ -128,8 +128,10 @@ describe("ArchiveExtractDialog", () => {
     const onConfirm = vi.fn();
     render(<ArchiveExtractDialog {...defaultProps} onConfirm={onConfirm} />);
 
-    await user.clear(screen.getByLabelText("fileBrowser.archive.destinationNameLabel"));
-    await user.type(screen.getByLabelText("fileBrowser.archive.destinationNameLabel"), "output\\release");
+    const destinationInput = screen.getByLabelText("fileBrowser.archive.destinationNameLabel");
+    await user.click(destinationInput);
+    await user.clear(destinationInput);
+    await user.type(destinationInput, "output\\release");
     await user.click(screen.getByRole("button", { name: "fileBrowser.archive.buttonExtract" }));
 
     expect(onConfirm).toHaveBeenCalledWith("output/release");
