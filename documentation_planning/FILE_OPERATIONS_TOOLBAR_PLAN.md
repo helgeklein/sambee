@@ -4,15 +4,18 @@
 
 Make the available file-management operations easy to discover and usable without a keyboard on both desktop and mobile.
 
-The implementation will add one responsive full-width file-operations toolbar at the bottom of the file browser. It will appear above the global application status area, below the full pane region, and operate exclusively on the currently active pane.
+The implementation will add one responsive full-width file-operations toolbar at the bottom of the file browser. It will sit between the pane region and its aligned per-pane status bars, and operate exclusively on the currently active pane.
 
 ## Interaction Design
 
 ### Toolbar placement
 
-- Render one toolbar in `FileBrowser`, after the pane-content container and before any global lower application surface.
-- Keep the toolbar outside `FileBrowserPane`; neither left nor right pane owns a duplicate toolbar.
+- Render one toolbar in `FileBrowser`, outside `FileBrowserPane`.
 - Span the full width of the shared pane-content region, in both single- and dual-pane modes.
+- Compose three parent rows: visible panes, the full-width toolbar, then the aligned per-pane status bars.
+- Move `StatusBar` rendering from `FileBrowserPane` to `FileBrowser`. Render one status bar below the toolbar for one visible pane, or one status bar per visible pane in a horizontally aligned row for two panes.
+- Give the pane row and status-bar row matching tracks and divider treatment so each status bar remains directly beneath its pane.
+- Do not use sticky, absolute, or overlay positioning for the toolbar.
 
 ### Commands
 
@@ -22,8 +25,8 @@ Show the complete file-operation command set as icon buttons, with accessible la
 1. New file
 1. Rename
 1. Delete
-1. Copy to other pane (dual-pane mode only)
-1. Move to other pane (dual-pane mode only)
+1. Copy to other pane (two-pane mode only)
+1. Move to other pane (two-pane mode only)
 1. Create archive
 1. Extract archive
 1. Refresh
@@ -50,12 +53,12 @@ Define stable action IDs and a descriptor that includes:
 - translated label and disabled-reason text
 - MUI icon identifier or icon element
 - display priority, used to decide which commands remain visible as icons when space is constrained
-- layout visibility, used only to show Copy and Move in dual-pane mode
+- layout visibility, used only to show Copy and Move when two panes are visible
 - enabled state
 - unavailable reason, when disabled
 - command handler
 
-The descriptor builder receives one action context for the active pane. That context contains the existing pane handlers, page-level copy/move/archive handlers, layout mode, and the availability results calculated by `FileBrowser`.
+The descriptor builder receives one action context for the active pane. That context contains the existing pane handlers, page-level copy/move/archive handlers, rendered pane mode, and the availability results calculated by `FileBrowser`.
 
 Keep this module declarative. It must not own operation state, call storage APIs, or duplicate capability checks.
 
@@ -74,11 +77,11 @@ Refactor only as needed to expose an active-pane toolbar availability map derive
 - `create-archive`
 - `extract-archive`
 
-Represent Refresh as available when an active connection exists and no higher-priority operation state blocks it, consistent with its current keyboard behavior.
+Extend the shared availability map with an explicit Refresh rule that is exactly the current keyboard `browsing` condition. Both the keyboard shortcut and toolbar must consume this one result; do not add a toolbar-only dialog, loading, or selection rule.
 
-Create the single action-descriptor array from `effectiveActivePaneId` / `activePane`. When dual-pane focus changes, React recomputes the same toolbar descriptors with the other pane's state and handlers. Do not route button clicks through a stale pane closure.
+Create the single action-descriptor array from `effectiveActivePaneId` / `activePane` and the rendered pane mode. When pane focus changes, React recomputes the same toolbar descriptors with the other pane's state and handlers. Capture an operation's source and destination context when its handler opens a dialog; later pane switches must not retarget that dialog or a running operation.
 
-Continue reusing the existing page-level handlers for copy, move, archive creation, and archive extraction. Continue reusing `useFileBrowserPane` handlers for refresh, creation, rename, and delete.
+Continue reusing the existing page-level handlers for copy, move, archive creation, and archive extraction. The Copy descriptor must call the existing Copy handler unchanged: when its source is ZIP archive content, that handler starts the existing extraction workflow rather than a normal transfer. Continue reusing `useFileBrowserPane` handlers for refresh, creation, rename, and delete.
 
 ### 3. Build the presentational toolbar
 
@@ -92,7 +95,7 @@ The component accepts precomputed action descriptors and renders:
 - clear disabled states without layout shifts
 - a More `IconButton` and `Menu` containing only commands that do not fit
 
-Use a small reusable responsive-overflow hook or utility inside the component. It should observe the available toolbar width with `ResizeObserver`, calculate capacity from stable icon-button dimensions and gaps, reserve space for the More button when overflow is required, and recompute when the toolbar size or relevant action set changes. Do not use wrapping, horizontal scrolling, or CSS clipping as the overflow mechanism.
+Use a small reusable responsive-overflow hook or utility inside the component. It should observe the available toolbar width with `ResizeObserver`, reserve space for More when overflow is required, and recompute when the toolbar size or action set changes. Measure rendered command widths or use shared layout constants; do not use wrapping, horizontal scrolling, or CSS clipping as the overflow mechanism.
 
 Keep the actions shown in the current mode in the ordered descriptor list. The calculation displays the highest-priority prefix that fits and sends the remaining suffix to More, so resizing preserves a predictable command order. Disabled commands retain their normal slot and may overflow, rather than changing the ordering based on availability.
 
@@ -106,9 +109,10 @@ In `frontend/src/pages/FileBrowser.tsx`:
 
 1. Create the active-pane operation context after `activePane`, `inactivePane`, and the existing availability helpers are known.
 2. Build action descriptors once for that context.
-3. Render `FileOperationsToolbar` exactly once after the shared pane-content `Box`, spanning that container's full width, and before desktop settings/dialog layers.
-4. Keep the toolbar visible in desktop and `useCompactLayout` modes, including empty directories, so Refresh and permitted creation commands remain available.
-5. Add responsive safe-area bottom padding for compact layouts so touch targets remain fully reachable.
+3. Extract `StatusBar` from `FileBrowserPane`. Keep panes responsible for breadcrumbs, compact search, and virtualized lists only.
+4. Render the shared pane-content `Box`, then `FileOperationsToolbar` exactly once across its full width, then the parent-owned status-bar row.
+5. Derive toolbar state from the rendered pane mode and `effectiveActivePaneId`. Do not add any desktop or viewport-size condition to Copy/Move visibility; show them whenever the browser renders two panes.
+6. Keep the toolbar visible in every pane layout, including empty directories, so Refresh and permitted creation commands remain available. Preserve the existing responsive status-bar visibility and mobile safe-area behavior.
 
 Do not pass toolbar props into `FileBrowserPane`, and do not move CRUD dialog ownership from the pane hook. The global toolbar calls handlers associated with the active pane; its dialogs may continue to render within their respective `FileBrowserPane` instances.
 
@@ -120,6 +124,8 @@ The same global component must render on compact layouts:
 - preserve icon labels for screen readers and long-press/hover-capable devices
 - render the maximum number of icons that fit at the current viewport width; put only the remaining lower-priority commands in More
 - keep all compact-layout commands discoverable even when the active connection, selection, or archive state makes them unavailable
+
+The toolbar must not introduce its own screen-size rule for Copy/Move. They appear whenever the existing browser layout renders two panes and are omitted when it renders one pane.
 
 ### 6. Localize user-facing text
 
@@ -145,7 +151,7 @@ Add `frontend/src/components/FileBrowser/__tests__/FileOperationsToolbar.test.ts
 - click delegation only for enabled actions
 - More menu visibility, contents, and click delegation
 - responsive overflow at several container widths, including restoring icons when space becomes available
-- Copy/Move visibility only in dual-pane mode
+- Copy/Move visibility whenever the rendered layout has two panes
 - stable layout behavior when actions are disabled
 
 ### Page and interaction tests
@@ -155,10 +161,15 @@ Extend `frontend/src/pages/__tests__/FileBrowser-interactions.test.tsx` and the 
 - only one toolbar renders in dual-pane mode
 - selecting/focusing the other pane switches handler targets and action availability
 - toolbar commands invoke the same handlers as their keyboard shortcuts
+- Refresh has the same enabled state as the keyboard `browsing` condition
 - read-only connections and archive locations keep mutations disabled
+- Copy from ZIP archive content opens the existing extraction workflow with the source pane and destination pane captured at invocation
 - no selected item disables Rename/Delete and explains why
-- compact and single-pane desktop modes omit Copy/Move commands
+- Copy/Move are present in the rendered two-pane layout and absent in the rendered single-pane layout
 - empty directories retain Refresh and valid creation commands
+- after opening Rename/Create, Copy/Move, or archive dialogs, switching panes leaves the open dialog and any running operation bound to its original source and destination context
+
+Update `FileBrowserPane` tests to verify panes no longer render status bars. Add parent layout tests verifying one toolbar above one status bar in single-pane mode and above two aligned status bars in two-pane mode.
 
 The existing `frontend/src/pages/__tests__/FileBrowserPane.test.tsx` should be updated only to confirm that panes do not render an operations toolbar. Its existing status-bar assertions should remain unchanged.
 
@@ -192,6 +203,6 @@ Included:
 Excluded:
 
 - New backend file operations.
-- A mobile dual-pane mode.
+- Changing dual-pane availability or its responsive behavior.
 - Duplicating toolbars inside panes.
 - Reworking the existing command palette, context menus, or keyboard shortcut system beyond sharing policy/handlers where needed.
