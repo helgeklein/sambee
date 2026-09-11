@@ -1,0 +1,1 @@
+export const SETTING_SUCCESS_DISPLAY_MS = 2_000;

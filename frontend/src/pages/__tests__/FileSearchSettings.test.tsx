@@ -61,9 +61,18 @@ describe("FileSearchSettings", () => {
     await user.click(screen.getByRole("button", { name: "Add extension" }));
 
     await waitFor(() => {
-      expect(api.updateFileSearchSettings).toHaveBeenCalledWith({ field: "retention_limit", value: 25 });
-      expect(api.updateFileSearchSettings).toHaveBeenCalledWith({ field: "excluded_extensions", value: [".bak"] });
-      expect(api.updateFileSearchSettings).toHaveBeenCalledWith({ field: "excluded_extensions", value: [".bak", ".tmp"] });
+      expect(api.updateFileSearchSettings).toHaveBeenCalledWith(
+        { field: "retention_limit", value: 25 },
+        expect.objectContaining({ signal: expect.anything() })
+      );
+      expect(api.updateFileSearchSettings).toHaveBeenCalledWith(
+        { field: "excluded_extensions", value: [".bak"] },
+        expect.objectContaining({ signal: expect.anything() })
+      );
+      expect(api.updateFileSearchSettings).toHaveBeenCalledWith(
+        { field: "excluded_extensions", value: [".bak", ".tmp"] },
+        expect.objectContaining({ signal: expect.anything() })
+      );
     });
     expect(publishRecentFilesChangedMock).toHaveBeenCalled();
   });
@@ -102,5 +111,17 @@ describe("FileSearchSettings", () => {
     await screen.findByLabelText("Recent files to retain");
 
     expect(screen.queryByRole("button", { name: "Reset to default" })).not.toBeInTheDocument();
+  });
+
+  it("does not save an unchanged numeric value when it loses focus", async () => {
+    const user = userEvent.setup();
+    render(<FileSearchSettings />);
+
+    const retentionLimit = await screen.findByLabelText("Recent files to retain");
+    await user.click(retentionLimit);
+    await user.tab();
+
+    expect(api.updateFileSearchSettings).not.toHaveBeenCalled();
+    expect(retentionLimit).toBeEnabled();
   });
 });

@@ -125,6 +125,110 @@ describe("Browser Component - Interactions", () => {
       // without setting up the routes, but we can verify the button works
       await user.click(settingsButton);
     });
+
+    it("does not show unavailable shortcut feedback while settings is open", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await screen.findAllByText("Documents");
+      await user.keyboard("{Control>},{/Control}");
+      await screen.findByRole("dialog");
+
+      const event = createEvent.keyDown(document, { key: "F7" });
+      fireEvent(document, event);
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(screen.queryByText("This location is read-only.")).not.toBeInTheDocument();
+    });
+
+    it("does not show unavailable shortcut feedback while help is open", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await screen.findAllByText("Documents");
+      await user.keyboard("{F1}");
+      await screen.findByRole("dialog", { name: "File browser shortcuts" });
+
+      const event = createEvent.keyDown(document, { key: "F5" });
+      fireEvent(document, event);
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(screen.queryByText("Copy requires dual-pane mode.")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Unavailable shortcut scope", () => {
+    it.each([
+      { name: "image.png", mimeType: "image/png", viewerName: "image viewer" },
+      { name: "notes.md", mimeType: "text/markdown", viewerName: "Markdown viewer" },
+      { name: "report.pdf", mimeType: "application/pdf", viewerName: "PDF viewer" },
+      { name: "notes.txt", mimeType: "text/plain", viewerName: "text viewer" },
+    ])("does not show file-list feedback while the $viewerName is open", async ({ name, mimeType }) => {
+      const user = userEvent.setup();
+      vi.mocked(api.listDirectory).mockResolvedValue({
+        path: "",
+        items: [
+          {
+            name,
+            path: name,
+            type: FileType.FILE,
+            size: 1024,
+            modified_at: "2024-01-01T00:00:00Z",
+            is_readable: true,
+            is_hidden: false,
+            mime_type: mimeType,
+          },
+        ],
+        total: 1,
+      });
+      renderBrowser("/browse/smb/test-server-1");
+
+      await user.click(await screen.findByRole("button", { name: new RegExp(`file: ${name}`, "i") }));
+      await screen.findByRole("dialog");
+
+      const event = createEvent.keyDown(document, { key: "F5" });
+      fireEvent(document, event);
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(screen.queryByText("Copy requires dual-pane mode.")).not.toBeInTheDocument();
+    });
+
+    it("does not show file-list feedback while mobile menus are open", async () => {
+      const originalMatchMedia = window.matchMedia;
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: /max-width/.test(query),
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }));
+
+      try {
+        const user = userEvent.setup();
+        renderBrowser("/browse/smb/test-server-1");
+
+        await user.click(await screen.findByRole("button", { name: "Open menu" }));
+        await screen.findByRole("button", { name: "Open settings" });
+
+        const drawerEvent = createEvent.keyDown(document, { key: "F5" });
+        fireEvent(document, drawerEvent);
+        expect(drawerEvent.defaultPrevented).toBe(false);
+        expect(screen.queryByText("Copy requires dual-pane mode.")).not.toBeInTheDocument();
+
+        await user.click(screen.getByRole("button", { name: "Open settings" }));
+        await screen.findByRole("button", { name: "Go back" });
+
+        const settingsEvent = createEvent.keyDown(document, { key: "F5" });
+        fireEvent(document, settingsEvent);
+        expect(settingsEvent.defaultPrevented).toBe(false);
+        expect(screen.queryByText("Copy requires dual-pane mode.")).not.toBeInTheDocument();
+      } finally {
+        window.matchMedia = originalMatchMedia;
+      }
+    });
   });
 
   describe("Sort Functionality", () => {
@@ -285,7 +389,10 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Control>}b{/Control}");
 
       await waitFor(() => {
-        expect(api.updateCurrentUserSettings).toHaveBeenCalledWith({ field: "browser.pane_mode", value: "dual" });
+        expect(api.updateCurrentUserSettings).toHaveBeenCalledWith(
+          { field: "browser.pane_mode", value: "dual" },
+          { signal: expect.any(AbortSignal) }
+        );
         expect(localStorage.getItem("active-pane")).toBe("right");
         const rightPaneList = container.querySelector('[data-pane-id="right"] [data-testid="file-list-container"]');
         expect(rightPaneList).toBeInstanceOf(HTMLElement);
@@ -295,7 +402,10 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Control>}b{/Control}");
 
       await waitFor(() => {
-        expect(api.updateCurrentUserSettings).toHaveBeenLastCalledWith({ field: "browser.pane_mode", value: "single" });
+        expect(api.updateCurrentUserSettings).toHaveBeenLastCalledWith(
+          { field: "browser.pane_mode", value: "single" },
+          { signal: expect.any(AbortSignal) }
+        );
       });
     });
 
@@ -350,7 +460,10 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Control>}b{/Control}");
 
       await waitFor(() => {
-        expect(api.updateCurrentUserSettings).toHaveBeenCalledWith({ field: "browser.pane_mode", value: "dual" });
+        expect(api.updateCurrentUserSettings).toHaveBeenCalledWith(
+          { field: "browser.pane_mode", value: "dual" },
+          { signal: expect.any(AbortSignal) }
+        );
         const rightPaneList = container.querySelector('[data-pane-id="right"] [data-testid="file-list-container"]');
         expect(rightPaneList).toBeInstanceOf(HTMLElement);
       });
@@ -378,7 +491,10 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Control>}b{/Control}");
 
       await waitFor(() => {
-        expect(api.updateCurrentUserSettings).toHaveBeenCalledWith({ field: "browser.pane_mode", value: "dual" });
+        expect(api.updateCurrentUserSettings).toHaveBeenCalledWith(
+          { field: "browser.pane_mode", value: "dual" },
+          { signal: expect.any(AbortSignal) }
+        );
       });
 
       settingsButton.focus();
@@ -387,7 +503,10 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Control>}b{/Control}");
 
       await waitFor(() => {
-        expect(api.updateCurrentUserSettings).toHaveBeenLastCalledWith({ field: "browser.pane_mode", value: "single" });
+        expect(api.updateCurrentUserSettings).toHaveBeenLastCalledWith(
+          { field: "browser.pane_mode", value: "single" },
+          { signal: expect.any(AbortSignal) }
+        );
       });
     });
 
@@ -410,7 +529,10 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Control>}b{/Control}");
 
       await waitFor(() => {
-        expect(api.updateCurrentUserSettings).toHaveBeenLastCalledWith({ field: "browser.pane_mode", value: "single" });
+        expect(api.updateCurrentUserSettings).toHaveBeenLastCalledWith(
+          { field: "browser.pane_mode", value: "single" },
+          { signal: expect.any(AbortSignal) }
+        );
       });
     });
 
@@ -448,6 +570,23 @@ describe("Browser Component - Interactions", () => {
         ).length;
         expect(destinationLoads).toBeGreaterThan(initialDestinationLoads);
       });
+    });
+
+    it("does not show unavailable feedback while a copy dialog owns keyboard interaction", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
+
+      const [listContainer] = await screen.findAllByTestId("virtual-list");
+      await user.click(listContainer);
+      await user.keyboard(" ");
+      await user.keyboard("{F5}");
+      await screen.findByRole("dialog");
+
+      const event = createEvent.keyDown(document, { key: "F5" });
+      fireEvent(document, event);
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(screen.queryByText("Copy requires dual-pane mode.")).not.toBeInTheDocument();
     });
 
     it("closes the copy dialog when an in-progress transfer is cancelled", async () => {
@@ -687,6 +826,77 @@ describe("Browser Component - Interactions", () => {
       expect(event.defaultPrevented).toBe(true);
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       expect(api.copyItem).not.toHaveBeenCalled();
+      expect(await screen.findByText("This location is read-only.")).toBeInTheDocument();
+    });
+
+    it("explains unavailable F5, F6, and Alt+F5 when no item is selected", async () => {
+      vi.mocked(api.listDirectory).mockResolvedValue({ path: "", items: [], total: 0 });
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2");
+
+      const [listContainer] = await screen.findAllByTestId("file-list-container");
+      listContainer.focus();
+
+      const copyEvent = createEvent.keyDown(document, { key: "F5" });
+      fireEvent(document, copyEvent);
+      expect(copyEvent.defaultPrevented).toBe(true);
+      expect(await screen.findByText("Select one or more items to copy.")).toBeInTheDocument();
+
+      const moveEvent = createEvent.keyDown(document, { key: "F6" });
+      fireEvent(document, moveEvent);
+      expect(moveEvent.defaultPrevented).toBe(true);
+      expect(await screen.findByText("Select one or more items to move.")).toBeInTheDocument();
+
+      const archiveEvent = createEvent.keyDown(document, { key: "F5", altKey: true });
+      fireEvent(document, archiveEvent);
+      expect(archiveEvent.defaultPrevented).toBe(true);
+      expect(await screen.findByText("Select items that can be added to an archive.")).toBeInTheDocument();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("explains why F5 requires dual-pane mode", async () => {
+      renderBrowser("/browse/smb/test-server-1");
+
+      const listContainer = await screen.findByTestId("virtual-list");
+      listContainer.focus();
+      const event = createEvent.keyDown(document, { key: "F5" });
+      fireEvent(document, event);
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(await screen.findByText("Copy requires dual-pane mode.")).toBeInTheDocument();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("explains why F7 and Shift+F7 cannot create content in a read-only location", async () => {
+      vi.mocked(api.getConnections).mockResolvedValue([{ ...mockConnections[0], access_mode: "read_only" }]);
+      renderBrowser("/browse/smb/test-server-1");
+
+      const listContainer = await screen.findByTestId("virtual-list");
+      listContainer.focus();
+
+      const directoryEvent = createEvent.keyDown(document, { key: "F7" });
+      fireEvent(document, directoryEvent);
+      expect(directoryEvent.defaultPrevented).toBe(true);
+      expect(await screen.findByText("This location is read-only.")).toBeInTheDocument();
+
+      const fileEvent = createEvent.keyDown(document, { key: "F7", shiftKey: true });
+      fireEvent(document, fileEvent);
+      expect(fileEvent.defaultPrevented).toBe(true);
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("does not show unavailable shortcut feedback while the quick bar input owns focus", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await screen.findAllByText("Documents");
+      await user.keyboard("{Control>}p{/Control}");
+      await screen.findByPlaceholderText("Run a command");
+
+      const event = createEvent.keyDown(document, { key: "F5" });
+      fireEvent(document, event);
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(screen.queryByText("Copy requires dual-pane mode.")).not.toBeInTheDocument();
     });
 
     it("opens a move dialog without executing a move immediately", async () => {
@@ -976,6 +1186,7 @@ describe("Browser Component - Interactions", () => {
       expect(screen.queryByText(/will be permanently deleted/i)).not.toBeInTheDocument();
       expect(screen.queryByRole("dialog", { name: /rename/i })).not.toBeInTheDocument();
       expect(screen.queryByRole("dialog", { name: /create/i })).not.toBeInTheDocument();
+      expect(await screen.findByText("Archive contents cannot be modified.")).toBeInTheDocument();
     });
 
     it("disables archive-wide extraction with Alt+F9 inside an archive and lists it in keyboard help", async () => {
@@ -1014,6 +1225,7 @@ describe("Browser Component - Interactions", () => {
 
       fireEvent.keyDown(document, { key: "F9", altKey: true });
       expect(screen.queryByRole("dialog", { name: "Extract from ZIP Archive" })).not.toBeInTheDocument();
+      expect(await screen.findByText("The selected item is not available for this action.")).toBeInTheDocument();
 
       await user.keyboard("{Control>}p{/Control}");
       const commandInput = await screen.findByPlaceholderText("Run a command");
@@ -1070,9 +1282,31 @@ describe("Browser Component - Interactions", () => {
       const extractDialog = await screen.findByRole("dialog", { name: "Extract from ZIP Archive" });
       expect(within(extractDialog).getByText("Destination directory:")).toBeInTheDocument();
       expect(within(extractDialog).getByLabelText("Test Server 2:/")).toHaveTextContent("Test Server 2:/");
+      const unavailableEvent = createEvent.keyDown(document, { key: "F5" });
+      fireEvent(document, unavailableEvent);
+      expect(unavailableEvent.defaultPrevented).toBe(false);
+      expect(screen.queryByText("Copy requires dual-pane mode.")).not.toBeInTheDocument();
       const locationBeforeTab = screen.getByTestId("router-location").textContent;
       fireEvent.keyDown(document, { key: "Tab" });
       expect(screen.getByTestId("router-location")).toHaveTextContent(locationBeforeTab ?? "");
+    });
+
+    it("does not show unavailable feedback while the archive creation dialog owns keyboard interaction", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2");
+
+      const [listContainer] = await screen.findAllByTestId("virtual-list");
+      await user.click(listContainer);
+      await user.keyboard(" ");
+      await user.keyboard("{Alt>}{F5}{/Alt}");
+      await screen.findByRole("dialog", { name: "Create ZIP Archive" });
+
+      const event = createEvent.keyDown(document, { key: "F5" });
+      fireEvent(document, event);
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(screen.queryByText("Copy requires dual-pane mode.")).not.toBeInTheDocument();
+      expect(screen.getByRole("dialog", { name: "Create ZIP Archive" })).toBeInTheDocument();
     });
 
     it("blocks copy, move, and archive creation when the opposite pane is a ZIP archive", async () => {
@@ -1131,6 +1365,31 @@ describe("Browser Component - Interactions", () => {
       expect(api.copyItem).not.toHaveBeenCalled();
       expect(api.moveItem).not.toHaveBeenCalled();
       expect(api.executeArchiveCreation).not.toHaveBeenCalled();
+    });
+
+    it("reports a read-only destination when ZIP-member F5 extraction is unavailable", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.getConnections).mockResolvedValue([{ ...mockConnections[0], access_mode: "read_only" }, mockConnections[1]]);
+      vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+        archive: { path: "archive.zip", size: 1 },
+        path: "",
+        items: [{ name: "inside.txt", path: "inside.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 1,
+        page_size: 100,
+      });
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/archive.zip&active=2");
+
+      await waitFor(() => expectDirectoryLoad("conn-1", ""));
+      const archiveMember = await screen.findByRole("button", { name: /file: inside\.txt/i });
+      const archiveList = archiveMember.closest('[data-testid="virtual-list"]');
+      expect(archiveList).toBeInstanceOf(HTMLElement);
+      await user.click(archiveList as HTMLElement);
+      await user.keyboard(" ");
+
+      await user.keyboard("{F5}");
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("This location is read-only.");
+      expect(screen.queryByRole("dialog", { name: "Extract from ZIP Archive" })).not.toBeInTheDocument();
     });
 
     it("reports a cancelled selected-member extraction", async () => {
@@ -2366,6 +2625,7 @@ describe("Browser Component - Interactions", () => {
       expect(event.defaultPrevented).toBe(true);
       expect(screen.queryByLabelText(/new name/i)).not.toBeInTheDocument();
       expect(api.renameItem).not.toHaveBeenCalled();
+      expect(await screen.findByText("This location is read-only.")).toBeInTheDocument();
     });
   });
 });

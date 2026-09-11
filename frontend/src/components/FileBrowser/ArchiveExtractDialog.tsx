@@ -325,7 +325,7 @@ export function ArchiveExtractDialog({
         ) : null}
         {!isExtracting && !awaitingConflictDecision && requiresDestinationName ? (
           <FormSurface>
-            <FormGroup>
+            <FormGroup edge="both">
               <FormRow sx={{ display: { md: "block" } }}>
                 <TextField
                   inputRef={inputRef}

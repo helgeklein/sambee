@@ -344,7 +344,10 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
       });
 
       await waitFor(() => {
-        expect(api.updateCurrentUserSettings).toHaveBeenCalledWith({ field: "browser.pane_mode", value: "dual" });
+        expect(api.updateCurrentUserSettings).toHaveBeenCalledWith(
+          { field: "browser.pane_mode", value: "dual" },
+          { signal: expect.any(AbortSignal) }
+        );
       });
     });
   });

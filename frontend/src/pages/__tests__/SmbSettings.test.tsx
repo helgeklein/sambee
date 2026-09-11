@@ -63,10 +63,13 @@ describe("SmbSettings", () => {
     await user.tab();
 
     await waitFor(() => {
-      expect(api.updateSmbSettings).toHaveBeenCalledWith({
-        field: "connection_timeout_seconds",
-        value: 45,
-      });
+      expect(api.updateSmbSettings).toHaveBeenCalledWith(
+        {
+          field: "connection_timeout_seconds",
+          value: 45,
+        },
+        expect.objectContaining({ signal: expect.anything() })
+      );
     });
     expect(screen.queryByRole("button", { name: "Save SMB settings" })).not.toBeInTheDocument();
   });
@@ -101,11 +104,41 @@ describe("SmbSettings", () => {
     await user.click(screen.getByRole("option", { name: "Signing and encryption (SMB 3+)" }));
 
     await waitFor(() => {
-      expect(api.updateSmbSettings).toHaveBeenCalledWith({
-        field: "encryption_mode",
-        value: "encryption_required",
-      });
+      expect(api.updateSmbSettings).toHaveBeenCalledWith(
+        {
+          field: "encryption_mode",
+          value: "encryption_required",
+        },
+        expect.objectContaining({ signal: expect.anything() })
+      );
     });
+  });
+
+  it("restores protection select focus after saving", async () => {
+    const user = userEvent.setup();
+    let resolveUpdate: ((update: { field: "encryption_mode"; value: "encryption_required" }) => void) | undefined;
+    vi.mocked(api.updateSmbSettings).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveUpdate = resolve;
+        })
+    );
+    render(
+      <SambeeThemeProvider>
+        <SmbSettings />
+      </SambeeThemeProvider>
+    );
+
+    const protection = await screen.findByRole("combobox", { name: "Transport protection" });
+    protection.focus();
+    await user.click(protection);
+    await user.click(screen.getByRole("option", { name: "Signing and encryption (SMB 3+)" }));
+
+    await waitFor(() => expect(protection).toHaveAttribute("aria-disabled", "true"));
+    protection.blur();
+    resolveUpdate?.({ field: "encryption_mode", value: "encryption_required" });
+
+    await waitFor(() => expect(protection).toHaveFocus());
   });
 
   it("retains invalid chunk-size input without sending an update", async () => {
@@ -123,5 +156,21 @@ describe("SmbSettings", () => {
 
     expect(await screen.findByText("Enter a whole number within the allowed chunk-size range.")).toBeInTheDocument();
     expect(api.updateSmbSettings).not.toHaveBeenCalled();
+  });
+
+  it("does not save an unchanged timeout when it loses focus", async () => {
+    const user = userEvent.setup();
+    render(
+      <SambeeThemeProvider>
+        <SmbSettings />
+      </SambeeThemeProvider>
+    );
+
+    const timeout = await screen.findByLabelText("Connection timeout");
+    await user.click(timeout);
+    await user.tab();
+
+    expect(api.updateSmbSettings).not.toHaveBeenCalled();
+    expect(timeout).toBeEnabled();
   });
 });

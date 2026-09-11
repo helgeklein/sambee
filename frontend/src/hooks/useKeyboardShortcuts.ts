@@ -35,6 +35,8 @@ export interface KeyboardShortcut {
   helpGroup?: ShortcutHelpGroup;
   /** Handler function to execute */
   handler: (event?: KeyboardEvent) => void;
+  /** Handles a matching disabled shortcut and reports whether it consumed the event */
+  onUnavailable?: (event: KeyboardEvent) => boolean;
   /** Requires Ctrl/Cmd modifier key */
   ctrl?: boolean;
   /** Requires Shift modifier key */
@@ -170,11 +172,7 @@ export const useKeyboardShortcuts = ({ shortcuts, inputSelector = "input, textar
       const activeElement = document.activeElement;
       const interactiveHasFocus = hasInteractiveFocus(activeElement, inputSelector);
 
-      // Find matching shortcut (sorted by priority)
-      for (const shortcut of sortedShortcuts) {
-        // Skip if shortcut is disabled
-        if (shortcut.enabled === false) continue;
-
+      const matchesShortcut = (shortcut: KeyboardShortcut): boolean => {
         // Skip if an interactive control has focus and shortcut doesn't explicitly allow it
         if (interactiveHasFocus && !shortcut.allowInInput) {
           const isAllowedInputSurface =
@@ -182,32 +180,54 @@ export const useKeyboardShortcuts = ({ shortcuts, inputSelector = "input, textar
               ? activeElement.matches(shortcut.allowInInputWithin) || activeElement.closest(shortcut.allowInInputWithin)
               : false;
 
-          if (!isAllowedInputSurface) continue;
+          if (!isAllowedInputSurface) return false;
         }
 
         // Check modifier keys
-        if (shortcut.ctrl && !(event.ctrlKey || event.metaKey)) continue;
-        if (shortcut.shift && !event.shiftKey) continue;
-        if (shortcut.alt && !event.altKey) continue;
+        if (shortcut.ctrl && !(event.ctrlKey || event.metaKey)) return false;
+        if (shortcut.shift && !event.shiftKey) return false;
+        if (shortcut.alt && !event.altKey) return false;
 
         // Check if key matches first
         const keys = Array.isArray(shortcut.keys) ? shortcut.keys : [shortcut.keys];
         const keyMatches = keys.some((key) => event.key === key);
 
-        if (!keyMatches) continue;
+        if (!keyMatches) return false;
 
         // Check if no modifiers should be pressed
         // For printable characters (length 1), ignore shift key differences due to keyboard layouts
         // E.g., "/" requires Shift on German keyboard but not on US keyboard
         const isPrintableChar = keys.some((key) => key.length === 1);
 
-        if (!shortcut.ctrl && (event.ctrlKey || event.metaKey)) continue;
-        if (!shortcut.shift && event.shiftKey && !isPrintableChar) continue;
-        if (!shortcut.alt && event.altKey) continue;
+        if (!shortcut.ctrl && (event.ctrlKey || event.metaKey)) return false;
+        if (!shortcut.shift && event.shiftKey && !isPrintableChar) return false;
+        if (!shortcut.alt && event.altKey) return false;
 
-        // Key matched and modifiers are correct
+        return true;
+      };
+
+      for (const shortcut of sortedShortcuts) {
+        if (shortcut.enabled === false || !matchesShortcut(shortcut)) {
+          continue;
+        }
+
         event.preventDefault();
         shortcut.handler(event);
+        return;
+      }
+
+      if (event.repeat) {
+        return;
+      }
+
+      for (const shortcut of sortedShortcuts) {
+        if (shortcut.enabled !== false || !shortcut.onUnavailable || !matchesShortcut(shortcut)) {
+          continue;
+        }
+
+        if (shortcut.onUnavailable(event)) {
+          event.preventDefault();
+        }
         return;
       }
     };

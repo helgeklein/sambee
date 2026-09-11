@@ -359,7 +359,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
   // Form content (shared between Dialog and Drawer)
   const formContent = (
     <FormSurface testId="connection-dialog-form-surface">
-      <FormGroup testId="connection-dialog-fields">
+      <FormGroup edge="start" testId="connection-dialog-fields">
         <FormRow>
           {renderDesktopLabel(
             CONNECTION_DIALOG_STRINGS.LABEL_NAME,
@@ -568,7 +568,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         </FormRow>
       </FormGroup>
       <SettingsFormSection title={t("settings.connectionDialog.sections.access")} />
-      <FormGroup>
+      <FormGroup edge="end">
         <FormRow>
           {renderDesktopLabel(
             t("settings.connectionDialog.labels.visibility"),

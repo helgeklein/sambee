@@ -110,9 +110,100 @@ describe("useKeyboardShortcuts", () => {
       ];
 
       renderHook(() => useKeyboardShortcuts({ shortcuts }));
-      simulateKeyPress("a");
+      const event = simulateKeyPress("a");
 
       expect(mockHandler).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it("should handle a matching disabled shortcut when no enabled shortcut matches", () => {
+      const onUnavailable = vi.fn(() => true);
+      const shortcuts: KeyboardShortcut[] = [
+        {
+          id: "disabled",
+          keys: "a",
+          description: "Disabled",
+          handler: mockHandler,
+          enabled: false,
+          onUnavailable,
+        },
+      ];
+
+      renderHook(() => useKeyboardShortcuts({ shortcuts }));
+      const event = simulateKeyPress("a");
+
+      expect(mockHandler).not.toHaveBeenCalled();
+      expect(onUnavailable).toHaveBeenCalledWith(event);
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it("should not consume a disabled shortcut when unavailable handling returns false", () => {
+      const onUnavailable = vi.fn(() => false);
+      const shortcuts: KeyboardShortcut[] = [
+        {
+          id: "disabled",
+          keys: "a",
+          description: "Disabled",
+          handler: mockHandler,
+          enabled: false,
+          onUnavailable,
+        },
+      ];
+
+      renderHook(() => useKeyboardShortcuts({ shortcuts }));
+      const event = simulateKeyPress("a");
+
+      expect(onUnavailable).toHaveBeenCalledWith(event);
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it("should prefer an enabled matching shortcut over unavailable handling", () => {
+      const onUnavailable = vi.fn(() => true);
+      const enabledHandler = vi.fn();
+      const shortcuts: KeyboardShortcut[] = [
+        {
+          id: "disabled",
+          keys: "a",
+          description: "Disabled",
+          handler: mockHandler,
+          enabled: false,
+          onUnavailable,
+          priority: 10,
+        },
+        {
+          id: "enabled",
+          keys: "a",
+          description: "Enabled",
+          handler: enabledHandler,
+        },
+      ];
+
+      renderHook(() => useKeyboardShortcuts({ shortcuts }));
+      simulateKeyPress("a");
+
+      expect(enabledHandler).toHaveBeenCalledTimes(1);
+      expect(onUnavailable).not.toHaveBeenCalled();
+    });
+
+    it("should ignore repeat events for disabled shortcut handling", () => {
+      const onUnavailable = vi.fn(() => true);
+      const shortcuts: KeyboardShortcut[] = [
+        {
+          id: "disabled",
+          keys: "a",
+          description: "Disabled",
+          handler: mockHandler,
+          enabled: false,
+          onUnavailable,
+        },
+      ];
+
+      renderHook(() => useKeyboardShortcuts({ shortcuts }));
+      const event = new KeyboardEvent("keydown", { key: "a", bubbles: true, cancelable: true, repeat: true });
+      document.dispatchEvent(event);
+
+      expect(onUnavailable).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(false);
     });
 
     it("should trigger handler when enabled is true", () => {
@@ -319,6 +410,27 @@ describe("useKeyboardShortcuts", () => {
       simulateKeyPress("a");
 
       expect(mockHandler).not.toHaveBeenCalled();
+    });
+
+    it("should block unavailable shortcut handling when input has focus", () => {
+      const onUnavailable = vi.fn(() => true);
+      const shortcuts: KeyboardShortcut[] = [
+        {
+          id: "disabled",
+          keys: "a",
+          description: "Disabled",
+          handler: mockHandler,
+          enabled: false,
+          onUnavailable,
+        },
+      ];
+
+      renderHook(() => useKeyboardShortcuts({ shortcuts }));
+      input.focus();
+      const event = simulateKeyPress("a");
+
+      expect(onUnavailable).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(false);
     });
 
     it("should allow shortcut with allowInInput: true", () => {

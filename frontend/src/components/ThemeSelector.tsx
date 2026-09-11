@@ -13,10 +13,12 @@ import {
   useTheme,
 } from "@mui/material";
 import { useState } from "react";
+import { useRestoreFocusAfterPending } from "../hooks/useRestoreFocusAfterPending";
 import { useCurrentUserSetting } from "../services/userSettingsStore";
 import { useSambeeTheme } from "../theme";
 import { DialogNotice } from "./Dialog/DialogNotice";
 import { ResponsiveDialogShell } from "./Dialog/ResponsiveDialogShell";
+import { SettingSaveStatus } from "./Settings/SettingSaveStatus";
 import { THEME_SELECTOR_STRINGS } from "./themeSelectorStrings";
 
 //
@@ -63,12 +65,22 @@ interface ThemeSelectorDialogProps {
 export function ThemeSelectorDialog({ open, onClose }: ThemeSelectorDialogProps) {
   const { currentTheme, availableThemes } = useSambeeTheme();
   const themeSetting = useCurrentUserSetting("appearance.theme_id");
+  const [pendingThemeId, setPendingThemeId] = useState<string | null>(null);
+  const restoreThemeFocus = useRestoreFocusAfterPending(themeSetting.pending || pendingThemeId !== null);
 
   const handleSelect = (themeId: string) => {
     if (themeId !== currentTheme.id && !themeSetting.pending) {
-      void themeSetting.commit(themeId).catch(() => undefined);
+      setPendingThemeId(themeId);
+      themeSetting.clearError();
+      void themeSetting
+        .commit(themeId)
+        .catch(() => undefined)
+        .finally(() => setPendingThemeId(null));
     }
   };
+
+  const selectedThemeId = pendingThemeId ?? currentTheme.id;
+  const themeSelectionPending = themeSetting.pending || pendingThemeId !== null;
 
   return (
     <ResponsiveDialogShell
@@ -92,17 +104,27 @@ export function ThemeSelectorDialog({ open, onClose }: ThemeSelectorDialogProps)
             key={theme.id}
             variant="outlined"
             sx={{
-              border: currentTheme.id === theme.id ? 2 : 1,
-              borderColor: currentTheme.id === theme.id ? "primary.main" : "divider",
+              border: selectedThemeId === theme.id ? 2 : 1,
+              borderColor: selectedThemeId === theme.id ? "primary.main" : "divider",
             }}
           >
-            <CardActionArea onClick={() => handleSelect(theme.id)} disabled={themeSetting.pending}>
+            <CardActionArea disabled={themeSelectionPending} onClick={() => handleSelect(theme.id)} onFocus={() => restoreThemeFocus()}>
               <CardContent>
                 <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
-                  <Radio checked={currentTheme.id === theme.id} />
+                  <Radio checked={selectedThemeId === theme.id} />
                   <Typography variant="h6" sx={{ ml: 1 }}>
                     {THEME_SELECTOR_STRINGS.themeName(theme)}
                   </Typography>
+                  {selectedThemeId === theme.id ? (
+                    <Box sx={{ ml: "auto" }}>
+                      <SettingSaveStatus
+                        pending={themeSelectionPending}
+                        saved={themeSetting.saved}
+                        savingLabel={THEME_SELECTOR_STRINGS.SAVING_LABEL}
+                        savedLabel={THEME_SELECTOR_STRINGS.SAVED_LABEL}
+                      />
+                    </Box>
+                  ) : null}
                 </Box>
                 {theme.description ? (
                   <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>

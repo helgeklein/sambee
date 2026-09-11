@@ -36,6 +36,68 @@ describe("SettingsFormLayout", () => {
     expect(screen.getByRole("heading", { name: "Access", level: 2 })).toBeInTheDocument();
   });
 
+  it("applies row padding only at the declared form surface edges", () => {
+    render(
+      <FormSurface>
+        <FormGroup testId="default-group">
+          <FormRow>
+            <input aria-label="Default field" />
+          </FormRow>
+        </FormGroup>
+        <FormGroup edge="start" testId="start-group">
+          <FormRow>
+            <input aria-label="Start field" />
+          </FormRow>
+        </FormGroup>
+        <FormGroup edge="end" testId="end-group">
+          <FormRow>
+            <input aria-label="End field" />
+          </FormRow>
+        </FormGroup>
+        <FormGroup edge="both" testId="both-group">
+          <FormRow>
+            <input aria-label="Both field" />
+          </FormRow>
+        </FormGroup>
+      </FormSurface>
+    );
+
+    const defaultRow = screen.getByTestId("default-group").firstElementChild!;
+    const startRow = screen.getByTestId("start-group").firstElementChild!;
+    const endRow = screen.getByTestId("end-group").firstElementChild!;
+    const bothRow = screen.getByTestId("both-group").firstElementChild!;
+
+    expect(getComputedStyle(defaultRow).paddingTop).not.toBe("0px");
+    expect(getComputedStyle(defaultRow).paddingBottom).not.toBe("0px");
+    expect(getComputedStyle(startRow).paddingTop).toBe("0px");
+    expect(getComputedStyle(startRow).paddingBottom).not.toBe("0px");
+    expect(getComputedStyle(endRow).paddingTop).not.toBe("0px");
+    expect(getComputedStyle(endRow).paddingBottom).toBe("0px");
+    expect(getComputedStyle(bothRow).paddingTop).toBe("0px");
+    expect(getComputedStyle(bothRow).paddingBottom).toBe("0px");
+  });
+
+  it("retains a group's final row spacing before a following section divider", () => {
+    render(
+      <FormSurface>
+        <FormGroup edge="start" testId="identity-group">
+          <FormRow>
+            <input aria-label="Email" />
+          </FormRow>
+        </FormGroup>
+        <SettingsFormSection title="Access" />
+        <FormGroup edge="end" testId="access-group">
+          <FormRow>
+            <input aria-label="Role" />
+          </FormRow>
+        </FormGroup>
+      </FormSurface>
+    );
+
+    expect(getComputedStyle(screen.getByTestId("identity-group").firstElementChild!).paddingBottom).not.toBe("0px");
+    expect(getComputedStyle(screen.getByTestId("access-group").firstElementChild!).paddingBottom).toBe("0px");
+  });
+
   it("replaces the normal description with visible warning feedback", () => {
     render(
       <FormFieldLabel

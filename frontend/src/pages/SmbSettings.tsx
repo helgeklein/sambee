@@ -6,6 +6,7 @@ import { SettingsPage } from "../components/Settings/SettingsPage";
 import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
 import { loadSmbSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
 import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
+import { useRestoreFocusAfterPending } from "../hooks/useRestoreFocusAfterPending";
 import { SettingPersistenceAdornment, useSystemSettingPersistence } from "../hooks/useSystemSettingPersistence";
 import api from "../services/api";
 import type { SmbAuthenticationMode, SmbEncryptionMode, SmbSettings as SmbSettingsData, SmbSettingsUpdate } from "../types";
@@ -30,15 +31,32 @@ function getSettingsAfterUpdate(settings: SmbSettingsData, update: SmbSettingsUp
   }
 }
 
+function getConfirmedSettingValue(settings: SmbSettingsData | null, field: SmbSettingField): unknown {
+  if (!settings) return undefined;
+  switch (field) {
+    case "authentication_mode":
+      return settings.policy.authentication_mode;
+    case "encryption_mode":
+      return settings.policy.encryption_mode;
+    case "connection_timeout_seconds":
+      return settings.policy.connection_timeout_seconds;
+    case "read_chunk_size_bytes":
+      return settings.read_chunk_size_bytes.value;
+  }
+}
+
 export function SmbSettings({ dialogSafeHeader = false }: SmbSettingsProps) {
   const { t } = useTranslation();
   const [connectionTimeoutSeconds, setConnectionTimeoutSeconds] = useState("");
   const [readChunkSizeBytes, setReadChunkSizeBytes] = useState("");
   const [touchedFields, setTouchedFields] = useState<Partial<Record<SmbSettingField, boolean>>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
-  const persistence = useSystemSettingPersistence<SmbSettingsUpdate>(api.updateSmbSettings, (saveError) =>
-    getApiErrorMessage(saveError, t("settings.smbSettings.saveFailed"))
+  const persistence = useSystemSettingPersistence<SmbSettingsUpdate>(
+    (update, options) => api.updateSmbSettings(update, options),
+    (saveError) => getApiErrorMessage(saveError, t("settings.smbSettings.saveFailed"))
   );
+  const restoreAuthenticationModeFocus = useRestoreFocusAfterPending(persistence.isPending("authentication_mode"));
+  const restoreEncryptionModeFocus = useRestoreFocusAfterPending(persistence.isPending("encryption_mode"));
   const handleLoadError = useCallback(
     (loadError: unknown) => setLoadError(getApiErrorMessage(loadError, t("settings.smbSettings.loadFailed"))),
     [t]
@@ -63,7 +81,7 @@ export function SmbSettings({ dialogSafeHeader = false }: SmbSettingsProps) {
   }, [settings]);
 
   const persistField = async (update: SmbSettingsUpdate) => {
-    const result = await persistence.persist(update);
+    const result = await persistence.persist(update, getConfirmedSettingValue(settings, update.field));
     if (result.status === "completed") {
       setSettings((current) => (current ? getSettingsAfterUpdate(current, result.update) : current));
     }
@@ -125,6 +143,7 @@ export function SmbSettings({ dialogSafeHeader = false }: SmbSettingsProps) {
               label={t("settings.smbSettings.fields.authenticationMode")}
               value={settings.policy.authentication_mode}
               onChange={(event) => void persistField({ field: "authentication_mode", value: event.target.value as SmbAuthenticationMode })}
+              onFocus={() => restoreAuthenticationModeFocus()}
               disabled={persistence.isPending("authentication_mode")}
               error={Boolean(persistence.fieldErrors.authentication_mode)}
               helperText={persistence.fieldErrors.authentication_mode ?? t("settings.smbSettings.helper.authenticationMode")}
@@ -139,6 +158,7 @@ export function SmbSettings({ dialogSafeHeader = false }: SmbSettingsProps) {
               label={t("settings.smbSettings.fields.encryptionMode")}
               value={settings.policy.encryption_mode}
               onChange={(event) => void persistField({ field: "encryption_mode", value: event.target.value as SmbEncryptionMode })}
+              onFocus={() => restoreEncryptionModeFocus()}
               disabled={persistence.isPending("encryption_mode")}
               error={Boolean(persistence.fieldErrors.encryption_mode)}
               helperText={persistence.fieldErrors.encryption_mode ?? t("settings.smbSettings.helper.encryptionMode")}
