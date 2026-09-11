@@ -18,8 +18,9 @@ export function NetworkSettings() {
   const [publicUrl, setPublicUrl] = useState("");
   const [trustedProxyCidrs, setTrustedProxyCidrs] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
-  const persistence = useSystemSettingPersistence<NetworkSettingsUpdate>(api.updateNetworkSettings, (saveError) =>
-    getApiErrorMessage(saveError, "Network settings could not be saved.")
+  const persistence = useSystemSettingPersistence<NetworkSettingsUpdate>(
+    (update, options) => api.updateNetworkSettings(update, options),
+    (saveError) => getApiErrorMessage(saveError, "Network settings could not be saved.")
   );
   const handleLoadError = useCallback(
     (loadError: unknown) => setLoadError(getApiErrorMessage(loadError, "Network settings could not be loaded.")),
@@ -43,7 +44,7 @@ export function NetworkSettings() {
   }, [settings]);
 
   const persistField = async (update: NetworkSettingsUpdate) => {
-    const result = await persistence.persist(update);
+    const result = await persistence.persist(update, settings?.[update.field]);
     if (result.status === "completed") {
       clearCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAuthentication);
       setSettings((current) => (current ? { ...current, [result.update.field]: result.update.value } : current));

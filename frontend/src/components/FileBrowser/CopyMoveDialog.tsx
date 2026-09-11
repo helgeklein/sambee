@@ -192,7 +192,7 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
       />
       {isSingleItem ? (
         <FormSurface>
-          <FormGroup>
+          <FormGroup edge="both">
             <FormRow sx={{ display: { md: "block" } }}>
               <TextField
                 id="copy-move-filename"

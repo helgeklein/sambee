@@ -1260,7 +1260,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
       {submissionError && <SettingsInlineAlert sx={{ mb: 0 }}>{submissionError}</SettingsInlineAlert>}
       <FormSurface testId="user-editor-form-surface">
-        <FormGroup testId="user-editor-identity-fields">
+        <FormGroup edge="start" testId="user-editor-identity-fields">
           <FormRow>
             {renderDesktopLabel(
               t("settings.userManagement.editor.usernameLabel"),
@@ -1377,7 +1377,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           </FormRow>
         </FormGroup>
         <SettingsFormSection title={t("settings.userManagement.editor.sections.access")} />
-        <FormGroup>
+        <FormGroup edge={isEditing ? "end" : "none"}>
           <FormRow>
             {renderDesktopLabel(
               t("settings.userManagement.editor.roleLabel"),
@@ -1541,7 +1541,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         {!isEditing && (
           <>
             <SettingsFormSection title={t("settings.userManagement.editor.sections.credentials")} />
-            <FormGroup>
+            <FormGroup edge="end">
               <FormRow>
                 {renderDesktopLabel(
                   t("settings.userManagement.editor.initialPasswordLabel"),
@@ -1686,7 +1686,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
       {resetPasswordError && <SettingsInlineAlert sx={{ mb: 0 }}>{resetPasswordError}</SettingsInlineAlert>}
       <FormSurface testId="reset-password-editor-form-surface">
-        <FormGroup>
+        <FormGroup edge="both">
           <FormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
             <TextField
               label={t("settings.userManagement.resetPasswordEditor.passwordLabel")}
@@ -2551,7 +2551,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       >
         {oidcDetailsUser?.oidc && (
           <FormSurface testId="oidc-details-form-surface">
-            <FormGroup>
+            <FormGroup edge="both">
               {renderOidcDetailsRow(
                 OIDC_DETAILS_IDS.provider,
                 "Identity provider",
@@ -2621,7 +2621,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       >
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <FormSurface testId="oidc-mapping-editor-form-surface">
-            <FormGroup>
+            <FormGroup edge="both">
               <FormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
                 {mappingEditor.mode === "move" ? (
                   <Autocomplete

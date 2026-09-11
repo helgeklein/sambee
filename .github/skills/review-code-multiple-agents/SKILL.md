@@ -1,5 +1,5 @@
 ---
-name: review-code
+name: review-code-multiple-agents
 description: Guide for reviewing code changes, new implementations, or planning documents. Use this when asked to review.
 ---
 

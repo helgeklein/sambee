@@ -578,8 +578,13 @@ class ApiService {
     return response.data;
   }
 
-  async updateCurrentUserSettings(payload: CurrentUserSettingsUpdate): Promise<CurrentUserSettingsUpdate> {
-    const response = await this.api.put<CurrentUserSettingsUpdate>("/auth/me/settings", payload);
+  async updateCurrentUserSettings(
+    payload: CurrentUserSettingsUpdate,
+    options?: { signal?: AbortSignal }
+  ): Promise<CurrentUserSettingsUpdate> {
+    const response = options
+      ? await this.api.put<CurrentUserSettingsUpdate>("/auth/me/settings", payload, options)
+      : await this.api.put<CurrentUserSettingsUpdate>("/auth/me/settings", payload);
     return response.data;
   }
 
@@ -811,8 +816,13 @@ class ApiService {
     return response.data;
   }
 
-  async updateAdvancedSettings(payload: AdvancedSystemSettingsUpdate): Promise<AdvancedSystemSettingsUpdate> {
-    const response = await this.api.put<AdvancedSystemSettingsUpdate>("/admin/settings/advanced", payload);
+  async updateAdvancedSettings(
+    payload: AdvancedSystemSettingsUpdate,
+    options?: { signal?: AbortSignal }
+  ): Promise<AdvancedSystemSettingsUpdate> {
+    const response = options
+      ? await this.api.put<AdvancedSystemSettingsUpdate>("/admin/settings/advanced", payload, options)
+      : await this.api.put<AdvancedSystemSettingsUpdate>("/admin/settings/advanced", payload);
     return response.data;
   }
 
@@ -821,8 +831,10 @@ class ApiService {
     return response.data;
   }
 
-  async updateFileSearchSettings(payload: FileSearchSettingsUpdate): Promise<FileSearchSettingsUpdate> {
-    const response = await this.api.put<FileSearchSettingsUpdate>("/admin/settings/file-search", payload);
+  async updateFileSearchSettings(payload: FileSearchSettingsUpdate, options?: { signal?: AbortSignal }): Promise<FileSearchSettingsUpdate> {
+    const response = options
+      ? await this.api.put<FileSearchSettingsUpdate>("/admin/settings/file-search", payload, options)
+      : await this.api.put<FileSearchSettingsUpdate>("/admin/settings/file-search", payload);
     return response.data;
   }
 
@@ -889,8 +901,10 @@ class ApiService {
     return response.data;
   }
 
-  async updateSmbSettings(payload: SmbSettingsUpdate): Promise<SmbSettingsUpdate> {
-    const response = await this.api.put<SmbSettingsUpdate>("/admin/settings/smb", payload);
+  async updateSmbSettings(payload: SmbSettingsUpdate, options?: { signal?: AbortSignal }): Promise<SmbSettingsUpdate> {
+    const response = options
+      ? await this.api.put<SmbSettingsUpdate>("/admin/settings/smb", payload, options)
+      : await this.api.put<SmbSettingsUpdate>("/admin/settings/smb", payload);
     return response.data;
   }
 
@@ -899,8 +913,10 @@ class ApiService {
     return response.data;
   }
 
-  async updateNetworkSettings(payload: NetworkSettingsUpdate): Promise<NetworkSettingsUpdate> {
-    const response = await this.api.put<NetworkSettingsUpdate>("/admin/settings/network", payload);
+  async updateNetworkSettings(payload: NetworkSettingsUpdate, options?: { signal?: AbortSignal }): Promise<NetworkSettingsUpdate> {
+    const response = options
+      ? await this.api.put<NetworkSettingsUpdate>("/admin/settings/network", payload, options)
+      : await this.api.put<NetworkSettingsUpdate>("/admin/settings/network", payload);
     return response.data;
   }
 

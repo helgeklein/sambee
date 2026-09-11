@@ -9,20 +9,30 @@ const {
   clearRecentFilesMock,
   publishRecentDirectoriesChangedMock,
   publishRecentFilesChangedMock,
-  setIncludeDotDirectoriesMock,
-  setShortcutHintVisibilityMock,
+  commitMock,
+  settingStates,
 } = vi.hoisted(() => ({
   clearRecentDirectoriesMock: vi.fn(),
   clearRecentFilesMock: vi.fn(),
   publishRecentDirectoriesChangedMock: vi.fn(),
   publishRecentFilesChangedMock: vi.fn(),
-  setIncludeDotDirectoriesMock: vi.fn(),
-  setShortcutHintVisibilityMock: vi.fn(),
+  commitMock: vi.fn(),
+  settingStates: {
+    includeDotDirectories: { error: null as string | null, pending: false, saved: false },
+    shortcutHints: { error: null as string | null, pending: false, saved: false },
+  },
 }));
 
-vi.mock("../FileBrowser/preferences", () => ({
-  useQuickNavIncludeDotDirectoriesPreference: () => [false, setIncludeDotDirectoriesMock],
-  useQuickBarShortcutHintVisibilityPreference: () => ["auto", setShortcutHintVisibilityMock],
+vi.mock("../../services/userSettingsStore", () => ({
+  useCurrentUserSetting: (field: string) => {
+    const state = field === "browser.quick_nav_include_dot_directories" ? settingStates.includeDotDirectories : settingStates.shortcutHints;
+    return {
+      confirmedValue: field === "browser.quick_nav_include_dot_directories" ? false : "auto",
+      ...state,
+      commit: commitMock,
+      clearError: vi.fn(),
+    };
+  },
 }));
 
 vi.mock("../../services/api", () => ({
@@ -45,6 +55,12 @@ describe("FileBrowserSettings", () => {
     vi.clearAllMocks();
     clearRecentDirectoriesMock.mockResolvedValue(0);
     clearRecentFilesMock.mockResolvedValue(0);
+    commitMock.mockResolvedValue(undefined);
+    for (const state of Object.values(settingStates)) {
+      state.error = null;
+      state.pending = false;
+      state.saved = false;
+    }
   });
 
   it("renders the quick navigation settings group", () => {
@@ -61,7 +77,7 @@ describe("FileBrowserSettings", () => {
     render(<FileBrowserSettings />);
 
     await user.click(screen.getByRole("checkbox", { name: "Include dot directories in quick nav" }));
-    expect(setIncludeDotDirectoriesMock).toHaveBeenCalledWith(true);
+    expect(commitMock).toHaveBeenCalledWith(true);
   });
 
   it("updates the shortcut-hint visibility preference", async () => {
@@ -71,7 +87,40 @@ describe("FileBrowserSettings", () => {
     await user.click(screen.getByRole("combobox", { name: "Keyboard shortcut hints" }));
     await user.click(screen.getByRole("option", { name: "Never show" }));
 
-    expect(setShortcutHintVisibilityMock).toHaveBeenCalledWith("never");
+    expect(commitMock).toHaveBeenCalledWith("never");
+  });
+
+  it("renders checkbox and select persistence feedback", () => {
+    settingStates.includeDotDirectories.pending = true;
+    const { rerender } = render(<FileBrowserSettings />);
+
+    expect(screen.getByRole("checkbox", { name: "Include dot directories in quick nav" })).toBeDisabled();
+    expect(screen.getByRole("status", { name: "Saving setting" })).toBeInTheDocument();
+
+    settingStates.includeDotDirectories.pending = false;
+    settingStates.includeDotDirectories.saved = true;
+    settingStates.shortcutHints.error = "Unable to save shortcut hints.";
+    rerender(<FileBrowserSettings />);
+    expect(screen.getByRole("status", { name: "Setting saved" })).toBeInTheDocument();
+    expect(screen.getByText("Unable to save shortcut hints.")).toBeInTheDocument();
+  });
+
+  it("restores checkbox focus after saving", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<FileBrowserSettings />);
+    const includeDotDirectories = screen.getByRole("checkbox", { name: "Include dot directories in quick nav" });
+
+    includeDotDirectories.focus();
+    await user.keyboard(" ");
+    expect(commitMock).toHaveBeenCalledWith(true);
+
+    settingStates.includeDotDirectories.pending = true;
+    rerender(<FileBrowserSettings />);
+    includeDotDirectories.blur();
+    settingStates.includeDotDirectories.pending = false;
+    rerender(<FileBrowserSettings />);
+
+    await waitFor(() => expect(includeDotDirectories).toHaveFocus());
   });
 
   it("cancels clear-history confirmation and restores focus to its trigger", async () => {

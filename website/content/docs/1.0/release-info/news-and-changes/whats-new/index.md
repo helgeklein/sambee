@@ -70,24 +70,29 @@ Copy and move operations can now overwrite an existing file or replace it only w
 
 ### Other Changes
 
+- When keyboard shortcuts are ignored Sambee now shows a toast message to make the user unobtrusively aware of the fact.
 - Keyboard navigation: removed delay after entering a new directory
 - Typeahead buffer: cleared when <kbd>Esc</kbd> is pressed
 
-## Settings & Dialogs
+## Settings
+
+### No More Save Button
+
+Clicking a save button at the bottom of the page after adjusting some configuration settings is easily forgotten. So best get rid of that pesky save button altogether. Modern UIs like Sambee's are clever enough to apply config changes automatically and confer to the user that saving happend through subtle visual cues.
 
 ### New Settings
 
 The settings gained a new category page:
 
-- New admin **File Search** settings page
+- New admin settings page: **File Search**
 
 ## Image Viewer
 
 - Large images: better user feedback while loading
+
 ## Miscellaneous
 
 - Bugfix: Concurrent OIDC token refreshes would cause SQLite database lock errors.
-
 
 ## Under the Hood
 

@@ -13,15 +13,17 @@ import {
   useTheme,
 } from "@mui/material";
 import type { SelectChangeEvent } from "@mui/material/Select";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formSelectMenuProps, formSelectSx } from "../components/Form/FormLayout";
+import { SettingSaveStatus } from "../components/Settings/SettingSaveStatus";
 import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsList } from "../components/Settings/SettingsList";
 import { SettingsPage } from "../components/Settings/SettingsPage";
 import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
 import { getSettingsPageSurfaceColor } from "../components/Settings/settingsSurface";
+import { useRestoreFocusAfterPending } from "../hooks/useRestoreFocusAfterPending";
 import { getAvailableLanguages } from "../i18n";
 import { useLocalePreferences } from "../i18n/LocalePreferencesProvider";
 import { PSEUDO_LANGUAGE } from "../i18n/resources";
@@ -96,6 +98,12 @@ function ThemePreview({
 export function AppearanceSettings() {
   const { currentTheme, availableThemes } = useSambeeTheme();
   const themeSetting = useCurrentUserSetting("appearance.theme_id");
+  const languageSetting = useCurrentUserSetting("localization.language");
+  const regionalLocaleSetting = useCurrentUserSetting("localization.regional_locale");
+  const [pendingThemeId, setPendingThemeId] = useState<string | null>(null);
+  const restoreThemeFocus = useRestoreFocusAfterPending(themeSetting.pending || pendingThemeId !== null);
+  const restoreLanguageFocus = useRestoreFocusAfterPending(languageSetting.pending);
+  const restoreRegionalLocaleFocus = useRestoreFocusAfterPending(regionalLocaleSetting.pending);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t } = useTranslation();
@@ -133,13 +141,29 @@ export function AppearanceSettings() {
 
   const handleLanguageChange = (event: SelectChangeEvent<string>) => {
     const nextLanguagePreference = event.target.value as LanguagePreference;
-    void setLanguagePreference(nextLanguagePreference);
+    languageSetting.clearError();
+    void setLanguagePreference(nextLanguagePreference).catch(() => undefined);
   };
 
   const handleRegionalLocaleChange = (event: SelectChangeEvent<string>) => {
     const nextRegionalLocalePreference = event.target.value;
-    void setRegionalLocalePreference(nextRegionalLocalePreference);
+    regionalLocaleSetting.clearError();
+    void setRegionalLocalePreference(nextRegionalLocalePreference).catch(() => undefined);
   };
+
+  const handleThemeSelect = (themeId: string) => {
+    if (!themeSetting.pending && themeId !== currentTheme.id) {
+      setPendingThemeId(themeId);
+      themeSetting.clearError();
+      void themeSetting
+        .commit(themeId)
+        .catch(() => undefined)
+        .finally(() => setPendingThemeId(null));
+    }
+  };
+
+  const selectedThemeId = pendingThemeId ?? currentTheme.id;
+  const themeSelectionPending = themeSetting.pending || pendingThemeId !== null;
 
   return (
     <SettingsPage category="appearance">
@@ -151,15 +175,13 @@ export function AppearanceSettings() {
                 <Box key={themeOption.id}>
                   <ListItem disablePadding>
                     <ListItemButton
-                      onClick={() => {
-                        if (!themeSetting.pending && themeOption.id !== currentTheme.id) {
-                          void themeSetting.commit(themeOption.id).catch(() => undefined);
-                        }
-                      }}
+                      disabled={themeSelectionPending}
+                      onFocus={() => restoreThemeFocus()}
+                      onClick={() => handleThemeSelect(themeOption.id)}
                       sx={{ py: 2, px: 0 }}
                     >
                       <Box sx={{ display: "flex", alignItems: "flex-start", width: "100%", gap: 2 }}>
-                        <Radio checked={currentTheme.id === themeOption.id} sx={{ mt: -0.5 }} />
+                        <Radio checked={selectedThemeId === themeOption.id} sx={{ mt: -0.5 }} />
                         <Box sx={{ flex: 1 }}>
                           <Typography variant="h6" sx={{ fontWeight: 500 }}>
                             {themeOption.name}
@@ -171,6 +193,14 @@ export function AppearanceSettings() {
                           )}
                           <ThemePreview theme={themeOption} />
                         </Box>
+                        {selectedThemeId === themeOption.id ? (
+                          <SettingSaveStatus
+                            pending={themeSelectionPending}
+                            saved={themeSetting.saved}
+                            savingLabel={t("settings.saveStatus.saving")}
+                            savedLabel={t("settings.saveStatus.saved")}
+                          />
+                        ) : null}
                       </Box>
                     </ListItemButton>
                   </ListItem>
@@ -188,30 +218,52 @@ export function AppearanceSettings() {
             >
               {availableThemes.map((themeOption) => (
                 <Box
+                  component="label"
                   key={themeOption.id}
-                  onClick={() => {
-                    if (!themeSetting.pending && themeOption.id !== currentTheme.id) {
-                      void themeSetting.commit(themeOption.id).catch(() => undefined);
-                    }
-                  }}
                   sx={{
                     p: 3,
-                    border: currentTheme.id === themeOption.id ? 2 : 1,
-                    borderColor: currentTheme.id === themeOption.id ? "primary.main" : "divider",
+                    border: selectedThemeId === themeOption.id ? 2 : 1,
+                    borderColor: selectedThemeId === themeOption.id ? "primary.main" : "divider",
                     borderRadius: 1,
-                    cursor: "pointer",
+                    cursor: themeSelectionPending ? "default" : "pointer",
                     transition: "all 0.2s",
-                    "&:hover": {
-                      borderColor: currentTheme.id === themeOption.id ? "primary.main" : "text.secondary",
-                      bgcolor: "action.selected",
-                    },
+                    ...(themeSelectionPending
+                      ? {}
+                      : {
+                          "&:hover": {
+                            borderColor: selectedThemeId === themeOption.id ? "primary.main" : "text.secondary",
+                            bgcolor: "action.selected",
+                          },
+                        }),
                   }}
                 >
                   <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
-                    <Radio checked={currentTheme.id === themeOption.id} />
+                    <Radio
+                      checked={selectedThemeId === themeOption.id}
+                      disabled={themeSelectionPending}
+                      slotProps={{ input: { "aria-label": themeOption.name } }}
+                      onFocus={() => restoreThemeFocus()}
+                      onChange={() => handleThemeSelect(themeOption.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          handleThemeSelect(themeOption.id);
+                        }
+                      }}
+                    />
                     <Typography variant="h6" sx={{ ml: 1 }}>
                       {themeOption.name}
                     </Typography>
+                    {selectedThemeId === themeOption.id ? (
+                      <Box sx={{ ml: "auto" }}>
+                        <SettingSaveStatus
+                          pending={themeSelectionPending}
+                          saved={themeSetting.saved}
+                          savingLabel={t("settings.saveStatus.saving")}
+                          savedLabel={t("settings.saveStatus.saved")}
+                        />
+                      </Box>
+                    ) : null}
                   </Box>
                   {themeOption.description && (
                     <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
@@ -223,46 +275,77 @@ export function AppearanceSettings() {
               ))}
             </Box>
           )}
+          {themeSetting.error ? <SettingsFieldHelp sx={{ color: "error.main" }}>{themeSetting.error}</SettingsFieldHelp> : null}
         </SettingsGroup>
 
         <SettingsGroup title={t("settings.appearancePage.localizationTitle")}>
           <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" }, gap: 2.5 }}>
             <FormControl fullWidth>
               <InputLabel id="appearance-language-label">{t("settings.appearancePage.languageLabel")}</InputLabel>
-              <Select
-                labelId="appearance-language-label"
-                value={languagePreference}
-                label={t("settings.appearancePage.languageLabel")}
-                onChange={handleLanguageChange}
-                sx={formSelectSx}
-                MenuProps={formSelectMenuProps}
-              >
-                {languageOptions.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </Select>
-              <SettingsFieldHelp>{t("settings.appearancePage.languageDescription")}</SettingsFieldHelp>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                <Select
+                  labelId="appearance-language-label"
+                  value={languagePreference}
+                  label={t("settings.appearancePage.languageLabel")}
+                  onChange={handleLanguageChange}
+                  onFocus={() => restoreLanguageFocus()}
+                  disabled={languageSetting.pending}
+                  error={Boolean(languageSetting.error)}
+                  sx={{ ...formSelectSx, flex: 1, minWidth: 0 }}
+                  MenuProps={formSelectMenuProps}
+                >
+                  {languageOptions.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+                <Box sx={{ width: 24, height: 24, flex: "0 0 24px" }}>
+                  <SettingSaveStatus
+                    pending={languageSetting.pending}
+                    saved={languageSetting.saved}
+                    savingLabel={t("settings.saveStatus.saving")}
+                    savedLabel={t("settings.saveStatus.saved")}
+                  />
+                </Box>
+              </Box>
+              <SettingsFieldHelp sx={languageSetting.error ? { color: "error.main" } : undefined}>
+                {languageSetting.error ?? t("settings.appearancePage.languageDescription")}
+              </SettingsFieldHelp>
             </FormControl>
 
             <FormControl fullWidth>
               <InputLabel id="appearance-regional-locale-label">{t("settings.appearancePage.regionalLocaleLabel")}</InputLabel>
-              <Select
-                labelId="appearance-regional-locale-label"
-                value={regionalLocalePreference}
-                label={t("settings.appearancePage.regionalLocaleLabel")}
-                onChange={handleRegionalLocaleChange}
-                sx={formSelectSx}
-                MenuProps={formSelectMenuProps}
-              >
-                {regionalLocaleOptions.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </Select>
-              <SettingsFieldHelp>{t("settings.appearancePage.regionalLocaleDescription")}</SettingsFieldHelp>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                <Select
+                  labelId="appearance-regional-locale-label"
+                  value={regionalLocalePreference}
+                  label={t("settings.appearancePage.regionalLocaleLabel")}
+                  onChange={handleRegionalLocaleChange}
+                  onFocus={() => restoreRegionalLocaleFocus()}
+                  disabled={regionalLocaleSetting.pending}
+                  error={Boolean(regionalLocaleSetting.error)}
+                  sx={{ ...formSelectSx, flex: 1, minWidth: 0 }}
+                  MenuProps={formSelectMenuProps}
+                >
+                  {regionalLocaleOptions.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+                <Box sx={{ width: 24, height: 24, flex: "0 0 24px" }}>
+                  <SettingSaveStatus
+                    pending={regionalLocaleSetting.pending}
+                    saved={regionalLocaleSetting.saved}
+                    savingLabel={t("settings.saveStatus.saving")}
+                    savedLabel={t("settings.saveStatus.saved")}
+                  />
+                </Box>
+              </Box>
+              <SettingsFieldHelp sx={regionalLocaleSetting.error ? { color: "error.main" } : undefined}>
+                {regionalLocaleSetting.error ?? t("settings.appearancePage.regionalLocaleDescription")}
+              </SettingsFieldHelp>
             </FormControl>
           </Box>
 

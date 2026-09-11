@@ -1,6 +1,7 @@
 import { TextField } from "@mui/material";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { SettingSaveStatusAdornment } from "../components/Settings/SettingSaveStatus";
 import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsPage } from "../components/Settings/SettingsPage";
@@ -66,6 +67,19 @@ export function TextEditorSettings() {
               inputMode: "numeric",
               pattern: "[0-9]*",
             },
+            input:
+              maxFileSizeSetting.pending || maxFileSizeSetting.saved
+                ? {
+                    endAdornment: (
+                      <SettingSaveStatusAdornment
+                        pending={maxFileSizeSetting.pending}
+                        saved={maxFileSizeSetting.saved}
+                        savingLabel={t("settings.saveStatus.saving")}
+                        savedLabel={t("settings.saveStatus.saved")}
+                      />
+                    ),
+                  }
+                : undefined,
           }}
           sx={{ maxWidth: 280 }}
         />

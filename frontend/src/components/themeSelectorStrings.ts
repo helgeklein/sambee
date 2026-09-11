@@ -25,6 +25,12 @@ export const THEME_SELECTOR_STRINGS = {
   get PRIMARY_COLOR_PREVIEW() {
     return translate("themeSelector.previewPrimaryColor");
   },
+  get SAVING_LABEL() {
+    return translate("settings.saveStatus.saving");
+  },
+  get SAVED_LABEL() {
+    return translate("settings.saveStatus.saved");
+  },
   modeLabel(mode: "light" | "dark") {
     return translate(mode === "dark" ? "themeSelector.modes.dark" : "themeSelector.modes.light");
   },

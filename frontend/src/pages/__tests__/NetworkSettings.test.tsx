@@ -77,15 +77,37 @@ describe("NetworkSettings", () => {
     await user.tab();
 
     await waitFor(() => {
-      expect(api.updateNetworkSettings).toHaveBeenCalledWith({
-        field: "public_url",
-        value: "https://new.example.test",
-      });
-      expect(api.updateNetworkSettings).toHaveBeenCalledWith({
-        field: "trusted_proxy_cidrs",
-        value: ["10.0.0.4/24", "2001:db8::1/64"],
-      });
+      expect(api.updateNetworkSettings).toHaveBeenCalledWith(
+        {
+          field: "public_url",
+          value: "https://new.example.test",
+        },
+        expect.objectContaining({ signal: expect.anything() })
+      );
+      expect(api.updateNetworkSettings).toHaveBeenCalledWith(
+        {
+          field: "trusted_proxy_cidrs",
+          value: ["10.0.0.4/24", "2001:db8::1/64"],
+        },
+        expect.objectContaining({ signal: expect.anything() })
+      );
     });
     expect(getCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAuthentication)).toBeNull();
+  });
+
+  it("does not save unchanged fields when they lose focus", async () => {
+    const user = userEvent.setup();
+    render(
+      <SambeeThemeProvider>
+        <NetworkSettings />
+      </SambeeThemeProvider>
+    );
+
+    const publicUrl = await screen.findByRole("textbox", { name: /public url/i });
+    await user.click(publicUrl);
+    await user.tab();
+
+    expect(api.updateNetworkSettings).not.toHaveBeenCalled();
+    expect(publicUrl).toBeEnabled();
   });
 });

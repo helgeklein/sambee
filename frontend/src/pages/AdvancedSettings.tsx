@@ -244,7 +244,7 @@ function ByteSizeSettingField({
   const { t } = useTranslation();
   const [unit, setUnit] = useState<ByteUnitLabel>(() => getPreferredByteUnit(value ?? setting.min_value));
   const [displayValue, setDisplayValue] = useState<string>(() =>
-    value === null ? "" : String(Math.round(value / getByteUnitFactor(getPreferredByteUnit(value))))
+    value === null ? "" : String(value / getByteUnitFactor(getPreferredByteUnit(value)))
   );
   const [touched, setTouched] = useState(false);
 
@@ -258,11 +258,11 @@ function ByteSizeSettingField({
     if (factor > value && value > 0) {
       const nextUnit = getPreferredByteUnit(value);
       setUnit(nextUnit);
-      setDisplayValue(String(Math.round(value / getByteUnitFactor(nextUnit))));
+      setDisplayValue(String(value / getByteUnitFactor(nextUnit)));
       return;
     }
 
-    setDisplayValue(String(Math.round(value / factor)));
+    setDisplayValue(String(value / factor));
   }, [unit, value]);
 
   const factor = getByteUnitFactor(unit);
@@ -290,19 +290,10 @@ function ByteSizeSettingField({
   };
 
   const handleUnitChange = (nextUnit: ByteUnitLabel) => {
-    const nextFactor = getByteUnitFactor(nextUnit);
     setUnit(nextUnit);
-
-    if (value === null) {
-      return;
-    }
-
-    const nextDisplayValue = String(Math.round(value / nextFactor));
-    setDisplayValue(nextDisplayValue);
-    onChange(Number(nextDisplayValue) * nextFactor);
   };
 
-  const availableUnits = BYTE_UNITS.filter((option) => option.factor <= Math.max(value ?? 0, setting.min_value) || option.label === unit);
+  const availableUnits = BYTE_UNITS.filter((option) => value === null || value % option.factor === 0 || option.label === unit);
   const helperMessage = errorText
     ? errorText
     : t("settings.advanced.helperText.byteSize", {
@@ -425,8 +416,9 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
     onError: handleAdvancedSettingsLoadError,
   });
   const [formState, setFormState] = useState<AdvancedSettingsFormState | null>(null);
-  const persistence = useSystemSettingPersistence<AdvancedSystemSettingsUpdate>(api.updateAdvancedSettings, (saveError) =>
-    getApiErrorMessage(saveError, t("settings.advanced.saveFailed"))
+  const persistence = useSystemSettingPersistence<AdvancedSystemSettingsUpdate>(
+    (update, options) => api.updateAdvancedSettings(update, options),
+    (saveError) => getApiErrorMessage(saveError, t("settings.advanced.saveFailed"))
   );
 
   useEffect(() => {
@@ -448,7 +440,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
   };
 
   const persistField = async (setting: IntegerSystemSetting, value: number) => {
-    const result = await persistence.persist({ field: setting.key, value });
+    const result = await persistence.persist({ field: setting.key, value }, setting.value);
     if (result.status === "completed") {
       setCachedSettings((current) => (current ? applyAdvancedSettingUpdate(current, result.update) : current));
     }

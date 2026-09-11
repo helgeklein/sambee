@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsPage } from "../components/Settings/SettingsPage";
+import { useRestoreFocusAfterPending } from "../hooks/useRestoreFocusAfterPending";
 import {
   SettingPersistenceAdornment,
   SettingPersistenceIndicator,
@@ -51,12 +52,16 @@ function validateSettings(settings: FileSearchSettingsModel): {
 export function FileSearchSettings() {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<FileSearchSettingsModel>(DEFAULT_SETTINGS);
+  const [confirmedSettings, setConfirmedSettings] = useState<FileSearchSettingsModel>(DEFAULT_SETTINGS);
   const [extensionInput, setExtensionInput] = useState("");
   const [extensionInputError, setExtensionInputError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const persistence = useSystemSettingPersistence<FileSearchSettingsUpdate>(api.updateFileSearchSettings, () =>
-    t("settings.fileSearch.saveFailed")
+  const persistence = useSystemSettingPersistence<FileSearchSettingsUpdate>(
+    (update, options) => api.updateFileSearchSettings(update, options),
+    () => t("settings.fileSearch.saveFailed")
   );
+  const restoreCategoryFocus = useRestoreFocusAfterPending(persistence.isPending("excluded_categories"));
+  const restoreExtensionFocus = useRestoreFocusAfterPending(persistence.isPending("excluded_extensions"));
   const validation = validateSettings(settings);
 
   useEffect(() => {
@@ -64,6 +69,7 @@ export function FileSearchSettings() {
       .getFileSearchSettings()
       .then((response) => {
         setSettings(response.settings);
+        setConfirmedSettings(response.settings);
         setExtensionInput("");
         setExtensionInputError(null);
         setLoadError(null);
@@ -72,8 +78,9 @@ export function FileSearchSettings() {
   }, [t]);
 
   const persistField = async (update: FileSearchSettingsUpdate) => {
-    const result = await persistence.persist(update);
+    const result = await persistence.persist(update, confirmedSettings[update.field]);
     if (result.status === "completed") {
+      setConfirmedSettings((current) => ({ ...current, [result.update.field]: result.update.value }));
       setSettings((current) => ({ ...current, [result.update.field]: result.update.value }));
       publishRecentFilesChanged();
     }
@@ -218,6 +225,7 @@ export function FileSearchSettings() {
                   <Checkbox
                     checked={settings.excluded_categories.includes("images")}
                     onChange={(event) => updateCategories("images", event.target.checked)}
+                    onFocus={() => restoreCategoryFocus()}
                     disabled={persistence.isPending("excluded_categories")}
                   />
                 }
@@ -228,6 +236,7 @@ export function FileSearchSettings() {
                   <Checkbox
                     checked={settings.excluded_categories.includes("temporary_backup")}
                     onChange={(event) => updateCategories("temporary_backup", event.target.checked)}
+                    onFocus={() => restoreCategoryFocus()}
                     disabled={persistence.isPending("excluded_categories")}
                   />
                 }
@@ -257,6 +266,7 @@ export function FileSearchSettings() {
                 setExtensionInputError(null);
                 persistence.clearFieldFeedback("excluded_extensions");
               }}
+              onFocus={() => restoreExtensionFocus()}
               disabled={persistence.isPending("excluded_extensions")}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
@@ -270,6 +280,7 @@ export function FileSearchSettings() {
               startIcon={<AddIcon />}
               disabled={!extensionInput.trim() || persistence.isPending("excluded_extensions")}
               onClick={addExtension}
+              onFocus={() => restoreExtensionFocus()}
               sx={{ alignSelf: "flex-start" }}
             >
               {t("settings.fileSearch.excludedExtensionsAdd")}
@@ -282,6 +293,7 @@ export function FileSearchSettings() {
                     label={extension}
                     disabled={persistence.isPending("excluded_extensions")}
                     onDelete={() => removeExtension(extension)}
+                    onFocus={() => restoreExtensionFocus()}
                     deleteIcon={<CancelIcon aria-label={t("settings.fileSearch.excludedExtensionsRemove", { extension })} />}
                   />
                 ))}
