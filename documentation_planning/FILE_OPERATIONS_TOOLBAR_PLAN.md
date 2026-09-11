@@ -4,44 +4,40 @@
 
 Make the available file-management operations easy to discover and usable without a keyboard on both desktop and mobile.
 
-The implementation will add one responsive file-operations toolbar at the bottom of the file browser. It will appear above the global application status area, below the full pane region, and operate exclusively on the currently active pane. In dual-pane desktop mode, it must not be duplicated: changing active pane changes the toolbar's command targets, availability, and disabled states.
+The implementation will add one responsive full-width file-operations toolbar at the bottom of the file browser. It will appear above the global application status area, below the full pane region, and operate exclusively on the currently active pane.
 
 ## Interaction Design
 
 ### Toolbar placement
 
-- Render exactly one toolbar in `FileBrowser`, after the pane-content container and before any global lower application surface.
+- Render one toolbar in `FileBrowser`, after the pane-content container and before any global lower application surface.
 - Keep the toolbar outside `FileBrowserPane`; neither left nor right pane owns a duplicate toolbar.
-- In desktop dual-pane mode, indicate which pane is active using the existing pane-focus treatment. The toolbar always acts on that active pane.
-- In compact/mobile mode, the browser remains single-pane, so the same toolbar operates on the visible left pane.
-- Keep the per-pane `StatusBar` as informational content only. It remains beneath each list in desktop mode and does not become a command surface.
+- Span the full width of the shared pane-content region, in both single- and dual-pane modes.
 
 ### Commands
 
-Show common actions directly as icon buttons, with accessible labels and desktop tooltips:
+Show the complete file-operation command set as icon buttons, with accessible labels and desktop tooltips. Render as many icons as fit in the available toolbar width. Commands shown in order of priority:
 
+1. New folder
+1. New file
+1. Rename
+1. Delete
+1. Copy to other pane (dual-pane mode only)
+1. Move to other pane (dual-pane mode only)
+1. Create archive
+1. Extract archive
 1. Refresh
-2. New folder
-3. New file
-4. Rename
-5. Delete
 
-Place contextual or less-frequent actions in an icon-only More menu:
-
-1. Copy to other pane, only in desktop dual-pane mode
-2. Move to other pane, only in desktop dual-pane mode
-3. Create archive
-4. Extract archive
+When the icon row cannot fit every command shown in the current mode, move the lowest-priority commands into an icon-only More menu. Preserve the user-facing command order between the icon row and menu. The More menu appears only when one or more commands overflow.
 
 Do not add open, viewer-picker, or native-app commands to the toolbar. Opening remains a direct row action; duplicating those commands would add noise without improving file-management discoverability.
 
 ### Availability and feedback
 
-- Commands remain visible when they are relevant to the product but are disabled when unavailable. This makes the operation set discoverable without allowing invalid operations.
-- Availability must use the same policy as keyboard shortcuts. The toolbar must not independently infer read-only access, archive immutability, selected-item requirements, transfer destinations, or provider capabilities.
+- Every command shown in the current mode remains visible, either as an icon or in More, and is disabled when unavailable. This makes the available operation set discoverable without allowing invalid operations.
+- Availability must use the same policy and the same source of truth as keyboard shortcuts. The toolbar must not independently infer read-only access, archive immutability, selected-item requirements, transfer destinations, or provider capabilities.
 - Disabled commands should expose their reason through an accessible description or tooltip using existing unavailable-operation translations.
 - Invoking a command uses the existing handlers and preserves existing dialogs, progress reporting, cancellation, errors, selection semantics, and focus-return behavior.
-- Pressing a toolbar command must never allow writes to a read-only connection or archive content.
 
 ## Technical Design
 
@@ -53,9 +49,10 @@ Define stable action IDs and a descriptor that includes:
 
 - translated label and disabled-reason text
 - MUI icon identifier or icon element
-- placement tier: `primary` or `more`
-- whether it is shown in the current layout mode
+- display priority, used to decide which commands remain visible as icons when space is constrained
+- layout visibility, used only to show Copy and Move in dual-pane mode
 - enabled state
+- unavailable reason, when disabled
 - command handler
 
 The descriptor builder receives one action context for the active pane. That context contains the existing pane handlers, page-level copy/move/archive handlers, layout mode, and the availability results calculated by `FileBrowser`.
@@ -90,11 +87,14 @@ Add `frontend/src/components/FileBrowser/FileOperationsToolbar.tsx`.
 The component accepts precomputed action descriptors and renders:
 
 - an anchored, fixed-height `Box` with a top border
-- grouped primary icon buttons
+- a single ordered responsive row of icon buttons
 - MUI tooltips on desktop and `aria-label` values everywhere
 - clear disabled states without layout shifts
-- a More `IconButton` and `Menu` containing only visible overflow actions
-- a disabled More control when all overflow actions are unavailable, or hide it when no overflow action is relevant in the current mode
+- a More `IconButton` and `Menu` containing only commands that do not fit
+
+Use a small reusable responsive-overflow hook or utility inside the component. It should observe the available toolbar width with `ResizeObserver`, calculate capacity from stable icon-button dimensions and gaps, reserve space for the More button when overflow is required, and recompute when the toolbar size or relevant action set changes. Do not use wrapping, horizontal scrolling, or CSS clipping as the overflow mechanism.
+
+Keep the actions shown in the current mode in the ordered descriptor list. The calculation displays the highest-priority prefix that fits and sends the remaining suffix to More, so resizing preserves a predictable command order. Disabled commands retain their normal slot and may overflow, rather than changing the ordering based on availability.
 
 Use existing MUI icon packages already used by the file browser. Reuse `secondaryActionStripSx` colors where appropriate, but add a concise footer-toolbar style in `frontend/src/theme/commonStyles.ts` so the toolbar is visually distinct from the upper connection/view/sort strip and the informational status bar.
 
@@ -106,7 +106,7 @@ In `frontend/src/pages/FileBrowser.tsx`:
 
 1. Create the active-pane operation context after `activePane`, `inactivePane`, and the existing availability helpers are known.
 2. Build action descriptors once for that context.
-3. Render `FileOperationsToolbar` exactly once after the shared pane-content `Box` and before desktop settings/dialog layers.
+3. Render `FileOperationsToolbar` exactly once after the shared pane-content `Box`, spanning that container's full width, and before desktop settings/dialog layers.
 4. Keep the toolbar visible in desktop and `useCompactLayout` modes, including empty directories, so Refresh and permitted creation commands remain available.
 5. Add responsive safe-area bottom padding for compact layouts so touch targets remain fully reachable.
 
@@ -118,11 +118,8 @@ The same global component must render on compact layouts:
 
 - use touch-friendly 44px-or-larger icon targets
 - preserve icon labels for screen readers and long-press/hover-capable devices
-- allow horizontal scrolling only as a last-resort fallback; primary controls should fit in common phone widths through compact spacing and the More menu
-- omit Copy and Move because compact mode intentionally has no second pane
-- retain creation, Refresh, Rename, Delete, archive creation, and extraction when policy permits
-
-This closes the current keyboard-only gap without changing the intentional single-pane mobile design.
+- render the maximum number of icons that fit at the current viewport width; put only the remaining lower-priority commands in More
+- keep all compact-layout commands discoverable even when the active connection, selection, or archive state makes them unavailable
 
 ### 6. Localize user-facing text
 
@@ -147,7 +144,8 @@ Add `frontend/src/components/FileBrowser/__tests__/FileOperationsToolbar.test.ts
 - enabled and disabled rendering
 - click delegation only for enabled actions
 - More menu visibility, contents, and click delegation
-- hiding dual-pane-only actions in compact mode
+- responsive overflow at several container widths, including restoring icons when space becomes available
+- Copy/Move visibility only in dual-pane mode
 - stable layout behavior when actions are disabled
 
 ### Page and interaction tests
@@ -159,7 +157,7 @@ Extend `frontend/src/pages/__tests__/FileBrowser-interactions.test.tsx` and the 
 - toolbar commands invoke the same handlers as their keyboard shortcuts
 - read-only connections and archive locations keep mutations disabled
 - no selected item disables Rename/Delete and explains why
-- dual-pane-only Copy/Move are absent in compact mode
+- compact and single-pane desktop modes omit Copy/Move commands
 - empty directories retain Refresh and valid creation commands
 
 The existing `frontend/src/pages/__tests__/FileBrowserPane.test.tsx` should be updated only to confirm that panes do not render an operations toolbar. Its existing status-bar assertions should remain unchanged.
@@ -177,7 +175,7 @@ Keep and extend the focused tests around `contentOperations.ts` and shortcut ava
    - writable connection with and without a selected file
    - read-only connection
    - archive browsing view
-   - desktop dual-pane mode, switching active pane before each command
+   - dual-pane mode, switching active pane before each command
    - compact/mobile mode using only touch/click inputs
 5. Confirm the toolbar cannot bypass provider capabilities, read-only restrictions, archive immutability, or dual-pane requirements.
 6. Audit `website/content/docs/` after implementation. Update documentation only if it documents file-browser operation entry points or screenshots affected by the new toolbar.
