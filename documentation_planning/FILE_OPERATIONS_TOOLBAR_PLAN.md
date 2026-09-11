@@ -169,9 +169,9 @@ Extend `frontend/src/pages/__tests__/FileBrowser-interactions.test.tsx` and the 
 - empty directories retain Refresh and valid creation commands
 - after opening Rename/Create, Copy/Move, or archive dialogs, switching panes leaves the open dialog and any running operation bound to its original source and destination context
 
-Update `FileBrowserPane` tests to verify panes no longer render status bars. Add parent layout tests verifying one toolbar above one status bar in single-pane mode and above two aligned status bars in two-pane mode.
+Update `frontend/src/pages/__tests__/FileBrowserPane.test.tsx` to remove its `StatusBar` mock and pane-level status-bar assertions, then verify that panes no longer render status bars or an operations toolbar.
 
-The existing `frontend/src/pages/__tests__/FileBrowserPane.test.tsx` should be updated only to confirm that panes do not render an operations toolbar. Its existing status-bar assertions should remain unchanged.
+Add parent-level `FileBrowser` layout tests verifying that the parent renders one toolbar above one status bar in single-pane mode and above two aligned status bars in two-pane mode. Move the prior status-bar rendering coverage to those tests, including the existing empty-file and compact-layout visibility rules.
 
 ### Policy regression tests
 
