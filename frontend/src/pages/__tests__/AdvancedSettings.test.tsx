@@ -86,11 +86,48 @@ describe("AdvancedSettings", () => {
     await user.tab();
 
     await waitFor(() => {
-      expect(api.updateAdvancedSettings).toHaveBeenCalledWith({
-        field: "preprocessors.imagemagick.timeout_seconds",
-        value: 45,
-      });
+      expect(api.updateAdvancedSettings).toHaveBeenCalledWith(
+        {
+          field: "preprocessors.imagemagick.timeout_seconds",
+          value: 45,
+        },
+        expect.objectContaining({ signal: expect.anything() })
+      );
     });
     expect(screen.queryByRole("button", { name: /save changes/i })).not.toBeInTheDocument();
+  });
+
+  it("does not save unchanged values when focus leaves a field", async () => {
+    const user = userEvent.setup();
+    render(
+      <SambeeThemeProvider>
+        <AdvancedSettings />
+      </SambeeThemeProvider>
+    );
+
+    const maximumFileSize = await screen.findByLabelText("Maximum file size");
+    await user.click(maximumFileSize);
+    await user.tab();
+
+    expect(api.updateAdvancedSettings).not.toHaveBeenCalled();
+    expect(maximumFileSize).toBeEnabled();
+    expect(screen.queryByRole("status", { name: "Saving setting" })).not.toBeInTheDocument();
+  });
+
+  it("changes units without changing the stored byte value", async () => {
+    const user = userEvent.setup();
+    render(
+      <SambeeThemeProvider>
+        <AdvancedSettings />
+      </SambeeThemeProvider>
+    );
+
+    const maximumFileSize = await screen.findByLabelText("Maximum file size");
+    const unit = (await screen.findAllByLabelText("Unit"))[0]!;
+    await user.click(unit);
+    await user.click(await screen.findByRole("option", { name: "KiB" }));
+
+    expect(maximumFileSize).toHaveValue("102400");
+    expect(api.updateAdvancedSettings).not.toHaveBeenCalled();
   });
 });

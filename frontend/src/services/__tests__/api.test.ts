@@ -815,6 +815,16 @@ describe("API Service", () => {
       expect(result).toEqual(update);
       expect(mockAxiosInstance.put).toHaveBeenCalledWith("/auth/me/settings", update);
     });
+
+    it("updateCurrentUserSettings() forwards an optional cancellation signal", async () => {
+      const update = { field: "appearance.theme_id", value: "sambee-dark" } as const;
+      const controller = new AbortController();
+      mockAxiosInstance.put.mockResolvedValueOnce({ data: update } as AxiosResponse);
+
+      await apiService.updateCurrentUserSettings(update, { signal: controller.signal });
+
+      expect(mockAxiosInstance.put).toHaveBeenCalledWith("/auth/me/settings", update, { signal: controller.signal });
+    });
   });
 
   describe("Connections Management", () => {

@@ -868,7 +868,7 @@ export function AuthenticationSettings() {
             )}
             <Stack spacing={2.5}>
               <FormSurface testId="authentication-mode-form-surface">
-                <FormGroup>
+                <FormGroup edge="both">
                   <FormRow>
                     {renderDesktopFieldLabel(
                       "Authentication mode",
@@ -1055,7 +1055,7 @@ export function AuthenticationSettings() {
               >
                 <Stack spacing={2}>
                   <FormSurface testId="authentication-oidc-form-surface" sx={{ gap: 2 }}>
-                    <FormGroup testId="authentication-provider-form-group">
+                    <FormGroup edge="start" testId="authentication-provider-form-group">
                       {configuration?.health.redirect_uri &&
                         renderFormRow(
                           "Redirect URI",
@@ -1497,7 +1497,7 @@ export function AuthenticationSettings() {
                     </Alert>
                     <SettingsFormSection title="Advanced claims" />
                     <Typography sx={{ color: "text.secondary" }}>The default claim names work with most providers</Typography>
-                    <FormGroup testId="authentication-claims-form-group">
+                    <FormGroup edge="end" testId="authentication-claims-form-group">
                       {renderFormRow(
                         "Username claim",
                         "Claim used for the Sambee username",

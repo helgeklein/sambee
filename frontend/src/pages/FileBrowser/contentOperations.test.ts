@@ -72,6 +72,23 @@ describe("content operations", () => {
     expect(api.createItem).not.toHaveBeenCalled();
   });
 
+  it("reports that Companion is required to create an archive containing local files", () => {
+    const localTarget = { kind: "local", connectionId: "local-drive:c" };
+    const destinationTarget = { kind: "smb", connectionId: "destination" };
+    const storageRegistry = {
+      resolveItem: vi.fn(() => ({ target: localTarget, resolvedTarget: localTarget })),
+      resolveDirectory: vi.fn(() => ({ target: destinationTarget, resolvedTarget: destinationTarget })),
+      getCapabilities: vi.fn(() => ({ readable: true, writable: true })),
+    };
+
+    expect(
+      getCreateContainerAvailability(
+        { sources: [physicalItemHandle("local-drive:c", "report.txt")], destination: physicalLocation("destination", "output") },
+        { ...environment, isCompanionPaired: false, storageRegistry } as never
+      )
+    ).toEqual({ available: false, reason: "companion-unavailable" });
+  });
+
   it("rejects virtual items before invoking native launch transport", async () => {
     const archiveItem = virtualItemHandle(archiveDestination, "report.txt");
 

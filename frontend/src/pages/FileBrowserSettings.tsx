@@ -1,25 +1,28 @@
-import { Button, Checkbox, FormControl, FormControlLabel, InputLabel, MenuItem, Select, Stack } from "@mui/material";
+import { Box, Button, Checkbox, FormControl, FormControlLabel, InputLabel, MenuItem, Select, Stack } from "@mui/material";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ResponsiveDialogShell } from "../components/Dialog/ResponsiveDialogShell";
+import { SettingSaveStatus } from "../components/Settings/SettingSaveStatus";
 import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsPage } from "../components/Settings/SettingsPage";
 import { settingsDestructiveButtonSx, settingsUtilityButtonSx } from "../components/Settings/settingsButtonStyles";
+import { useRestoreFocusAfterPending } from "../hooks/useRestoreFocusAfterPending";
 import api from "../services/api";
 import { publishRecentDirectoriesChanged } from "../services/recentDirectoriesSync";
 import { publishRecentFilesChanged } from "../services/recentFilesSync";
-import {
-  type QuickBarShortcutHintVisibility,
-  useQuickBarShortcutHintVisibilityPreference,
-  useQuickNavIncludeDotDirectoriesPreference,
-} from "./FileBrowser/preferences";
+import { useCurrentUserSetting } from "../services/userSettingsStore";
+import type { QuickBarShortcutHintVisibility } from "./FileBrowser/preferences";
 
 type RecentHistoryKind = "files" | "directories";
 
 export function FileBrowserSettings() {
-  const [includeDotDirectories, setIncludeDotDirectories] = useQuickNavIncludeDotDirectoriesPreference();
-  const [shortcutHintVisibility, setShortcutHintVisibility] = useQuickBarShortcutHintVisibilityPreference();
+  const includeDotDirectoriesSetting = useCurrentUserSetting("browser.quick_nav_include_dot_directories");
+  const shortcutHintVisibilitySetting = useCurrentUserSetting("browser.quick_bar_shortcut_hint_visibility");
+  const restoreIncludeDotDirectoriesFocus = useRestoreFocusAfterPending(includeDotDirectoriesSetting.pending);
+  const restoreShortcutHintVisibilityFocus = useRestoreFocusAfterPending(shortcutHintVisibilitySetting.pending);
+  const includeDotDirectories = includeDotDirectoriesSetting.confirmedValue ?? false;
+  const shortcutHintVisibility = shortcutHintVisibilitySetting.confirmedValue ?? "auto";
   const { t } = useTranslation();
   const [historyToClear, setHistoryToClear] = useState<RecentHistoryKind | null>(null);
   const [clearingHistory, setClearingHistory] = useState(false);
@@ -71,25 +74,69 @@ export function FileBrowserSettings() {
     <SettingsPage category="file-browser">
       <SettingsGroup title={t("settings.fileBrowserPage.quickNavigationTitle")} sx={{ mb: 3 }}>
         <FormControlLabel
-          control={<Checkbox checked={includeDotDirectories} onChange={(event) => setIncludeDotDirectories(event.target.checked)} />}
-          label={t("settings.fileBrowserPage.includeDotDirectoriesLabel")}
+          control={
+            <Checkbox
+              checked={includeDotDirectories}
+              disabled={includeDotDirectoriesSetting.pending}
+              slotProps={{ input: { "aria-label": t("settings.fileBrowserPage.includeDotDirectoriesLabel") } }}
+              onFocus={() => restoreIncludeDotDirectoriesFocus()}
+              onChange={(event) => {
+                includeDotDirectoriesSetting.clearError();
+                void includeDotDirectoriesSetting.commit(event.target.checked).catch(() => undefined);
+              }}
+            />
+          }
+          label={
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+              {t("settings.fileBrowserPage.includeDotDirectoriesLabel")}
+              <Box sx={{ width: 24, height: 24, flex: "0 0 24px" }}>
+                <SettingSaveStatus
+                  pending={includeDotDirectoriesSetting.pending}
+                  saved={includeDotDirectoriesSetting.saved}
+                  savingLabel={t("settings.saveStatus.saving")}
+                  savedLabel={t("settings.saveStatus.saved")}
+                />
+              </Box>
+            </Box>
+          }
           sx={{ m: 0 }}
         />
-        <SettingsFieldHelp sx={{ maxWidth: 640 }}>{t("settings.fileBrowserPage.includeDotDirectoriesDescription")}</SettingsFieldHelp>
+        <SettingsFieldHelp sx={{ maxWidth: 640, color: includeDotDirectoriesSetting.error ? "error.main" : undefined }}>
+          {includeDotDirectoriesSetting.error ?? t("settings.fileBrowserPage.includeDotDirectoriesDescription")}
+        </SettingsFieldHelp>
         <FormControl size="small" sx={{ alignSelf: "flex-start", mt: 2, minWidth: 260 }}>
           <InputLabel id="quick-bar-shortcut-hints-label">{t("settings.fileBrowserPage.shortcutHintsLabel")}</InputLabel>
-          <Select
-            labelId="quick-bar-shortcut-hints-label"
-            label={t("settings.fileBrowserPage.shortcutHintsLabel")}
-            value={shortcutHintVisibility}
-            onChange={(event) => setShortcutHintVisibility(event.target.value as QuickBarShortcutHintVisibility)}
-          >
-            <MenuItem value="auto">{t("settings.fileBrowserPage.shortcutHintsAuto")}</MenuItem>
-            <MenuItem value="always">{t("settings.fileBrowserPage.shortcutHintsAlways")}</MenuItem>
-            <MenuItem value="never">{t("settings.fileBrowserPage.shortcutHintsNever")}</MenuItem>
-          </Select>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            <Select
+              labelId="quick-bar-shortcut-hints-label"
+              label={t("settings.fileBrowserPage.shortcutHintsLabel")}
+              value={shortcutHintVisibility}
+              disabled={shortcutHintVisibilitySetting.pending}
+              error={Boolean(shortcutHintVisibilitySetting.error)}
+              onFocus={() => restoreShortcutHintVisibilityFocus()}
+              onChange={(event) => {
+                shortcutHintVisibilitySetting.clearError();
+                void shortcutHintVisibilitySetting.commit(event.target.value as QuickBarShortcutHintVisibility).catch(() => undefined);
+              }}
+              sx={{ flex: 1, minWidth: 0 }}
+            >
+              <MenuItem value="auto">{t("settings.fileBrowserPage.shortcutHintsAuto")}</MenuItem>
+              <MenuItem value="always">{t("settings.fileBrowserPage.shortcutHintsAlways")}</MenuItem>
+              <MenuItem value="never">{t("settings.fileBrowserPage.shortcutHintsNever")}</MenuItem>
+            </Select>
+            <Box sx={{ width: 24, height: 24, flex: "0 0 24px" }}>
+              <SettingSaveStatus
+                pending={shortcutHintVisibilitySetting.pending}
+                saved={shortcutHintVisibilitySetting.saved}
+                savingLabel={t("settings.saveStatus.saving")}
+                savedLabel={t("settings.saveStatus.saved")}
+              />
+            </Box>
+          </Box>
         </FormControl>
-        <SettingsFieldHelp sx={{ maxWidth: 640 }}>{t("settings.fileBrowserPage.shortcutHintsDescription")}</SettingsFieldHelp>
+        <SettingsFieldHelp sx={{ maxWidth: 640, color: shortcutHintVisibilitySetting.error ? "error.main" : undefined }}>
+          {shortcutHintVisibilitySetting.error ?? t("settings.fileBrowserPage.shortcutHintsDescription")}
+        </SettingsFieldHelp>
       </SettingsGroup>
       <SettingsGroup title={t("settings.fileBrowserPage.fileSearchTitle")}>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ alignSelf: "flex-start" }}>

@@ -3,14 +3,19 @@ import type { CurrentUserSettings, CurrentUserSettingsUpdate } from "../types";
 import api from "./api";
 import { isAuthRequired } from "./authConfig";
 import { authSession } from "./authSession";
+import { SETTING_SUCCESS_DISPLAY_MS } from "./settingSaveFeedback";
+
+export { SETTING_SUCCESS_DISPLAY_MS } from "./settingSaveFeedback";
 
 export type CurrentUserSettingsField = CurrentUserSettingsUpdate["field"];
 
 type ValueForField<Field extends CurrentUserSettingsField> = Extract<CurrentUserSettingsUpdate, { field: Field }>["value"];
+type CurrentUserSettingValue = CurrentUserSettingsUpdate["value"];
 
 export interface CurrentUserSetting<Field extends CurrentUserSettingsField> {
   confirmedValue: ValueForField<Field> | undefined;
   pending: boolean;
+  saved: boolean;
   error: string | null;
   commit: (value: ValueForField<Field>) => Promise<void>;
   clearError: () => void;
@@ -18,6 +23,35 @@ export interface CurrentUserSetting<Field extends CurrentUserSettingsField> {
 
 const CHANNEL_NAME = "sambee-user-settings";
 const INVALIDATE_MESSAGE = "invalidate";
+export const CURRENT_USER_SETTING_PERSIST_TIMEOUT_MS = 15_000;
+const CURRENT_USER_SETTING_PERSIST_TIMEOUT_MESSAGE = "Saving this setting timed out. Check the connection and try again.";
+
+class CurrentUserSettingPersistTimeoutError extends Error {
+  constructor() {
+    super(CURRENT_USER_SETTING_PERSIST_TIMEOUT_MESSAGE);
+    this.name = "CurrentUserSettingPersistTimeoutError";
+  }
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function areCurrentUserSettingValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((value, index) => areCurrentUserSettingValuesEqual(value, right[index]));
+  }
+  if (!isPlainRecord(left) || !isPlainRecord(right)) return false;
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every((key) => Object.hasOwn(right, key) && areCurrentUserSettingValuesEqual(left[key], right[key]))
+  );
+}
 
 function getFieldValue<Field extends CurrentUserSettingsField>(
   settings: CurrentUserSettings | null,
@@ -86,11 +120,18 @@ function setFieldValue(settings: CurrentUserSettings, update: CurrentUserSetting
 class UserSettingsStore {
   private snapshot: CurrentUserSettings | null = null;
   private snapshotVersion = 0;
+  // This tracks all observable state changes; snapshotVersion only guards stale refreshes.
+  private stateVersion = 0;
   private refreshPromise: Promise<void> | null = null;
   private queuedRefresh = false;
   private pendingFields = new Set<CurrentUserSettingsField>();
+  private savedFields = new Set<CurrentUserSettingsField>();
+  private committedUpdates = new Map<CurrentUserSettingsField, CurrentUserSettingsUpdate>();
   private errors = new Map<CurrentUserSettingsField, string>();
-  private requestTokens = new Map<CurrentUserSettingsField, number>();
+  private requestTokens = new Map<CurrentUserSettingsField, symbol>();
+  private abortControllers = new Map<CurrentUserSettingsField, AbortController>();
+  private successTimers = new Map<CurrentUserSettingsField, ReturnType<typeof setTimeout>>();
+  private savedTokens = new Map<CurrentUserSettingsField, symbol>();
   private listeners = new Set<() => void>();
   private readonly channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel(CHANNEL_NAME);
 
@@ -114,12 +155,14 @@ class UserSettingsStore {
     return () => this.listeners.delete(listener);
   };
 
-  getSnapshot = (): number => this.snapshotVersion;
+  getSnapshot = (): number => this.stateVersion;
 
   getValue<Field extends CurrentUserSettingsField>(field: Field): CurrentUserSetting<Field> {
+    const committedUpdate = this.committedUpdates.get(field);
     return {
-      confirmedValue: getFieldValue(this.snapshot, field),
+      confirmedValue: this.snapshot ? getFieldValue(this.snapshot, field) : (committedUpdate?.value as ValueForField<Field> | undefined),
       pending: this.pendingFields.has(field),
+      saved: this.savedFields.has(field),
       error: this.errors.get(field) ?? null,
       commit: async (value) => this.commit({ field, value } as Extract<CurrentUserSettingsUpdate, { field: Field }>),
       clearError: () => this.clearError(field),
@@ -145,6 +188,7 @@ class UserSettingsStore {
           return;
         }
         this.snapshot = settings;
+        this.committedUpdates.clear();
         this.snapshotVersion += 1;
         this.notify();
       })
@@ -168,17 +212,32 @@ class UserSettingsStore {
     if (this.pendingFields.has(update.field)) {
       throw new Error("A write for this setting is already in progress.");
     }
+    if (this.hasConfirmedValue(update.field) && areCurrentUserSettingValuesEqual(update.value, this.getConfirmedValue(update.field))) {
+      return;
+    }
     const identity = authSession.getIdentity();
     const requestVersion = ++this.snapshotVersion;
-    const token = (this.requestTokens.get(update.field) ?? 0) + 1;
+    const token = Symbol(update.field);
+    const controller = new AbortController();
     this.requestTokens.set(update.field, token);
+    this.abortControllers.set(update.field, controller);
     this.pendingFields.add(update.field);
+    this.clearSaved(update.field);
     this.errors.delete(update.field);
     this.notify();
 
+    let rejectTimeout: (reason: CurrentUserSettingPersistTimeoutError) => void;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      rejectTimeout = reject;
+    });
+    const timeout = setTimeout(() => {
+      rejectTimeout(new CurrentUserSettingPersistTimeoutError());
+      controller.abort();
+    }, CURRENT_USER_SETTING_PERSIST_TIMEOUT_MS);
+
     try {
-      const result = await api.updateCurrentUserSettings(update);
-      if (identity.epoch !== authSession.getIdentity().epoch || this.requestTokens.get(update.field) !== token) {
+      const result = await Promise.race([api.updateCurrentUserSettings(update, { signal: controller.signal }), timeoutPromise]);
+      if (!this.ownsRequest(update.field, token, identity.epoch)) {
         return;
       }
       if (result.field !== update.field) {
@@ -186,27 +245,47 @@ class UserSettingsStore {
       }
       if (this.snapshot) {
         this.snapshot = setFieldValue(this.snapshot, result);
+      } else {
+        this.committedUpdates.set(result.field, result);
       }
-      this.pendingFields.delete(update.field);
+      this.snapshotVersion += 1;
       this.errors.delete(update.field);
+      this.setSaved(update.field);
       this.notify();
       this.channel?.postMessage({ type: INVALIDATE_MESSAGE });
     } catch (error) {
-      if (identity.epoch !== authSession.getIdentity().epoch || this.requestTokens.get(update.field) !== token) {
+      if (!this.ownsRequest(update.field, token, identity.epoch)) {
         return;
       }
-      this.pendingFields.delete(update.field);
-      this.errors.set(update.field, error instanceof Error ? error.message : "Unable to save this setting.");
+      this.errors.set(
+        update.field,
+        error instanceof CurrentUserSettingPersistTimeoutError
+          ? CURRENT_USER_SETTING_PERSIST_TIMEOUT_MESSAGE
+          : error instanceof Error
+            ? error.message
+            : "Unable to save this setting."
+      );
       this.notify();
       if (requestVersion === this.snapshotVersion) {
         void this.refresh(true);
       }
       throw error;
+    } finally {
+      clearTimeout(timeout);
+      if (this.ownsRequest(update.field, token, identity.epoch)) {
+        this.pendingFields.delete(update.field);
+        this.abortControllers.delete(update.field);
+        this.requestTokens.delete(update.field);
+        this.notify();
+      }
     }
   }
 
   clearError(field: CurrentUserSettingsField): void {
-    if (this.errors.delete(field)) this.notify();
+    const hadError = this.errors.delete(field);
+    const wasSaved = this.savedFields.has(field);
+    this.clearSaved(field);
+    if (hadError || wasSaved) this.notify();
   }
 
   resetForTests(): void {
@@ -214,17 +293,17 @@ class UserSettingsStore {
     this.snapshotVersion += 1;
     this.refreshPromise = null;
     this.queuedRefresh = false;
-    this.pendingFields.clear();
+    this.clearActiveFieldState();
+    this.committedUpdates.clear();
     this.errors.clear();
-    this.requestTokens.clear();
     this.notify();
   }
 
   private clearForIdentityChange(): void {
     this.snapshot = null;
-    this.pendingFields.clear();
+    this.clearActiveFieldState();
+    this.committedUpdates.clear();
     this.errors.clear();
-    this.requestTokens.clear();
     this.snapshotVersion += 1;
     this.queuedRefresh = false;
     this.notify();
@@ -241,7 +320,56 @@ class UserSettingsStore {
   }
 
   private notify(): void {
+    this.stateVersion += 1;
     for (const listener of this.listeners) listener();
+  }
+
+  private hasConfirmedValue(field: CurrentUserSettingsField): boolean {
+    return this.snapshot !== null || this.committedUpdates.has(field);
+  }
+
+  private getConfirmedValue(field: CurrentUserSettingsField): CurrentUserSettingValue | undefined {
+    return this.snapshot ? getFieldValue(this.snapshot, field) : this.committedUpdates.get(field)?.value;
+  }
+
+  private ownsRequest(field: CurrentUserSettingsField, token: symbol, identityEpoch: number): boolean {
+    return identityEpoch === authSession.getIdentity().epoch && this.requestTokens.get(field) === token;
+  }
+
+  private setSaved(field: CurrentUserSettingsField): void {
+    this.clearSaved(field);
+    const token = Symbol(field);
+    this.savedTokens.set(field, token);
+    this.savedFields.add(field);
+    this.successTimers.set(
+      field,
+      setTimeout(() => {
+        if (this.savedTokens.get(field) !== token) return;
+        this.savedTokens.delete(field);
+        this.successTimers.delete(field);
+        this.savedFields.delete(field);
+        this.notify();
+      }, SETTING_SUCCESS_DISPLAY_MS)
+    );
+  }
+
+  private clearSaved(field: CurrentUserSettingsField): void {
+    const timer = this.successTimers.get(field);
+    if (timer) clearTimeout(timer);
+    this.successTimers.delete(field);
+    this.savedTokens.delete(field);
+    this.savedFields.delete(field);
+  }
+
+  private clearActiveFieldState(): void {
+    for (const controller of this.abortControllers.values()) controller.abort();
+    for (const timer of this.successTimers.values()) clearTimeout(timer);
+    this.pendingFields.clear();
+    this.savedFields.clear();
+    this.requestTokens.clear();
+    this.abortControllers.clear();
+    this.successTimers.clear();
+    this.savedTokens.clear();
   }
 }
 

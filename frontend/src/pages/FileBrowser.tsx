@@ -86,10 +86,13 @@ import { canOpenFileInApp, getConnectionById, isConnectionReadOnly, isConnection
 import {
   areSameContentLocations,
   type ContentOperationExecution,
+  type ContentOperationReason,
   cancelForegroundArchiveOperationOnPageHide,
   executeTransfer,
   executeTransferTree,
+  getArchiveExtractionAvailability,
   getCreateContainerAvailability,
+  getCreateContentItemAvailability,
   getLocationDisplayName,
   getTransferAvailability,
   hasForegroundArchiveOperationWork,
@@ -145,6 +148,39 @@ const IGNORED_REALTIME_MESSAGE_TYPES = new Set(["subscribed", "unsubscribed", "p
 const COPY_MOVE_FILE_CONFLICT_ACTIONS: readonly ConflictResolution[] = ["skip", "overwrite", "overwrite-older", "rename"];
 const COPY_MOVE_DIRECTORY_CONFLICT_ACTIONS: readonly ConflictResolution[] = ["skip", "rename"];
 type CopyMoveConflictPolicy = TargetResolutionPolicy;
+type FileListShortcutAction = "copy" | "move" | "delete" | "rename" | "new-directory" | "new-file" | "create-archive" | "extract-archive";
+type FileListShortcutUnavailableReason =
+  | "no-focused-item"
+  | "no-selection"
+  | "dual-pane-required"
+  | "archive-content-immutable"
+  | "read-only-location"
+  | "unsupported-source"
+  | "unsupported-destination"
+  | "companion-unavailable";
+type FileListShortcutAvailability = { available: true } | { available: false; reason: FileListShortcutUnavailableReason };
+type UnavailableShortcutNotice = { id: number; message: string };
+
+const AVAILABLE_FILE_LIST_SHORTCUT: FileListShortcutAvailability = { available: true };
+
+function unavailableFileListShortcut(reason: FileListShortcutUnavailableReason): FileListShortcutAvailability {
+  return { available: false, reason };
+}
+
+function mapContentOperationReason(reason: ContentOperationReason | undefined): FileListShortcutUnavailableReason {
+  switch (reason) {
+    case "empty-selection":
+      return "no-selection";
+    case "read-only":
+      return "read-only-location";
+    case "unsupported-destination":
+      return "unsupported-destination";
+    case "companion-unavailable":
+      return "companion-unavailable";
+    default:
+      return "unsupported-source";
+  }
+}
 
 function parentPath(path: string): string {
   const separatorIndex = path.lastIndexOf("/");
@@ -378,6 +414,7 @@ const Browser: React.FC = () => {
   const [quickBarRefreshToken, setQuickBarRefreshToken] = useState(0);
   const [quickBarPaneId, setQuickBarPaneId] = useState<PaneId>("left");
   const [companionHintOpen, setCompanionHintOpen] = useState(false);
+  const [unavailableShortcutNotice, setUnavailableShortcutNotice] = useState<UnavailableShortcutNotice | null>(null);
   const backendAvailability = useBackendAvailability();
 
   useEffect(() => {
@@ -742,16 +779,6 @@ const Browser: React.FC = () => {
         ).available
     );
   const inactivePane = effectiveActivePaneId === "left" ? rightPane : leftPane;
-  const activePaneCanExtractSelectedMembers =
-    isDualMode &&
-    activePane.currentLocation.kind === "virtual" &&
-    activePane.currentLocation.providerId === "zip" &&
-    activePane.contentCapabilities.extract &&
-    inactivePane.currentLocation.kind === "physical" &&
-    inactivePane.contentCapabilities.mutate &&
-    activePane
-      .getEffectiveSelection()
-      .some((item) => item.handle.kind === "virtual" && item.handle.location.providerId === "zip" && item.entry.is_readable);
   const createContainerDestination = isDualMode
     ? (effectiveActivePaneId === "left" ? rightPane : leftPane).currentLocation
     : activePane.currentLocation;
@@ -759,6 +786,159 @@ const Browser: React.FC = () => {
     { sources: activePane.getEffectiveSelection().map((item) => item.handle), destination: createContainerDestination },
     contentOperationEnvironment
   ).available;
+  const getArchiveExtractionShortcutAvailability = useCallback(
+    (source: VirtualLocation, destination: ContentLocation): FileListShortcutAvailability => {
+      if (destination.kind !== "physical") {
+        return unavailableFileListShortcut("unsupported-destination");
+      }
+      if (isConnectionReadOnly(getConnectionById(allConnections, destination.connectionId))) {
+        return unavailableFileListShortcut("read-only-location");
+      }
+      const availability = getArchiveExtractionAvailability(browserContentServices.providers, source, destination);
+      if (availability.available) {
+        return AVAILABLE_FILE_LIST_SHORTCUT;
+      }
+      return unavailableFileListShortcut(availability.reason === "invalid-destination" ? "read-only-location" : "unsupported-source");
+    },
+    [allConnections, browserContentServices.providers]
+  );
+  const getFileListShortcutAvailability = useCallback(
+    (action: FileListShortcutAction): FileListShortcutAvailability => {
+      const selection = activePane.getEffectiveSelection();
+      const activePaneReadOnly = !activePane.contentCapabilities.mutate || isConnectionReadOnly(activePaneConnection);
+
+      if (action === "delete" || action === "rename") {
+        if (activePaneIsArchive) return unavailableFileListShortcut("archive-content-immutable");
+        if (activePaneReadOnly) return unavailableFileListShortcut("read-only-location");
+        return activePaneFocusedFile ? AVAILABLE_FILE_LIST_SHORTCUT : unavailableFileListShortcut("no-focused-item");
+      }
+
+      if (action === "new-directory" || action === "new-file") {
+        if (activePaneIsArchive) return unavailableFileListShortcut("archive-content-immutable");
+        const availability = getCreateContentItemAvailability(activePane.currentLocation, contentOperationEnvironment);
+        return availability.available
+          ? AVAILABLE_FILE_LIST_SHORTCUT
+          : unavailableFileListShortcut(mapContentOperationReason(availability.reason));
+      }
+
+      if (action === "copy" && activePane.currentLocation.kind === "virtual" && activePane.currentLocation.providerId === "zip") {
+        const readableMembers = selection.filter((item) => item.entry.is_readable);
+        if (!isDualMode) return unavailableFileListShortcut("dual-pane-required");
+        if (readableMembers.length === 0) return unavailableFileListShortcut("no-selection");
+        return getArchiveExtractionShortcutAvailability(activePane.currentLocation, inactivePane.currentLocation);
+      }
+
+      if (action === "copy" || action === "move") {
+        if (!isDualMode) return unavailableFileListShortcut("dual-pane-required");
+        if (selection.length === 0) return unavailableFileListShortcut("no-selection");
+        if (action === "move" && activePaneIsArchive) return unavailableFileListShortcut("archive-content-immutable");
+        const unavailable = selection
+          .map((item) =>
+            getTransferAvailability(
+              { kind: action, source: item.handle, destination: inactivePane.currentLocation },
+              contentOperationEnvironment
+            )
+          )
+          .find((availability) => !availability.available);
+        return unavailable ? unavailableFileListShortcut(mapContentOperationReason(unavailable.reason)) : AVAILABLE_FILE_LIST_SHORTCUT;
+      }
+
+      if (action === "create-archive") {
+        const availability = getCreateContainerAvailability(
+          { sources: selection.map((item) => item.handle), destination: createContainerDestination },
+          contentOperationEnvironment
+        );
+        return availability.available
+          ? AVAILABLE_FILE_LIST_SHORTCUT
+          : unavailableFileListShortcut(mapContentOperationReason(availability.reason));
+      }
+
+      if (!activePaneFocusedFile) return unavailableFileListShortcut("no-selection");
+      if (activePaneIsVirtualArchive || archiveExtractionSource === null) return unavailableFileListShortcut("unsupported-source");
+      const destination = isDualMode
+        ? inactivePane.currentLocation
+        : physicalLocation(archiveExtractionSource.source.connectionId, parentPath(archiveExtractionSource.source.path));
+      return getArchiveExtractionShortcutAvailability(archiveExtractionSource, destination);
+    },
+    [
+      activePane,
+      activePaneConnection,
+      activePaneFocusedFile,
+      activePaneIsArchive,
+      activePaneIsVirtualArchive,
+      archiveExtractionSource,
+      contentOperationEnvironment,
+      createContainerDestination,
+      getArchiveExtractionShortcutAvailability,
+      inactivePane,
+      isDualMode,
+    ]
+  );
+  const getUnavailableShortcutMessage = useCallback(
+    (action: FileListShortcutAction, reason: FileListShortcutUnavailableReason): string => {
+      if (reason === "dual-pane-required") return t("fileBrowser.unavailableShortcuts.dualPaneRequired");
+      if (reason === "archive-content-immutable") return t("fileBrowser.unavailableShortcuts.archiveContentImmutable");
+      if (reason === "read-only-location") return t("fileBrowser.unavailableShortcuts.readOnlyLocation");
+      if (reason === "companion-unavailable") return t("fileBrowser.unavailableShortcuts.companionUnavailable");
+      if (reason === "no-focused-item")
+        return t(`fileBrowser.unavailableShortcuts.${action === "delete" ? "selectItemToDelete" : "selectItemToRename"}`);
+      if (reason === "no-selection") {
+        if (action === "create-archive") return t("fileBrowser.unavailableShortcuts.selectItemsToArchive");
+        if (action === "extract-archive") return t("fileBrowser.unavailableShortcuts.selectArchiveToExtract");
+        return t(`fileBrowser.unavailableShortcuts.${action === "move" ? "selectItemsToMove" : "selectItemsToCopy"}`);
+      }
+      if (action === "copy" && (activePaneIsArchive || activePaneIsVirtualArchive))
+        return t("fileBrowser.unavailableShortcuts.archiveExtractionUnavailable");
+      return t(`fileBrowser.unavailableShortcuts.${reason === "unsupported-destination" ? "destinationUnavailable" : "sourceUnavailable"}`);
+    },
+    [activePaneIsArchive, activePaneIsVirtualArchive, t]
+  );
+  const isActiveFileListKeyboardTarget = useCallback((): boolean => {
+    if (
+      settingsOpen ||
+      mobileSettingsOpen ||
+      drawerOpen ||
+      showHelp ||
+      viewerOverlayOpen ||
+      activePane.deleteDialogOpen ||
+      activePane.renameDialogOpen ||
+      activePane.createDialogOpen ||
+      copyMoveDialogOpen ||
+      conflictDialogOpen ||
+      archiveWorkflowDialogOpen
+    ) {
+      return false;
+    }
+    const activeElement = document.activeElement;
+    const listContainer = activePane.listContainerEl;
+    return Boolean(
+      listContainer && activeElement instanceof Element && (activeElement === listContainer || listContainer.contains(activeElement))
+    );
+  }, [
+    activePane.createDialogOpen,
+    activePane.deleteDialogOpen,
+    activePane.listContainerEl,
+    activePane.renameDialogOpen,
+    archiveWorkflowDialogOpen,
+    conflictDialogOpen,
+    copyMoveDialogOpen,
+    drawerOpen,
+    mobileSettingsOpen,
+    settingsOpen,
+    showHelp,
+    viewerOverlayOpen,
+  ]);
+  const handleUnavailableShortcut = useCallback(
+    (action: FileListShortcutAction, event: KeyboardEvent): boolean => {
+      if (event.repeat || !isActiveFileListKeyboardTarget()) return false;
+      const availability = getFileListShortcutAvailability(action);
+      if (availability.available) return false;
+      const message = getUnavailableShortcutMessage(action, availability.reason);
+      setUnavailableShortcutNotice((current) => ({ id: (current?.id ?? 0) + 1, message }));
+      return true;
+    },
+    [getFileListShortcutAvailability, getUnavailableShortcutMessage, isActiveFileListKeyboardTarget]
+  );
   const hasVisibleLocalDrivePane =
     Boolean(leftPane.connectionId && isLocalDrive(leftPane.connectionId)) ||
     Boolean(isDualMode && rightPane.connectionId && isLocalDrive(rightPane.connectionId));
@@ -2250,11 +2430,14 @@ const Browser: React.FC = () => {
       }
       const destinationPaneId: PaneId = isDualMode ? (effectiveActivePaneId === "left" ? "right" : "left") : effectiveActivePaneId;
       const destinationPane = destinationPaneId === "right" ? rightPane : leftPane;
-      if (isDualMode && (destinationPane.currentLocation.kind !== "physical" || !destinationPane.contentCapabilities.mutate)) {
+      const usesSiblingDirectory = !isDualMode;
+      const destination = usesSiblingDirectory
+        ? physicalLocation(location.source.connectionId, parentPath(location.source.path))
+        : destinationPane.currentLocation;
+      if (!getArchiveExtractionShortcutAvailability(location, destination).available || destination.kind !== "physical") {
         return;
       }
       const archiveName = fileName(location.source.path);
-      const usesSiblingDirectory = !isDualMode;
       setArchiveExtractionError(null);
       setArchiveExtractionContext({
         location,
@@ -2262,23 +2445,28 @@ const Browser: React.FC = () => {
           extractionScope.kind === "members"
             ? { kind: "members", memberPaths: [...extractionScope.memberPaths] }
             : FULL_ARCHIVE_EXTRACTION_SCOPE,
-        destinationParent: usesSiblingDirectory
-          ? physicalLocation(location.source.connectionId, parentPath(location.source.path))
-          : destinationPane.currentLocation,
+        destinationParent: destination,
         destinationPaneId,
         usesSiblingDirectory,
         destination: null,
         destinationLabel: getLocationDisplayName(
-          usesSiblingDirectory
-            ? physicalLocation(location.source.connectionId, parentPath(location.source.path))
-            : destinationPane.currentLocation,
+          destination,
           (connectionId) => getConnectionById(allConnections, connectionId)?.name ?? connectionId
         ),
         archiveName,
         initialDestinationName: archiveName.replace(/\.zip$/i, "") || archiveName,
       });
     },
-    [activePaneIsVirtualArchive, allConnections, archiveExtractionSource, effectiveActivePaneId, isDualMode, leftPane, rightPane]
+    [
+      activePaneIsVirtualArchive,
+      allConnections,
+      archiveExtractionSource,
+      effectiveActivePaneId,
+      getArchiveExtractionShortcutAvailability,
+      isDualMode,
+      leftPane,
+      rightPane,
+    ]
   );
 
   const completeArchiveExtraction = useCallback(
@@ -2637,6 +2825,14 @@ const Browser: React.FC = () => {
     const hasFocusedFile = activePane.focusedIndex >= 0 && activePane.filesRef.current[activePane.focusedIndex] !== undefined;
     const noDialogOpen = !activePane.deleteDialogOpen && !activePane.renameDialogOpen && !activePane.createDialogOpen;
     const noDialogOrCopyMove = noDialogOpen && !copyMoveDialogOpen;
+    const deleteAvailability = getFileListShortcutAvailability("delete");
+    const renameAvailability = getFileListShortcutAvailability("rename");
+    const copyAvailability = getFileListShortcutAvailability("copy");
+    const moveAvailability = getFileListShortcutAvailability("move");
+    const newDirectoryAvailability = getFileListShortcutAvailability("new-directory");
+    const newFileAvailability = getFileListShortcutAvailability("new-file");
+    const createArchiveAvailability = getFileListShortcutAvailability("create-archive");
+    const extractArchiveAvailability = getFileListShortcutAvailability("extract-archive");
 
     return [
       // Navigation - Arrow keys (focus checked inside handlers)
@@ -2761,49 +2957,56 @@ const Browser: React.FC = () => {
       {
         ...BROWSER_SHORTCUTS.DELETE_ITEM,
         handler: () => activePane.handleDeleteRequest(),
-        enabled: browsing && !activePaneIsArchive && noDialogOpen && hasFocusedFile,
+        enabled: browsing && noDialogOpen && deleteAvailability.available,
+        onUnavailable: (event) => handleUnavailableShortcut("delete", event),
       },
       // Rename file/directory (focus checked inside handler)
       {
         ...BROWSER_SHORTCUTS.RENAME_ITEM,
         handler: () => activePane.handleRenameRequest(),
-        enabled: browsing && !activePaneIsArchive && noDialogOpen && hasFocusedFile,
+        enabled: browsing && noDialogOpen && renameAvailability.available,
+        onUnavailable: (event) => handleUnavailableShortcut("rename", event),
       },
       // Copy to other pane (F5 in dual mode — takes priority over Refresh)
       {
         ...COPY_MOVE_SHORTCUTS.COPY_TO_OTHER_PANE,
         handler: handleCopyToOtherPane,
-        enabled: isDualMode && browsing && noDialogOrCopyMove && (!activePaneIsArchive || activePaneCanExtractSelectedMembers),
+        enabled: browsing && noDialogOrCopyMove && copyAvailability.available,
+        onUnavailable: (event) => handleUnavailableShortcut("copy", event),
       },
       // Move to other pane (F6 in dual mode)
       {
         ...COPY_MOVE_SHORTCUTS.MOVE_TO_OTHER_PANE,
         handler: handleMoveToOtherPane,
-        enabled: isDualMode && browsing && !activePaneIsArchive && noDialogOrCopyMove,
+        enabled: browsing && noDialogOrCopyMove && moveAvailability.available,
+        onUnavailable: (event) => handleUnavailableShortcut("move", event),
       },
       // Create new directory (F7)
       {
         ...BROWSER_SHORTCUTS.NEW_DIRECTORY,
         handler: () => activePane.handleNewDirectoryRequest(),
-        enabled: browsing && !activePaneIsArchive && noDialogOpen,
+        enabled: browsing && noDialogOpen && newDirectoryAvailability.available,
+        onUnavailable: (event) => handleUnavailableShortcut("new-directory", event),
       },
       // Create new file (Shift+F7)
       {
         ...BROWSER_SHORTCUTS.NEW_FILE,
         handler: () => activePane.handleNewFileRequest(),
-        enabled: browsing && !activePaneIsArchive && noDialogOpen,
+        enabled: browsing && noDialogOpen && newFileAvailability.available,
+        onUnavailable: (event) => handleUnavailableShortcut("new-file", event),
       },
       // Create a ZIP archive from the selected physical entries (Alt+F5)
       {
         ...BROWSER_SHORTCUTS.CREATE_ARCHIVE,
         handler: handleCreateArchiveRequest,
-        enabled: browsing && noDialogOpen && activePaneCanCreateArchive,
+        enabled: browsing && noDialogOpen && createArchiveAvailability.available,
+        onUnavailable: (event) => handleUnavailableShortcut("create-archive", event),
       },
       {
         ...BROWSER_SHORTCUTS.EXTRACT_ARCHIVE,
         handler: handleArchiveExtractionRequest,
-        enabled:
-          browsing && !activePaneIsVirtualArchive && noDialogOpen && archiveExtractionSource !== null && archiveExtractionContext === null,
+        enabled: browsing && noDialogOpen && archiveExtractionContext === null && extractArchiveAvailability.available,
+        onUnavailable: (event) => handleUnavailableShortcut("extract-archive", event),
       },
       // ── Selection Shortcuts (Norton Commander multi-select) ──────────────
       // Toggle selection on focused file, then move focus down (Insert / Space)
@@ -2858,9 +3061,9 @@ const Browser: React.FC = () => {
   }, [
     activePane,
     activePaneCanOpenInApp,
-    activePaneCanExtractSelectedMembers,
     activePaneIsArchive,
-    activePaneIsVirtualArchive,
+    getFileListShortcutAvailability,
+    handleUnavailableShortcut,
     handleOpenSettings,
     handleOpenConnectionSelector,
     settingsOpen,
@@ -2877,10 +3080,8 @@ const Browser: React.FC = () => {
     handleCopyToOtherPane,
     handleMoveToOtherPane,
     handleCreateArchiveRequest,
-    activePaneCanCreateArchive,
     handleArchiveExtractionRequest,
     archiveExtractionContext,
-    archiveExtractionSource,
     t,
   ]);
 
@@ -3385,6 +3586,14 @@ const Browser: React.FC = () => {
         onClose={() => setArchiveExtractionNotice(null)}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
         message={archiveExtractionNotice}
+      />
+      <Snackbar
+        key={unavailableShortcutNotice?.id}
+        open={unavailableShortcutNotice !== null}
+        autoHideDuration={4000}
+        onClose={() => setUnavailableShortcutNotice(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        message={unavailableShortcutNotice?.message}
       />
       {/* Copy / Move Dialog (dual-pane F5/F6) */}
       <CopyMoveDialog

@@ -207,7 +207,7 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
       {operationContext}
       <FormSurface>
-        <FormGroup>
+        <FormGroup edge="both">
           <FormRow sx={{ display: { md: "block" } }}>
             <TextField
               id="name-input-dialog-field"

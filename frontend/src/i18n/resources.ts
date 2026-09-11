@@ -116,6 +116,10 @@ export const EN_TRANSLATIONS = {
     },
   },
   settings: {
+    saveStatus: {
+      saving: "Saving setting",
+      saved: "Setting saved",
+    },
     shell: {
       title: "Settings",
       closeAriaLabel: "Close settings",
@@ -878,6 +882,21 @@ export const EN_TRANSLATIONS = {
       switchActivePane: "Switch active pane",
       toggleDualPane: "Toggle dual-pane view",
       toggleSelectionAndMoveDown: "Toggle selection & move down",
+    },
+    unavailableShortcuts: {
+      archiveContentImmutable: "Archive contents cannot be modified.",
+      archiveExtractionUnavailable: "This archive cannot be extracted to the current destination.",
+      companionUnavailable: "Connect Sambee Companion before creating an archive with local files.",
+      destinationUnavailable: "This location cannot receive files.",
+      dualPaneRequired: "Copy requires dual-pane mode.",
+      readOnlyLocation: "This location is read-only.",
+      selectArchiveToExtract: "Select an archive to extract.",
+      selectItemToDelete: "Select an item to delete.",
+      selectItemToRename: "Select an item to rename.",
+      selectItemsToArchive: "Select items that can be added to an archive.",
+      selectItemsToCopy: "Select one or more items to copy.",
+      selectItemsToMove: "Select one or more items to move.",
+      sourceUnavailable: "The selected item is not available for this action.",
     },
     chrome: {
       breadcrumb: {

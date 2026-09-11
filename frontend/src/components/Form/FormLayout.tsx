@@ -8,6 +8,12 @@ interface FormContainerProps {
   testId?: string;
 }
 
+export type FormGroupEdge = "none" | "start" | "end" | "both";
+
+interface FormGroupProps extends FormContainerProps {
+  edge?: FormGroupEdge;
+}
+
 interface FormFieldLabelProps {
   label: string;
   description: string;
@@ -88,7 +94,10 @@ export function FormSurface({ children, sx, testId }: FormContainerProps) {
   );
 }
 
-export function FormGroup({ children, sx, testId }: FormContainerProps) {
+export function FormGroup({ children, sx, testId, edge = "none" }: FormGroupProps) {
+  const trimsStartEdge = edge === "start" || edge === "both";
+  const trimsEndEdge = edge === "end" || edge === "both";
+
   return (
     <Box
       data-testid={testId}
@@ -102,6 +111,8 @@ export function FormGroup({ children, sx, testId }: FormContainerProps) {
               borderBottom: `1px solid ${alpha(theme.palette.text.primary, 0.2)}`,
             },
           },
+          ...(trimsStartEdge ? { "& > :first-of-type": { pt: 0 } } : {}),
+          ...(trimsEndEdge ? { "& > :last-of-type": { pb: 0 } } : {}),
         }),
         ...(Array.isArray(sx) ? sx : sx ? [sx] : []),
       ]}

@@ -437,7 +437,7 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
       >
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <FormSurface testId="change-password-form-surface">
-            <FormGroup>
+            <FormGroup edge="both">
               <FormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
                 <TextField
                   autoFocus

@@ -46,9 +46,17 @@ export function LocalePreferencesProvider({ children }: { children: ReactNode })
       syncFromI18n();
     };
 
+    const applyLocalizationSettingsSafely = async () => {
+      try {
+        await applyLocalizationSettings();
+      } catch {
+        syncFromI18n();
+      }
+    };
+
     i18n.on("languageChanged", syncFromI18n);
     window.addEventListener(REGIONAL_LOCALE_CHANGED_EVENT, syncFromI18n);
-    void applyLocalizationSettings();
+    void applyLocalizationSettingsSafely();
 
     return () => {
       i18n.off("languageChanged", syncFromI18n);
@@ -63,14 +71,28 @@ export function LocalePreferencesProvider({ children }: { children: ReactNode })
       regionalLocalePreference,
       setLanguagePreference: async (nextLanguagePreference) => {
         await languageSetting.commit(nextLanguagePreference);
-        await applyLanguagePreference(nextLanguagePreference);
+        try {
+          await applyLanguagePreference(nextLanguagePreference);
+        } catch {
+          setLanguagePreferenceState(getCurrentLanguagePreference());
+          setRegionalLocalePreferenceState(getCurrentRegionalLocalePreference());
+          setRegionalLocaleState(getCurrentRegionalLocale());
+          return;
+        }
         setLanguagePreferenceState(getCurrentLanguagePreference());
         setRegionalLocalePreferenceState(getCurrentRegionalLocalePreference());
         setRegionalLocaleState(getCurrentRegionalLocale());
       },
       setRegionalLocalePreference: async (nextRegionalLocalePreference) => {
         await regionalLocaleSetting.commit(nextRegionalLocalePreference);
-        await applyRegionalLocalePreference(nextRegionalLocalePreference);
+        try {
+          await applyRegionalLocalePreference(nextRegionalLocalePreference);
+        } catch {
+          setLanguagePreferenceState(getCurrentLanguagePreference());
+          setRegionalLocalePreferenceState(getCurrentRegionalLocalePreference());
+          setRegionalLocaleState(getCurrentRegionalLocale());
+          return;
+        }
         setRegionalLocalePreferenceState(getCurrentRegionalLocalePreference());
         setRegionalLocaleState(getCurrentRegionalLocale());
       },
