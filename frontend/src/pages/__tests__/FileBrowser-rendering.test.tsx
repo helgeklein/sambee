@@ -195,6 +195,36 @@ describe("Browser Component - Rendering", () => {
     }
   });
 
+  it("enables parent navigation at an archive root in compact layout", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: /max-width/.test(query),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+      archive: { path: "archive.zip", size: 1 },
+      path: "",
+      items: [{ name: "inside.txt", path: "inside.txt", type: "file", state: "readable", is_hidden: false }],
+      total: 1,
+      page_size: 100,
+    } as never);
+
+    try {
+      renderBrowser("/browse/smb/test-server-1/archive.zip");
+
+      await screen.findByRole("button", { name: /file: inside\.txt/i });
+      expect(screen.getByRole("button", { name: "Navigate to parent directory" })).toBeEnabled();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
   it("displays loading state while fetching files", async () => {
     // Mock a delayed response
     vi.mocked(api.listDirectory).mockImplementation(() => new Promise<typeof mockDirectoryListing>(() => {}));

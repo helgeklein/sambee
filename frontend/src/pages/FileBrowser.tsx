@@ -3325,7 +3325,7 @@ const Browser: React.FC = () => {
   const activeCurrentPath = activePane.currentPath;
   const pathParts = activeCurrentPath ? activeCurrentPath.split("/") : [];
   const currentDirectoryName = (pathParts.length > 0 && pathParts[pathParts.length - 1]) || "Root";
-  const canNavigateUp = activeCurrentPath !== "";
+  const canNavigateUp = activePane.archiveLocation !== null || activeCurrentPath !== "";
 
   // Force single-pane on mobile
   const effectivePaneMode: PaneMode = useCompactLayout ? "single" : paneMode;
