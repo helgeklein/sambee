@@ -22,6 +22,7 @@ class AppearanceUserSettingsRead(SQLModel):
 
 LanguagePreference = Literal["browser", "en", "en-XA"]
 QuickBarShortcutHintVisibility = Literal["auto", "always", "never"]
+TouchFriendlyFileSelection = Literal["auto", "always", "never"]
 
 
 class LocalizationUserSettingsRead(SQLModel):
@@ -32,6 +33,7 @@ class LocalizationUserSettingsRead(SQLModel):
 class BrowserUserSettingsRead(SQLModel):
     quick_nav_include_dot_directories: bool
     quick_bar_shortcut_hint_visibility: QuickBarShortcutHintVisibility
+    touch_friendly_file_selection: TouchFriendlyFileSelection
     file_browser_view_mode: str
     pane_mode: str
     selected_connection_id: Optional[str] = None
@@ -84,6 +86,11 @@ class QuickBarShortcutHintUserSettingUpdate(StrictCurrentUserSettingUpdate):
     value: QuickBarShortcutHintVisibility
 
 
+class TouchFriendlyFileSelectionUserSettingUpdate(StrictCurrentUserSettingUpdate):
+    field: Literal["browser.touch_friendly_file_selection"]
+    value: TouchFriendlyFileSelection
+
+
 class FileBrowserViewModeUserSettingUpdate(StrictCurrentUserSettingUpdate):
     field: Literal["browser.file_browser_view_mode"]
     value: Literal["list", "details"]
@@ -121,6 +128,7 @@ CurrentUserSettingsUpdate = Annotated[
     | RegionalLocaleUserSettingUpdate
     | QuickNavUserSettingUpdate
     | QuickBarShortcutHintUserSettingUpdate
+    | TouchFriendlyFileSelectionUserSettingUpdate
     | FileBrowserViewModeUserSettingUpdate
     | PaneModeUserSettingUpdate
     | SelectedConnectionUserSettingUpdate

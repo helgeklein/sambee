@@ -14,6 +14,7 @@ interface FileListProps {
   files: FileEntry[];
   showEmptyState?: boolean;
   useCompactLayout?: boolean;
+  useTouchSelectionControls?: boolean;
   compactOverlay?: ReactNode;
   compactOverlayLayout?: CompactOverlayLayout;
   focusedIndex: number;
@@ -42,6 +43,7 @@ export const FileList = React.memo(
     files,
     showEmptyState = true,
     useCompactLayout = false,
+    useTouchSelectionControls = useCompactLayout,
     compactOverlay,
     compactOverlayLayout = "floating",
     focusedIndex,
@@ -144,18 +146,21 @@ export const FileList = React.memo(
                     key={virtualItem.key}
                     file={file}
                     useCompactLayout={useCompactLayout}
+                    useTouchSelectionControls={useTouchSelectionControls}
                     index={virtualItem.index}
                     isSelected={virtualItem.index === focusedIndex}
                     isMultiSelected={selectedFiles.has(file.path)}
-                    selectionMode={useCompactLayout && selectedFiles.size > 0}
+                    selectionMode={useTouchSelectionControls && selectedFiles.size > 0}
                     virtualStart={virtualItem.start}
                     virtualSize={virtualItem.size}
-                    onClick={useCompactLayout && selectedFiles.size > 0 && onToggleItemSelection ? onToggleItemSelection : onFileClick}
+                    onClick={
+                      useTouchSelectionControls && selectedFiles.size > 0 && onToggleItemSelection ? onToggleItemSelection : onFileClick
+                    }
                     fileRowStyles={fileRowStyles}
                     viewMode={viewMode}
-                    showCompactActions={useCompactLayout}
+                    showCompactActions={useTouchSelectionControls}
                     onOpenItemActions={openItemActions}
-                    onLongPressSelect={useCompactLayout ? onSelectItem : undefined}
+                    onLongPressSelect={useTouchSelectionControls ? onSelectItem : undefined}
                   />
                 );
               })}

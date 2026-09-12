@@ -58,6 +58,16 @@ Choose when shortcut hints appear in **Settings** > **File Browser** > **Shortcu
 - **Always** shows hints in every layout.
 - **Never** hides the shortcut labels while keeping Quick Bar status information visible.
 
+## Touch-Friendly File Selection
+
+Choose when touch-friendly file selection is available in **Settings** > **File Browser** > **File selection**. This keeps the desktop layout and toolbar on larger devices while making row selection easier to use by touch.
+
+- **Automatic** enables touch selection when the browser reports a coarse primary pointer, which is typical for a tablet.
+- **Always on** enables touch selection in every larger layout.
+- **Off** leaves touch selection disabled in larger layouts.
+
+Phone layouts always provide touch selection. When touch selection is available, select an item from its More actions menu or touch and hold its row. Tap additional rows to add or remove them from the selection, then use the selection controls at the bottom of the pane for bulk actions.
+
 ## Locate and Run Any Command
 
 1. Press <kbd>Ctrl</kbd> + <kbd>P</kbd> to open command mode.

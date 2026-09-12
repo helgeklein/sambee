@@ -26,6 +26,7 @@ class TestCurrentUserSettingsApi:
         assert data["appearance"] == {"theme_id": "sambee-light", "custom_themes": []}
         assert data["localization"] == {"language": "browser", "regional_locale": "browser"}
         assert data["browser"]["quick_nav_include_dot_directories"] is False
+        assert data["browser"]["touch_friendly_file_selection"] == "auto"
         assert data["browser"]["selected_connection_id"] is None
         assert data["text_editor"] == {"max_file_size_bytes": 52_428_800, "word_wrap_enabled": None}
 
@@ -40,6 +41,7 @@ class TestCurrentUserSettingsApi:
             {"field": "localization.regional_locale", "value": "en-GB"},
             {"field": "browser.quick_nav_include_dot_directories", "value": True},
             {"field": "browser.quick_bar_shortcut_hint_visibility", "value": "never"},
+            {"field": "browser.touch_friendly_file_selection", "value": "always"},
             {"field": "browser.file_browser_view_mode", "value": "details"},
             {"field": "browser.pane_mode", "value": "dual"},
             {"field": "browser.selected_connection_id", "value": "conn-123"},

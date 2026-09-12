@@ -316,6 +316,12 @@ describe("FileBrowserPane", () => {
   // --------------------------------------------------------------------------
 
   describe("desktop layout", () => {
+    it("uses fixed pixel dimensions for the visually hidden selection announcement", () => {
+      render(<FileBrowserPane {...defaultProps()} />);
+
+      expect(screen.getByText("", { selector: "[aria-live='polite']" })).toHaveStyle({ height: "1px", width: "1px" });
+    });
+
     it("renders breadcrumbs with connection name and path", () => {
       render(<FileBrowserPane {...defaultProps()} />);
       const breadcrumbs = screen.getByTestId("breadcrumbs");

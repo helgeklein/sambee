@@ -94,6 +94,10 @@ The settings gained a new category page:
 
 - New admin settings page: **File Search**
 
+File browser settings:
+
+- **Touch-friendly file selection:** controls how mobile-style file selection is enabled (auto, always on, off).
+
 ## Image Viewer
 
 - Large images: better user feedback while loading

@@ -16,9 +16,11 @@ vi.mock("../../../services/userSettingsStore", () => ({
 import { authSession } from "../../../services/authSession";
 import {
   isQuickBarKeyboardEvidenceEvent,
+  shouldUseTouchSelectionControls,
   useQuickBarKeyboardHints,
   useTextEditorMaxFileSizeBytesPreference,
   useTextEditorWordWrapPreference,
+  useTouchFriendlyFileSelectionPreference,
 } from "../preferences";
 
 describe("File Browser preferences", () => {
@@ -68,6 +70,25 @@ describe("File Browser preferences", () => {
 
     expect(result.current[0]).toBe(false);
     expect(wordWrapCommitMock).toHaveBeenCalledWith(false);
+  });
+
+  it("uses the persisted touch-friendly file-selection preference", () => {
+    const { result } = renderHook(() => useTouchFriendlyFileSelectionPreference());
+
+    expect(result.current[0]).toBe("auto");
+    act(() => {
+      result.current[1]("always");
+    });
+
+    expect(wordWrapCommitMock).toHaveBeenCalledWith("always");
+  });
+
+  it("enables touch selection for compact layouts, explicit preference, or a coarse primary pointer", () => {
+    expect(shouldUseTouchSelectionControls("never", true, false)).toBe(true);
+    expect(shouldUseTouchSelectionControls("always", false, false)).toBe(true);
+    expect(shouldUseTouchSelectionControls("auto", false, true)).toBe(true);
+    expect(shouldUseTouchSelectionControls("auto", false, false)).toBe(false);
+    expect(shouldUseTouchSelectionControls("never", false, true)).toBe(false);
   });
 
   it("shows Quick Bar hints according to compact layout, saved evidence, and visibility mode", () => {

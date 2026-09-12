@@ -357,6 +357,7 @@ export interface CurrentUserSettings {
   browser: {
     quick_nav_include_dot_directories: boolean;
     quick_bar_shortcut_hint_visibility: "auto" | "always" | "never";
+    touch_friendly_file_selection: "auto" | "always" | "never";
     file_browser_view_mode: "list" | "details";
     pane_mode: "single" | "dual";
     selected_connection_id: string | null;
@@ -375,6 +376,7 @@ export type CurrentUserSettingsUpdate =
   | { field: "localization.regional_locale"; value: RegionalLocalePreference }
   | { field: "browser.quick_nav_include_dot_directories"; value: boolean }
   | { field: "browser.quick_bar_shortcut_hint_visibility"; value: "auto" | "always" | "never" }
+  | { field: "browser.touch_friendly_file_selection"; value: "auto" | "always" | "never" }
   | { field: "browser.file_browser_view_mode"; value: "list" | "details" }
   | { field: "browser.pane_mode"; value: "single" | "dual" }
   | { field: "browser.selected_connection_id"; value: string | null }

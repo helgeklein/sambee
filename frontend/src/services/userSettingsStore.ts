@@ -73,6 +73,8 @@ function getFieldValue<Field extends CurrentUserSettingsField>(
       return settings.browser.quick_nav_include_dot_directories as ValueForField<Field>;
     case "browser.quick_bar_shortcut_hint_visibility":
       return settings.browser.quick_bar_shortcut_hint_visibility as ValueForField<Field>;
+    case "browser.touch_friendly_file_selection":
+      return settings.browser.touch_friendly_file_selection as ValueForField<Field>;
     case "browser.file_browser_view_mode":
       return settings.browser.file_browser_view_mode as ValueForField<Field>;
     case "browser.pane_mode":
@@ -102,6 +104,8 @@ function setFieldValue(settings: CurrentUserSettings, update: CurrentUserSetting
       return { ...settings, browser: { ...settings.browser, quick_nav_include_dot_directories: update.value } };
     case "browser.quick_bar_shortcut_hint_visibility":
       return { ...settings, browser: { ...settings.browser, quick_bar_shortcut_hint_visibility: update.value } };
+    case "browser.touch_friendly_file_selection":
+      return { ...settings, browser: { ...settings.browser, touch_friendly_file_selection: update.value } };
     case "browser.file_browser_view_mode":
       return { ...settings, browser: { ...settings.browser, file_browser_view_mode: update.value } };
     case "browser.pane_mode":

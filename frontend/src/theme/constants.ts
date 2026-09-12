@@ -51,6 +51,7 @@ export const TOOLBAR_HEIGHT = {
 /** File-browser row heights for compact/mobile and desktop layouts. */
 export const FILE_BROWSER_ROW_HEIGHT = {
   MOBILE_PX: 72,
+  TOUCH_PX: 48,
   DESKTOP_PX: 40,
 } as const;
 

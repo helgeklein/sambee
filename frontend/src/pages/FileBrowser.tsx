@@ -132,8 +132,10 @@ import {
   readFileBrowserPaneModePreference,
   readSelectedConnectionIdPreference,
   setFileBrowserPaneModePreference,
+  shouldUseTouchSelectionControls,
   useQuickBarKeyboardHints,
   useQuickBarShortcutHintVisibilityPreference,
+  useTouchFriendlyFileSelectionPreference,
 } from "./FileBrowser/preferences";
 import {
   type BrowseRouteState,
@@ -402,15 +404,22 @@ const Browser: React.FC = () => {
 
   // Detect screen size and input method for responsive behavior
   const useCompactLayout = useMediaQuery(theme.breakpoints.down("sm"));
+  const hasCoarsePrimaryPointer = useMediaQuery("(pointer: coarse)");
   const [quickBarShortcutHintVisibility] = useQuickBarShortcutHintVisibilityPreference();
+  const [touchFriendlyFileSelection] = useTouchFriendlyFileSelectionPreference();
+  const useTouchSelectionControls = shouldUseTouchSelectionControls(touchFriendlyFileSelection, useCompactLayout, hasCoarsePrimaryPointer);
   const showQuickBarKeyboardHints = useQuickBarKeyboardHints(quickBarShortcutHintVisibility, useCompactLayout);
 
   // Use explicit layout density rather than pointer heuristics so row sizing stays stable.
-  const rowHeight = useCompactLayout ? FILE_BROWSER_ROW_HEIGHT.MOBILE_PX : FILE_BROWSER_ROW_HEIGHT.DESKTOP_PX;
+  const rowHeight = useCompactLayout
+    ? FILE_BROWSER_ROW_HEIGHT.MOBILE_PX
+    : useTouchSelectionControls
+      ? FILE_BROWSER_ROW_HEIGHT.TOUCH_PX
+      : FILE_BROWSER_ROW_HEIGHT.DESKTOP_PX;
 
   // Track if keyboard is being used for navigation (for proper focus styling)
-  // Compact/mobile layout starts without focus indicator; desktop shows focus on load.
-  const [isUsingKeyboard, setIsUsingKeyboard] = useState(!useCompactLayout);
+  // Touch selection controls start without a focus indicator; keyboard layouts show focus on load.
+  const [isUsingKeyboard, setIsUsingKeyboard] = useState(!useTouchSelectionControls);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Global Page State
@@ -3697,6 +3706,7 @@ const Browser: React.FC = () => {
                 paneMode={effectivePaneMode}
                 connections={allConnections}
                 useCompactLayout={useCompactLayout}
+                useTouchSelectionControls={useTouchSelectionControls}
                 compactActionsDisabled={browserOverlayOpen}
                 isUsingKeyboard={isUsingKeyboard}
                 onPaneFocus={() => {
@@ -3731,6 +3741,7 @@ const Browser: React.FC = () => {
                     paneMode={effectivePaneMode}
                     connections={allConnections}
                     useCompactLayout={useCompactLayout}
+                    useTouchSelectionControls={useTouchSelectionControls}
                     compactActionsDisabled={browserOverlayOpen}
                     isUsingKeyboard={isUsingKeyboard}
                     onPaneFocus={() => {

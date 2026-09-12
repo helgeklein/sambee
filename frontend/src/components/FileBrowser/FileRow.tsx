@@ -25,6 +25,7 @@ const LONG_PRESS_SUPPRESSION_DURATION_MS = 1000;
 interface FileRowProps {
   file: FileEntry;
   useCompactLayout?: boolean;
+  useTouchSelectionControls?: boolean;
   index: number;
   isSelected: boolean;
   isMultiSelected: boolean;
@@ -121,6 +122,7 @@ export const FileRow = React.memo(
       {
         file,
         useCompactLayout = false,
+        useTouchSelectionControls = useCompactLayout,
         index,
         isSelected,
         isMultiSelected,
@@ -209,7 +211,7 @@ export const FileRow = React.memo(
       );
 
       const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
-        if (!useCompactLayout || selectionMode || event.pointerType !== "touch" || !onLongPressSelect) return;
+        if (!useTouchSelectionControls || selectionMode || event.pointerType !== "touch" || !onLongPressSelect) return;
 
         const pointerId = event.pointerId;
         longPressStartRef.current = { pointerId, clientX: event.clientX, clientY: event.clientY };
@@ -290,7 +292,7 @@ export const FileRow = React.memo(
             sx={[rowStyle, canOpenItemActions ? { pr: 7 } : {}, isUnavailableArchiveEntry ? { cursor: "not-allowed", opacity: 0.5 } : {}]}
             dataSelected={isSelected ? "true" : undefined}
             ariaLabel={ariaLabel}
-            ariaPressed={useCompactLayout && selectionMode ? isMultiSelected : undefined}
+            ariaPressed={useTouchSelectionControls && selectionMode ? isMultiSelected : undefined}
           >
             {/* Selection mode uses an explicit selected/unselected icon pair. */}
             {(() => {
@@ -299,7 +301,7 @@ export const FileRow = React.memo(
                   return <CheckCircleIcon sx={{ fontSize: fileIconSize, color: "primary.main" }} />;
                 }
 
-                if (useCompactLayout && selectionMode) {
+                if (useTouchSelectionControls && selectionMode) {
                   return <CircleOutlinedIcon sx={{ fontSize: fileIconSize, color: "text.secondary" }} />;
                 }
 
@@ -394,6 +396,7 @@ export const FileRow = React.memo(
   (prev, next) =>
     prev.index === next.index &&
     prev.useCompactLayout === next.useCompactLayout &&
+    prev.useTouchSelectionControls === next.useTouchSelectionControls &&
     prev.isSelected === next.isSelected &&
     prev.isMultiSelected === next.isMultiSelected &&
     prev.file.name === next.file.name &&

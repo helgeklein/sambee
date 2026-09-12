@@ -248,6 +248,12 @@ export const EN_TRANSLATIONS = {
       shortcutHintsAuto: "Automatic",
       shortcutHintsAlways: "Always show",
       shortcutHintsNever: "Never show",
+      fileSelectionTitle: "File selection",
+      touchFriendlyFileSelectionLabel: "Touch-friendly file selection",
+      touchFriendlyFileSelectionDescription: "Choose when file selection uses touch-sized controls and gestures.",
+      touchFriendlyFileSelectionAuto: "Automatic",
+      touchFriendlyFileSelectionAlways: "Always on",
+      touchFriendlyFileSelectionNever: "Off",
       fileSearchTitle: "File Search",
       clearRecentFiles: "Clear recent files",
       clearRecentFilesDescription:

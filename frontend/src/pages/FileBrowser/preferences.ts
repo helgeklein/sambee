@@ -34,6 +34,20 @@ export function useTextEditorWordWrapPreference(fallbackValue: boolean): [boolea
 }
 
 export type QuickBarShortcutHintVisibility = "auto" | "always" | "never";
+export type TouchFriendlyFileSelection = "auto" | "always" | "never";
+
+export function useTouchFriendlyFileSelectionPreference(): [TouchFriendlyFileSelection, (value: TouchFriendlyFileSelection) => void] {
+  const setting = useCurrentUserSetting("browser.touch_friendly_file_selection");
+  return [setting.confirmedValue ?? "auto", (value) => void setting.commit(value).catch(() => undefined)];
+}
+
+export function shouldUseTouchSelectionControls(
+  preference: TouchFriendlyFileSelection,
+  useCompactLayout: boolean,
+  hasCoarsePrimaryPointer: boolean
+): boolean {
+  return useCompactLayout || preference === "always" || (preference === "auto" && hasCoarsePrimaryPointer);
+}
 
 export function isQuickBarKeyboardEvidenceEvent(event: Pick<KeyboardEvent, "isComposing" | "isTrusted" | "key">): boolean {
   return event.isTrusted && !event.isComposing && !KEYBOARD_MODIFIER_KEYS.has(event.key);

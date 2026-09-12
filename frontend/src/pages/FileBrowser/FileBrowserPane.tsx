@@ -60,6 +60,8 @@ export interface FileBrowserPaneProps {
 
   /** Whether the UI is in mobile/compact layout. */
   useCompactLayout: boolean;
+  /** Whether touch-friendly file selection controls are available. */
+  useTouchSelectionControls?: boolean;
   /** Whether another page-owned surface currently owns interaction. */
   compactActionsDisabled?: boolean;
 
@@ -118,6 +120,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   paneMode,
   connections,
   useCompactLayout,
+  useTouchSelectionControls = useCompactLayout,
   compactActionsDisabled = false,
   isUsingKeyboard,
   onPaneFocus,
@@ -231,23 +234,22 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     return getCompactSelectionActions?.(getCompactActionsContext(items, items[0])) ?? [];
   }, [getCompactActionsContext, getCompactSelectionActions, getItemsByPaths, selectedFiles]);
   const compactOverlay =
-    useCompactLayout &&
     !compactActionsDisabled &&
     !viewInfo &&
     !renderedBrowserViewerPickerState &&
     !deleteDialogOpen &&
     !renameDialogOpen &&
     !createDialogOpen ? (
-      selectedFiles.size > 0 ? (
+      selectedFiles.size > 0 && useTouchSelectionControls ? (
         <CompactSelectionActions
           actions={getCompactSelectionActionsForMenu()}
           getActions={getCompactSelectionActionsForMenu}
           selectedCount={selectedFiles.size}
           onClearSelection={handleCompactClearSelection}
         />
-      ) : (
+      ) : useCompactLayout ? (
         <CompactCreateMenu actions={compactCreateActions} />
-      )
+      ) : undefined
     ) : undefined;
   const compactOverlayLayout = selectedFiles.size > 0 ? "dock" : "floating";
 
@@ -435,7 +437,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
       <Box
         aria-live="polite"
         aria-atomic="true"
-        sx={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }}
+        sx={{ position: "absolute", width: "1px", height: "1px", overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }}
       >
         {selectionAnnouncement}
       </Box>
@@ -524,6 +526,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
             files={sortedFiles}
             showEmptyState={error === null}
             useCompactLayout={useCompactLayout}
+            useTouchSelectionControls={useTouchSelectionControls}
             compactOverlay={compactOverlay}
             compactOverlayLayout={compactOverlay ? compactOverlayLayout : undefined}
             focusedIndex={focusedIndex}

@@ -156,6 +156,51 @@ describe("FileList", () => {
     expect(screen.getByText("123 B \u00b7 07/15/2026, 12:00 AM")).toBeInTheDocument();
   });
 
+  it("enables touch selection controls while retaining the desktop row layout", () => {
+    const files: FileEntry[] = [
+      {
+        name: "readme.txt",
+        path: "readme.txt",
+        type: "file",
+        size: 123,
+        modified_at: "2026-07-15T00:00:00Z",
+        is_readable: true,
+        is_hidden: false,
+      },
+    ];
+    const rowVirtualizerWithItems = {
+      getVirtualItems: () => [{ index: 0, key: "file-0", start: 0, size: FILE_BROWSER_ROW_HEIGHT.TOUCH_PX }],
+      getTotalSize: () => FILE_BROWSER_ROW_HEIGHT.TOUCH_PX,
+    } as unknown as Virtualizer<HTMLDivElement, Element>;
+    const onToggleItemSelection = vi.fn();
+
+    render(
+      <FileList
+        files={files}
+        focusedIndex={0}
+        selectedFiles={new Set([files[0].path])}
+        onFileClick={() => {}}
+        onToggleItemSelection={onToggleItemSelection}
+        onSelectItem={() => {}}
+        getCompactItemActions={() => []}
+        rowVirtualizer={rowVirtualizerWithItems}
+        parentRef={{ current: null }}
+        listContainerRef={() => {}}
+        fileRowStyles={fileRowStylesStub}
+        useTouchSelectionControls
+        viewMode="list"
+      />
+    );
+
+    const row = screen.getByRole("button", { name: /file: readme\.txt/i });
+    fireEvent.click(row);
+
+    expect(row).toHaveAttribute("aria-pressed", "true");
+    expect(row.closest("[data-index='0']")).toHaveStyle({ height: "48px" });
+    expect(screen.getByRole("button", { name: "More actions for readme.txt" })).toBeInTheDocument();
+    expect(onToggleItemSelection).toHaveBeenCalledWith(files[0], 0);
+  });
+
   it("reserves virtual-list space for the compact selection dock", () => {
     const files: FileEntry[] = [
       {

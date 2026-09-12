@@ -2534,6 +2534,36 @@ describe("Browser Component - Interactions", () => {
       }
     });
 
+    it("keeps the desktop layout while automatic touch selection is enabled for a coarse primary pointer", async () => {
+      const originalMatchMedia = window.matchMedia;
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: query === "(pointer: coarse)",
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }));
+
+      try {
+        const user = userEvent.setup();
+        renderBrowser("/browse/smb/test-server-1");
+
+        expect(await screen.findByRole("button", { name: "Refresh" })).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Open menu" })).not.toBeInTheDocument();
+
+        await user.click(await screen.findByRole("button", { name: "More actions for Documents" }));
+        await user.click(screen.getByRole("menuitem", { name: "Select" }));
+
+        expect(screen.getByRole("button", { name: /Folder: Documents.*selected/i })).toHaveAttribute("aria-pressed", "true");
+        expect(screen.getByRole("button", { name: "Selection actions" })).toBeInTheDocument();
+      } finally {
+        window.matchMedia = originalMatchMedia;
+      }
+    });
+
     it("closes dialog when Cancel is clicked", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");

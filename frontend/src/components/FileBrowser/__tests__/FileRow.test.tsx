@@ -150,6 +150,24 @@ describe("FileRow", () => {
     expect(contextMenuEvent.defaultPrevented).toBe(true);
   });
 
+  it("enters selection mode after a touch long press in desktop layout when touch controls are enabled", () => {
+    vi.useFakeTimers();
+    const props = createDefaultFileRowProps();
+    props.isMultiSelected = false;
+    const onLongPressSelect = vi.fn();
+
+    render(<FileRow {...props} useTouchSelectionControls onLongPressSelect={onLongPressSelect} />);
+
+    const rowButton = screen.getByRole("button", { name: /report\.pdf/i });
+    fireEvent.pointerDown(rowButton, { pointerId: 1, pointerType: "touch", clientX: 10, clientY: 10 });
+    act(() => vi.advanceTimersByTime(450));
+    fireEvent.pointerUp(rowButton, { pointerId: 1, pointerType: "touch" });
+    fireEvent.click(rowButton);
+
+    expect(onLongPressSelect).toHaveBeenCalledWith(props.file, props.index);
+    expect(props.onClick).not.toHaveBeenCalled();
+  });
+
   it("cancels compact long press when the touch becomes a scroll gesture", () => {
     vi.useFakeTimers();
     const props = createDefaultFileRowProps();

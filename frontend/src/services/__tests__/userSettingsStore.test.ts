@@ -52,6 +52,7 @@ const settings = {
   browser: {
     quick_nav_include_dot_directories: false,
     quick_bar_shortcut_hint_visibility: "auto" as const,
+    touch_friendly_file_selection: "auto" as const,
     file_browser_view_mode: "list" as const,
     pane_mode: "single" as const,
     selected_connection_id: null,
@@ -126,6 +127,17 @@ describe("userSettingsStore", () => {
     await userSettingsStore.getValue("browser.viewer_associations").commit(update.value);
 
     expect(updateCurrentUserSettingsMock).toHaveBeenCalledWith(update, { signal: expect.any(AbortSignal) });
+  });
+
+  it("updates the touch-friendly file-selection field in the shared snapshot", async () => {
+    await authenticateAndLoad();
+    const update = { field: "browser.touch_friendly_file_selection", value: "always" } as const;
+    updateCurrentUserSettingsMock.mockResolvedValue(update);
+
+    await userSettingsStore.getValue("browser.touch_friendly_file_selection").commit("always");
+
+    expect(updateCurrentUserSettingsMock).toHaveBeenCalledWith(update, { signal: expect.any(AbortSignal) });
+    expect(userSettingsStore.getValue("browser.touch_friendly_file_selection").confirmedValue).toBe("always");
   });
 
   it("shows saved feedback briefly after a successful write", async () => {

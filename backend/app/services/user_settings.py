@@ -20,6 +20,7 @@ from app.core.user_setting_definitions import (
     DEFAULT_REGIONAL_LOCALE_PREFERENCE,
     DEFAULT_TEXT_EDITOR_MAX_FILE_SIZE_BYTES,
     DEFAULT_THEME_ID,
+    DEFAULT_TOUCH_FRIENDLY_FILE_SELECTION,
     UserSettingKey,
 )
 from app.models.user_settings import (
@@ -40,6 +41,7 @@ FALSE_VALUES = {"0", "false", "no", "off"}
 VALID_FILE_BROWSER_VIEW_MODES = {"list", "details"}
 VALID_PANE_MODES = {"single", "dual"}
 VALID_QUICK_BAR_SHORTCUT_HINT_VISIBILITIES = {"auto", "always", "never"}
+VALID_TOUCH_FRIENDLY_FILE_SELECTIONS = {"auto", "always", "never"}
 MIN_TEXT_EDITOR_MAX_FILE_SIZE_BYTES = 65_536
 MAX_TEXT_EDITOR_MAX_FILE_SIZE_BYTES = 104_857_600
 VALID_THEME_MODES = {"light", "dark"}
@@ -264,6 +266,12 @@ def build_current_user_settings_read(*, user_id: uuid.UUID, session: Session) ->
                 valid_values=VALID_QUICK_BAR_SHORTCUT_HINT_VISIBILITIES,
                 default=DEFAULT_QUICK_BAR_SHORTCUT_HINT_VISIBILITY,
             ),
+            touch_friendly_file_selection=_parse_choice(
+                values.get(UserSettingKey.BROWSER_TOUCH_FRIENDLY_FILE_SELECTION.value),
+                key=UserSettingKey.BROWSER_TOUCH_FRIENDLY_FILE_SELECTION,
+                valid_values=VALID_TOUCH_FRIENDLY_FILE_SELECTIONS,
+                default=DEFAULT_TOUCH_FRIENDLY_FILE_SELECTION,
+            ),
             file_browser_view_mode=_parse_choice(
                 values.get(UserSettingKey.BROWSER_FILE_BROWSER_VIEW_MODE.value),
                 key=UserSettingKey.BROWSER_FILE_BROWSER_VIEW_MODE,
@@ -373,6 +381,10 @@ def update_current_user_settings(
         value = cast(str, value).strip().lower()
         if value not in VALID_QUICK_BAR_SHORTCUT_HINT_VISIBILITIES:
             raise ValueError("Quick Bar shortcut hint visibility must be one of: auto, always, never")
+    elif key is UserSettingKey.BROWSER_TOUCH_FRIENDLY_FILE_SELECTION:
+        value = cast(str, value).strip().lower()
+        if value not in VALID_TOUCH_FRIENDLY_FILE_SELECTIONS:
+            raise ValueError("Touch-friendly file selection must be one of: auto, always, never")
     elif key is UserSettingKey.BROWSER_FILE_BROWSER_VIEW_MODE:
         value = cast(str, value).strip().lower()
         if value not in VALID_FILE_BROWSER_VIEW_MODES:
