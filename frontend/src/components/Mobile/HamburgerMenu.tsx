@@ -18,7 +18,7 @@ import {
 import type React from "react";
 import { useTranslation } from "react-i18next";
 import { COMPACT_LAYOUT_SIZE } from "../../theme/constants";
-import { SAFE_AREA_INSET } from "../../theme/mobileShell";
+import { mobileNavigationDrawerTypographySx, SAFE_AREA_INSET } from "../../theme/mobileShell";
 import type { Connection } from "../../types";
 
 interface HamburgerMenuProps {
@@ -58,16 +58,21 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
       anchor="left"
       open={open}
       onClose={onClose}
-      sx={{
-        "& .MuiDrawer-paper": {
-          width: 280,
-          boxSizing: "border-box",
-          display: "flex",
-          flexDirection: "column",
-          bgcolor: "background.default",
-          pt: SAFE_AREA_INSET.TOP,
-          pl: SAFE_AREA_INSET.LEFT,
-          pb: SAFE_AREA_INSET.BOTTOM,
+      slotProps={{
+        paper: {
+          sx: [
+            {
+              width: 280,
+              boxSizing: "border-box",
+              display: "flex",
+              flexDirection: "column",
+              bgcolor: "background.default",
+              pt: SAFE_AREA_INSET.TOP,
+              pl: SAFE_AREA_INSET.LEFT,
+              pb: SAFE_AREA_INSET.BOTTOM,
+            },
+            mobileNavigationDrawerTypographySx,
+          ],
         },
       }}
     >

@@ -19,6 +19,7 @@ import { SettingsCategoryContent } from "../Settings/SettingsCategoryContent";
 import { SettingsCategoryList } from "../Settings/SettingsCategoryList";
 import { prefetchSettingsDataForItems } from "../Settings/settingsDataSources";
 import { getSettingsViewTitle, getVisibleSettingsSections, type MobileSettingsView } from "../Settings/settingsNavigation";
+import { settingsCompactTypographyScopeSx } from "../Settings/settingsTypographyStyles";
 import { useSettingsAccess } from "../Settings/useSettingsAccess";
 
 interface MobileSettingsDrawerProps {
@@ -80,7 +81,7 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({
         },
       }}
     >
-      <Box sx={getMobileViewportShellSx()}>
+      <Box data-testid="settings-mobile-typography-scope" sx={[getMobileViewportShellSx(), settingsCompactTypographyScopeSx]}>
         {/* AppBar */}
         <AppBar position="static" sx={mobileSafeAreaAppBarSx}>
           <Toolbar sx={mobileSafeAreaToolbarSx}>

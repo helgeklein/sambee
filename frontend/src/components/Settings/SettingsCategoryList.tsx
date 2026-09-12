@@ -29,13 +29,14 @@ import {
   type TypographyProps,
 } from "@mui/material";
 import type { KeyboardEventHandler, Ref } from "react";
+import { COMPACT_LAYOUT_SIZE } from "../../theme/constants";
 import { getSettingsCategoryLabel, type SettingsNavItem, type VisibleSettingsSection } from "./settingsNavigation";
 
 type Resolvable<T> = T | ((selected: boolean, item: SettingsNavItem) => T);
 
 const SETTINGS_PARENT_ICON_GLYPH_SX: SxProps<Theme> = {
   fontSize: {
-    xs: "1.5rem",
+    xs: `${COMPACT_LAYOUT_SIZE.SETTINGS_CATEGORY_ICON_PX}px`,
     sm: "1.25rem",
   },
   transition: "none",
@@ -44,7 +45,7 @@ const SETTINGS_PARENT_TYPOGRAPHY_PROPS: Partial<TypographyProps> = {
   variant: "body1",
   sx: {
     fontSize: {
-      xs: "1rem",
+      xs: `${COMPACT_LAYOUT_SIZE.SETTINGS_PRIMARY_TEXT_PX}px`,
       sm: "0.875rem",
     },
   },
@@ -208,7 +209,14 @@ export function SettingsCategoryList({
                   {renderCategoryIcon(category, parentIconGlyphSx)}
                 </ListItemIcon>
                 <ListItemText primary={<Typography {...parentTypographyProps}>{getSettingsCategoryLabel(category)}</Typography>} />
-                {showChevron && <ChevronRightIcon sx={{ color: "text.secondary" }} />}
+                {showChevron && (
+                  <ChevronRightIcon
+                    sx={{
+                      color: "text.secondary",
+                      fontSize: { xs: `${COMPACT_LAYOUT_SIZE.SETTINGS_CATEGORY_ICON_PX}px`, sm: "1.25rem" },
+                    }}
+                  />
+                )}
               </ListItemButton>
             );
 

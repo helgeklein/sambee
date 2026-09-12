@@ -21,6 +21,7 @@ import {
   getSettingsViewTitle,
   getVisibleSettingsNavItems,
 } from "./settingsNavigation";
+import { settingsCompactTypographyScopeSx } from "./settingsTypographyStyles";
 import { SettingsAccessProvider, useSettingsAccess } from "./useSettingsAccess";
 
 /**
@@ -90,7 +91,7 @@ export function SettingsLayout() {
   // Mobile: Full-page with AppBar (edge-to-edge layout)
   return (
     <SettingsAccessProvider value={{ isAdmin, canWrite }}>
-      <Box sx={getMobileViewportShellSx(true)}>
+      <Box data-testid="settings-mobile-typography-scope" sx={[getMobileViewportShellSx(true), settingsCompactTypographyScopeSx]}>
         <AppBar position="static" sx={mobileSafeAreaAppBarSx}>
           <Toolbar sx={mobileSafeAreaToolbarSx}>
             <IconButton edge="start" color="inherit" onClick={handleMobileBack} aria-label={t("common.navigation.goBack")}>

@@ -1,8 +1,10 @@
+import { createTheme } from "@mui/material";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { BrowserRouter } from "react-router-dom";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import "../../../i18n";
 import HamburgerMenu from "../../../components/Mobile/HamburgerMenu";
+import { mobileNavigationDrawerTypographySx } from "../../../theme/mobileShell";
 import { SambeeThemeProvider } from "../../../theme/ThemeContext";
 import type { Connection } from "../../../types";
 import { fetchVersionInfo } from "../../../utils/version";
@@ -99,6 +101,19 @@ describe("HamburgerMenu", () => {
     const documentationIndex = menuItems.findIndex((item) => item.textContent?.includes("Documentation"));
     expect(settingsIndex).toBeGreaterThan(-1);
     expect(documentationIndex).toBeGreaterThan(settingsIndex);
+  });
+
+  test("uses the compact typography scale for drawer labels and connection values", () => {
+    const theme = createTheme();
+    if (typeof mobileNavigationDrawerTypographySx !== "function") {
+      throw new Error("Main drawer typography must remain theme-aware.");
+    }
+
+    const styles = mobileNavigationDrawerTypographySx(theme);
+    expect(styles[theme.breakpoints.down("sm")]).toMatchObject({
+      "& .MuiTypography-h6": { fontSize: "20px" },
+      "& .MuiListItemText-primary, & .MuiInputBase-input, & .MuiSelect-select": { fontSize: "17px" },
+    });
   });
 
   test("does not fetch or display version information", () => {
