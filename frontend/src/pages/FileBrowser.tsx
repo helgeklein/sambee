@@ -25,6 +25,7 @@ import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArchiveExtractDialog, type ArchiveExtractionScope } from "../components/FileBrowser/ArchiveExtractDialog";
 import { ArchiveOperationProgress } from "../components/FileBrowser/ArchiveOperationProgress";
+import type { CompactItemAction } from "../components/FileBrowser/CompactItemActionsMenu";
 import CopyMoveDialog, { type CopyMoveMode } from "../components/FileBrowser/CopyMoveDialog";
 import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
 import { DialogOperationContext } from "../components/FileBrowser/DialogOperationContext";
@@ -84,7 +85,7 @@ import type { ConflictInfo, Connection } from "../types";
 import { FileType, isApiError } from "../types";
 import { openExternalUrl } from "../utils/externalLinks";
 import { compareLocalizedStrings } from "../utils/localeFormatting";
-import { canOpenFileInApp, getConnectionById, isConnectionReadOnly, isConnectionWritable } from "./FileBrowser/access";
+import { getConnectionById, isConnectionReadOnly, isConnectionWritable } from "./FileBrowser/access";
 import {
   areSameContentLocations,
   type ContentOperationExecution,
@@ -126,6 +127,7 @@ import {
   type FileOperationPolicyContext,
   type FileOperationSurface,
 } from "./FileBrowser/fileOperationActions";
+import { getItemActionAvailability } from "./FileBrowser/itemActionAvailability";
 import {
   readFileBrowserPaneModePreference,
   readSelectedConnectionIdPreference,
@@ -734,7 +736,7 @@ const Browser: React.FC = () => {
   const getOperationPolicyContext = useCallback(
     (paneId: PaneId = effectiveActivePaneIdRef.current): FileOperationPolicyContext => {
       const pane = getPaneForId(paneId);
-      const focusedFile = pane.files[pane.focusedIndex];
+      const focusedFile = pane.sortedFiles[pane.focusedIndex];
       const focusedItem = focusedFile ? pane.getItemsByPaths([focusedFile.path])[0] : undefined;
       return { paneId, items: pane.getEffectiveSelection(), focusedItem };
     },
@@ -796,12 +798,11 @@ const Browser: React.FC = () => {
     [browserOverlayOpen, handleBrowserEscape]
   );
   const isBrowserBrowsing = !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo;
-  const activePaneConnection = getConnectionById(allConnections, activePane.connectionId);
   const quickBarPaneConnection = getConnectionById(allConnections, quickBarPane.connectionId);
   const leftPaneConnection = getConnectionById(allConnections, leftPane.connectionId);
   const rightPaneConnection = getConnectionById(allConnections, rightPane.connectionId);
-  const activePaneFocusedFile = activePane.focusedIndex >= 0 ? activePane.filesRef.current[activePane.focusedIndex] : undefined;
-  const quickBarFocusedFile = quickBarPane.focusedIndex >= 0 ? quickBarPane.filesRef.current[quickBarPane.focusedIndex] : undefined;
+  const activePaneFocusedFile = activePane.focusedIndex >= 0 ? activePane.sortedFiles[activePane.focusedIndex] : undefined;
+  const quickBarFocusedFile = quickBarPane.focusedIndex >= 0 ? quickBarPane.sortedFiles[quickBarPane.focusedIndex] : undefined;
   const activePaneIsArchive = activePane.archiveLocation !== null;
   const activePaneIsVirtualArchive = activePane.currentLocation.kind === "virtual";
   const archiveExtractionSource = useMemo((): VirtualLocation | null => {
@@ -834,10 +835,20 @@ const Browser: React.FC = () => {
     [browserContentServices.archiveOperations, browserContentServices.history, browserContentServices.registry, companion.status]
   );
   const quickBarPaneWritable = quickBarPane.contentCapabilities.mutate && isConnectionWritable(quickBarPaneConnection);
-  const activePaneCanOpenInApp =
-    activePane.contentCapabilities.openInNativeApp && activePaneFocusedFile?.type === "file" && canOpenFileInApp(activePaneConnection);
-  const quickBarCanOpenInApp =
-    quickBarPane.contentCapabilities.openInNativeApp && quickBarFocusedFile?.type === "file" && canOpenFileInApp(quickBarPaneConnection);
+  const activePaneFocusedItem = activePaneFocusedFile ? activePane.getItemsByPaths([activePaneFocusedFile.path])[0] : undefined;
+  const quickBarFocusedItem = quickBarFocusedFile ? quickBarPane.getItemsByPaths([quickBarFocusedFile.path])[0] : undefined;
+  const activePaneCanOpenInApp = getItemActionAvailability({
+    item: activePaneFocusedItem,
+    nativeAppCapability: activePane.contentCapabilities.openInNativeApp,
+    isCompanionPaired: companion.status === "paired",
+    environment: contentOperationEnvironment,
+  }).canOpenInNativeApp;
+  const quickBarCanOpenInApp = getItemActionAvailability({
+    item: quickBarFocusedItem,
+    nativeAppCapability: quickBarPane.contentCapabilities.openInNativeApp,
+    isCompanionPaired: companion.status === "paired",
+    environment: contentOperationEnvironment,
+  }).canOpenInNativeApp;
   const quickBarSelection = quickBarPane.getEffectiveSelection();
   const quickBarCanCopyToOtherPane =
     isDualMode &&
@@ -2878,6 +2889,68 @@ const Browser: React.FC = () => {
       t,
     ]
   );
+  const buildCompactItemActions = useCallback(
+    (context: FileOperationPolicyContext): readonly CompactItemAction[] => {
+      const item = context.focusedItem;
+      if (!item) return [];
+
+      const sourcePane = getPaneForId(context.paneId);
+      const index = sourcePane.files.findIndex((file) => file.path === item.entry.path);
+      if (index < 0) return [];
+
+      const availability = getItemActionAvailability({
+        item,
+        nativeAppCapability: sourcePane.contentCapabilities.openInNativeApp,
+        isCompanionPaired: companion.status === "paired",
+        environment: contentOperationEnvironment,
+      });
+      const isSelected = sourcePane.selectedFiles.has(item.entry.path);
+      const actions: CompactItemAction[] = [
+        {
+          id: isSelected ? "deselect" : "select",
+          label: t(isSelected ? "fileBrowser.compactActions.deselect" : "fileBrowser.compactActions.select"),
+          onClick: () => (isSelected ? sourcePane.toggleItemSelection(item.entry, index) : sourcePane.selectItem(item.entry, index)),
+        },
+      ];
+
+      if (availability.canOpenInBrowserViewer) {
+        actions.push({
+          id: "open-associated-viewer",
+          label: t("fileBrowser.row.openInBrowserViewer"),
+          onClick: () => sourcePane.handleOpenFileForFile(item.entry, index, "associated-viewer"),
+        });
+      }
+      if (availability.canChooseBrowserViewer) {
+        actions.push({
+          id: "open-viewer-picker",
+          label: t("fileBrowser.row.chooseBrowserViewer"),
+          onClick: () => sourcePane.handleOpenFileForFile(item.entry, index, "force-viewer-picker"),
+        });
+      }
+      if (availability.canOpenInNativeApp) {
+        actions.push({
+          id: "open-associated-native-app",
+          label: t("fileBrowser.row.openInNativeApp"),
+          onClick: () => void sourcePane.handleOpenInAppForFile(item.entry, index),
+        });
+      }
+      if (availability.canChooseNativeApp) {
+        actions.push({
+          id: "open-native-picker",
+          label: t("fileBrowser.row.chooseNativeApp"),
+          onClick: () => void sourcePane.handleOpenInAppForFile(item.entry, index, { forcePicker: true }),
+        });
+      }
+
+      return [
+        ...actions,
+        ...buildFileOperationActions("compact-item-menu", context).filter(
+          (action) => action.id !== "extract-archive" || getArchiveExtractionSourceForContext(context) !== null
+        ),
+      ];
+    },
+    [buildFileOperationActions, companion.status, contentOperationEnvironment, getArchiveExtractionSourceForContext, getPaneForId, t]
+  );
   const fileOperationActions = buildFileOperationActions("desktop-toolbar");
 
   const browserCommandContext = useMemo(
@@ -3643,7 +3716,7 @@ const Browser: React.FC = () => {
                 showKeyboardHints={showQuickBarKeyboardHints}
                 modeOptions={quickBarModeOptions}
                 getCompactCreateActions={(context) => buildFileOperationActions("compact-create-menu", context)}
-                getCompactItemActions={(context) => buildFileOperationActions("compact-item-menu", context)}
+                getCompactItemActions={buildCompactItemActions}
                 getCompactSelectionActions={(context) => buildFileOperationActions("compact-selection-menu", context)}
               />
 
@@ -3677,7 +3750,7 @@ const Browser: React.FC = () => {
                     showKeyboardHints={showQuickBarKeyboardHints}
                     modeOptions={quickBarModeOptions}
                     getCompactCreateActions={(context) => buildFileOperationActions("compact-create-menu", context)}
-                    getCompactItemActions={(context) => buildFileOperationActions("compact-item-menu", context)}
+                    getCompactItemActions={buildCompactItemActions}
                     getCompactSelectionActions={(context) => buildFileOperationActions("compact-selection-menu", context)}
                   />
                 </>

@@ -2,7 +2,6 @@ import { Box, Typography } from "@mui/material";
 import type { Virtualizer } from "@tanstack/react-virtual";
 import React, { type ReactNode, useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { FileOperationAction } from "../../pages/FileBrowser/fileOperationActions";
 import type { ViewMode } from "../../pages/FileBrowser/types";
 import type { FileEntry } from "../../types";
 import { type CompactItemAction, CompactItemActionsMenu } from "./CompactItemActionsMenu";
@@ -21,6 +20,7 @@ interface FileListProps {
   selectedFiles: Set<string>;
   onFileClick: (file: FileEntry, index?: number) => void;
   onToggleItemSelection?: (file: FileEntry, index: number) => void;
+  onSelectItem?: (file: FileEntry, index: number) => void;
   rowVirtualizer: Virtualizer<HTMLDivElement, Element>;
   parentRef: React.RefObject<HTMLDivElement>;
   listContainerRef: (node: HTMLDivElement | null) => void;
@@ -33,13 +33,7 @@ interface FileListProps {
     buttonFocusedMultiSelected: Record<string, unknown>;
   };
   viewMode: ViewMode;
-  onOpenAssociatedViewer?: (file: FileEntry, index: number) => void;
-  onOpenViewerPicker?: (file: FileEntry, index: number) => void;
-  canOpenInBrowserViewer?: (file: FileEntry) => boolean;
-  onOpenAssociatedNativeApp?: (file: FileEntry, index: number) => void;
-  onOpenNativePicker?: (file: FileEntry, index: number) => void;
-  getCompactItemActions?: (file: FileEntry, index: number) => readonly FileOperationAction[];
-  onSelectItem?: (file: FileEntry, index: number) => void;
+  getCompactItemActions?: (file: FileEntry, index: number) => readonly CompactItemAction[];
 } //
 // FileList
 //
@@ -54,18 +48,13 @@ export const FileList = React.memo(
     selectedFiles,
     onFileClick,
     onToggleItemSelection,
+    onSelectItem,
     rowVirtualizer,
     parentRef,
     listContainerRef,
     fileRowStyles,
     viewMode,
-    onOpenAssociatedViewer,
-    onOpenViewerPicker,
-    canOpenInBrowserViewer,
-    onOpenAssociatedNativeApp,
-    onOpenNativePicker,
     getCompactItemActions,
-    onSelectItem,
   }: FileListProps) => {
     const { t } = useTranslation();
     const listElementRef = useRef<HTMLDivElement>(null);
@@ -88,50 +77,7 @@ export const FileList = React.memo(
 
     const openItemActions = useCallback(
       (file: FileEntry, index: number, anchorElement: HTMLElement) => {
-        const isFile = file.type !== "directory" && file.link_target?.target?.type !== "directory";
-        const browserViewerAllowed = isFile && (canOpenInBrowserViewer?.(file) ?? true);
-        const actions: CompactItemAction[] = [
-          {
-            id: selectedFiles.has(file.path) ? "deselect" : "select",
-            label: selectedFiles.has(file.path) ? t("fileBrowser.compactActions.deselect") : t("fileBrowser.compactActions.select"),
-            onClick: () => {
-              if (selectedFiles.has(file.path)) {
-                onToggleItemSelection?.(file, index);
-              } else {
-                onSelectItem?.(file, index);
-              }
-            },
-          },
-        ];
-        if (browserViewerAllowed && onOpenAssociatedViewer) {
-          actions.push({
-            id: "open-associated-viewer",
-            label: t("fileBrowser.row.openInBrowserViewer"),
-            onClick: () => onOpenAssociatedViewer(file, index),
-          });
-        }
-        if (browserViewerAllowed && onOpenViewerPicker) {
-          actions.push({
-            id: "open-viewer-picker",
-            label: t("fileBrowser.row.chooseBrowserViewer"),
-            onClick: () => onOpenViewerPicker(file, index),
-          });
-        }
-        if (isFile && onOpenAssociatedNativeApp) {
-          actions.push({
-            id: "open-associated-native-app",
-            label: t("fileBrowser.row.openInNativeApp"),
-            onClick: () => onOpenAssociatedNativeApp(file, index),
-          });
-        }
-        if (isFile && onOpenNativePicker) {
-          actions.push({
-            id: "open-native-picker",
-            label: t("fileBrowser.row.chooseNativeApp"),
-            onClick: () => onOpenNativePicker(file, index),
-          });
-        }
-        actions.push(...(getCompactItemActions?.(file, index) ?? []));
+        const actions = getCompactItemActions?.(file, index) ?? [];
 
         const anchorBounds = anchorElement.getBoundingClientRect();
         setItemMenu({
@@ -140,18 +86,7 @@ export const FileList = React.memo(
           triggerElement: anchorElement,
         });
       },
-      [
-        canOpenInBrowserViewer,
-        getCompactItemActions,
-        onOpenAssociatedNativeApp,
-        onOpenAssociatedViewer,
-        onOpenNativePicker,
-        onOpenViewerPicker,
-        onSelectItem,
-        onToggleItemSelection,
-        selectedFiles,
-        t,
-      ]
+      [getCompactItemActions]
     );
 
     return (

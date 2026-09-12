@@ -1256,22 +1256,22 @@ describe("Browser Component - Interactions", () => {
         path: "",
         items: [
           {
-            name: "notes.txt",
-            path: "notes.txt",
-            type: FileType.FILE,
-            size: 1024,
-            modified_at: "2024-01-01T00:00:00Z",
-            mime_type: "text/plain",
-            is_readable: true,
-            is_hidden: false,
-          },
-          {
             name: "temp.zip",
             path: "temp.zip",
             type: FileType.FILE,
             size: 102400,
             modified_at: "2024-01-01T00:00:00Z",
             mime_type: "application/zip",
+            is_readable: true,
+            is_hidden: false,
+          },
+          {
+            name: "notes.txt",
+            path: "notes.txt",
+            type: FileType.FILE,
+            size: 1024,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "text/plain",
             is_readable: true,
             is_hidden: false,
           },
@@ -1288,6 +1288,7 @@ describe("Browser Component - Interactions", () => {
 
       fireEvent.keyDown(document, { key: "ArrowDown" });
       await waitFor(() => expect(screen.getAllByRole("button", { name: /file: temp\.zip/i })[0]).toHaveAttribute("data-selected", "true"));
+      expect(screen.getByRole("button", { name: "Extract archive" })).toBeEnabled();
       fireEvent.keyDown(document, { key: "F9", altKey: true });
 
       const extractDialog = await screen.findByRole("dialog", { name: "Extract from ZIP Archive" });

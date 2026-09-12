@@ -20,6 +20,7 @@ import { useTranslation } from "react-i18next";
 import { BreadcrumbsNavigation } from "../../components/FileBrowser/BreadcrumbsNavigation";
 import { BrowserViewerPicker } from "../../components/FileBrowser/BrowserViewerPicker";
 import { CompactCreateMenu } from "../../components/FileBrowser/CompactCreateMenu";
+import type { CompactItemAction } from "../../components/FileBrowser/CompactItemActionsMenu";
 import { CompactSelectionActions } from "../../components/FileBrowser/CompactSelectionActions";
 import ConfirmDeleteDialog from "../../components/FileBrowser/ConfirmDeleteDialog";
 import CreateItemDialog from "../../components/FileBrowser/CreateItemDialog";
@@ -32,20 +33,10 @@ import { UnifiedSearchBar } from "../../components/FileBrowser/UnifiedSearchBar"
 import { COMPACT_LAYOUT_SIZE } from "../../theme/constants";
 import type { Connection, FileEntry } from "../../types";
 import { FileType } from "../../types";
-import { canOpenFileInApp, isConnectionReadOnly } from "./access";
+import { isConnectionReadOnly } from "./access";
 import type { BrowserItem } from "./contentProviders";
-import { getVirtualContentProviderIdForFilename } from "./contentProviders";
 import type { FileOperationAction, FileOperationPolicyContext } from "./fileOperationActions";
 import type { PaneId, PaneMode, UseFileBrowserPaneReturn } from "./types";
-
-const READ_ONLY_CONTENT_CAPABILITIES = {
-  browse: true,
-  read: true,
-  download: true,
-  extract: false,
-  mutate: false,
-  openInNativeApp: false,
-} as const;
 
 // ============================================================================
 // Props
@@ -111,7 +102,7 @@ export interface FileBrowserPaneProps {
   /** Builds creation actions for an immutable pane context. */
   getCompactCreateActions?: (context: FileOperationPolicyContext) => readonly FileOperationAction[];
   /** Builds row actions for an immutable item context. */
-  getCompactItemActions?: (context: FileOperationPolicyContext) => readonly FileOperationAction[];
+  getCompactItemActions?: (context: FileOperationPolicyContext) => readonly CompactItemAction[];
   /** Builds bulk actions for an immutable selection context. */
   getCompactSelectionActions?: (context: FileOperationPolicyContext) => readonly FileOperationAction[];
 }
@@ -156,7 +147,6 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     connectionId,
     currentPath,
     archiveLocation,
-    contentCapabilities = READ_ONLY_CONTENT_CAPABILITIES,
     error,
     loading,
     viewMode,
@@ -187,8 +177,6 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     // Handlers
     handleFileClick,
     toggleItemSelection,
-    handleOpenFileForFile,
-    handleOpenInAppForFile,
     selectItem,
     handleClearSelection,
     getItemsByPaths,
@@ -207,11 +195,6 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   // Connection display name for breadcrumbs
   const connectionName = currentConnection?.name ?? "";
   const connectionIsReadOnly = isConnectionReadOnly(currentConnection);
-  const canOpenFocusedFileInApp = contentCapabilities.openInNativeApp && canOpenFileInApp(currentConnection);
-  const canOpenInBrowserViewer = React.useCallback(
-    (file: FileEntry) => !(archiveLocation && file.type === FileType.FILE && getVirtualContentProviderIdForFilename(file.name)),
-    [archiveLocation]
-  );
   const [closingBrowserViewerPickerState, setClosingBrowserViewerPickerState] = React.useState<typeof browserViewerPickerState>(null);
   const [selectionAnnouncement, setSelectionAnnouncement] = React.useState("");
   const previousSelectedCountRef = React.useRef(selectedFiles.size);
@@ -547,20 +530,13 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
             selectedFiles={selectedFiles}
             onFileClick={handleFileClick}
             onToggleItemSelection={toggleItemSelection}
+            onSelectItem={selectItem}
             rowVirtualizer={rowVirtualizer}
             parentRef={parentRef}
             listContainerRef={listContainerRef}
             fileRowStyles={fileRowStyles}
             viewMode={viewMode}
-            onOpenAssociatedViewer={(file, index) => handleOpenFileForFile(file, index, "associated-viewer")}
-            onOpenViewerPicker={(file, index) => handleOpenFileForFile(file, index, "force-viewer-picker")}
-            canOpenInBrowserViewer={canOpenInBrowserViewer}
-            onOpenAssociatedNativeApp={canOpenFocusedFileInApp ? (file, index) => void handleOpenInAppForFile(file, index) : undefined}
-            onOpenNativePicker={
-              canOpenFocusedFileInApp ? (file, index) => void handleOpenInAppForFile(file, index, { forcePicker: true }) : undefined
-            }
             getCompactItemActions={getCompactItemActionsForFile}
-            onSelectItem={selectItem}
           />
         </Box>
       )}

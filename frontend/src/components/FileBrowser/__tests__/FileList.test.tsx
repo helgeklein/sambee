@@ -131,6 +131,13 @@ describe("FileList", () => {
         selectedFiles={new Set()}
         onFileClick={onFileClick}
         onSelectItem={onSelectItem}
+        getCompactItemActions={(file, index) => [
+          {
+            id: "select",
+            label: "Select",
+            onClick: () => onSelectItem(file, index),
+          },
+        ]}
         rowVirtualizer={rowVirtualizerWithItems}
         parentRef={{ current: null }}
         listContainerRef={() => {}}
