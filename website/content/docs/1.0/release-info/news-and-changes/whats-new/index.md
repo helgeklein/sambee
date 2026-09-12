@@ -68,6 +68,10 @@ Shortcuts (`.lnk` files), symlinks, and junctions on local drives now show the t
 
 Copy and move operations can now overwrite an existing file or replace it only when the source is newer. The same choices work for batches and apply to all supported local and SMB transfers. Directories with the same name are merged safely, preserving destination-only content and resolving only conflicting files.
 
+### Command Toolbar & Mobile Actions
+
+A new toolbar at the bottom of the file list makes available commands discoverable. On small screens, typical mobile controls are used instead: a "+" icon to create new files or directories, per-row item actions menus to access commands that operate on individual files or folders.
+
 ### Other Changes
 
 - When keyboard shortcuts are ignored Sambee now shows a toast message to make the user unobtrusively aware of the fact.
@@ -92,6 +96,7 @@ The settings gained a new category page:
 
 ## Miscellaneous
 
+- Mobile UI: text size increase to match text size in other apps
 - Bugfix: Concurrent OIDC token refreshes would cause SQLite database lock errors.
 
 ## Under the Hood
