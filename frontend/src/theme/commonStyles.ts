@@ -200,3 +200,20 @@ export const toolbarIconButtonSx: SxProps<Theme> = {
     fontSize: "1.5rem",
   },
 };
+
+export const fileOperationsToolbarSx: SxProps<Theme> = (theme) => ({
+  px: 1,
+  py: 0.5,
+  borderTop: 1,
+  borderColor: theme.palette.divider,
+  bgcolor: theme.palette.background.default,
+});
+
+export const fileOperationsToolbarButtonSx: SxProps<Theme> = {
+  minHeight: 44,
+  minWidth: 0,
+  px: 1.5,
+  flexShrink: 0,
+  textTransform: "none",
+  whiteSpace: "nowrap",
+};

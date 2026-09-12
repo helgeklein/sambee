@@ -815,6 +815,14 @@ export const EN_TRANSLATIONS = {
         },
       },
     },
+    toolbar: {
+      newFolder: "New folder",
+      newFile: "New file",
+      createArchive: "Create archive",
+      extractArchive: "Extract archive",
+      refresh: "Refresh",
+      more: "More",
+    },
     list: {
       emptyDirectory: "This directory is empty",
     },
@@ -889,6 +897,7 @@ export const EN_TRANSLATIONS = {
       companionUnavailable: "Connect Sambee Companion before creating an archive with local files.",
       destinationUnavailable: "This location cannot receive files.",
       dualPaneRequired: "Copy requires dual-pane mode.",
+      interactionBlocked: "This action is unavailable while another view is open.",
       readOnlyLocation: "This location is read-only.",
       selectArchiveToExtract: "Select an archive to extract.",
       selectItemToDelete: "Select an item to delete.",

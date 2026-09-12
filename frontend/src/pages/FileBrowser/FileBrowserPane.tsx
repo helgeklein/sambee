@@ -3,7 +3,7 @@
  * =====================================================
  *
  * Displays the per-pane UI: breadcrumbs, view/sort controls, file list,
- * status bar, and CRUD dialogs. Used by the parent Browser component
+ * and CRUD dialogs. Used by the parent Browser component
  * both in single-pane and dual-pane layouts.
  *
  * In dual-pane mode, the active pane gets a visual accent border and
@@ -23,11 +23,10 @@ import ConfirmDeleteDialog from "../../components/FileBrowser/ConfirmDeleteDialo
 import CreateItemDialog from "../../components/FileBrowser/CreateItemDialog";
 import { FileList } from "../../components/FileBrowser/FileList";
 import RenameDialog from "../../components/FileBrowser/RenameDialog";
-import { STATUS_BAR_HEIGHT, StatusBar } from "../../components/FileBrowser/StatusBar";
+import { STATUS_BAR_HEIGHT } from "../../components/FileBrowser/StatusBar";
 import type { SearchProvider } from "../../components/FileBrowser/search";
 import type { UnifiedSearchBarModeOption } from "../../components/FileBrowser/UnifiedSearchBar";
 import { UnifiedSearchBar } from "../../components/FileBrowser/UnifiedSearchBar";
-import { isLocalDrive } from "../../services/backendRouter";
 import type { Connection, FileEntry } from "../../types";
 import { FileType } from "../../types";
 import { canOpenFileInApp, isConnectionReadOnly } from "./access";
@@ -498,15 +497,6 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
           }}
         />
       ) : null}
-
-      {/* Status Bar */}
-      {!useCompactLayout && !loading && sortedFiles.length > 0 && (
-        <StatusBar
-          files={sortedFiles}
-          focusedIndex={focusedIndex}
-          canResolveShortcutTargets={contentCapabilities.mutate && isLocalDrive(connectionId)}
-        />
-      )}
 
       {/* Delete Confirmation Dialog */}
       <ConfirmDeleteDialog

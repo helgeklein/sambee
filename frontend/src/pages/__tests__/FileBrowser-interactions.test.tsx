@@ -799,9 +799,7 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard(" ");
       await user.keyboard("{F5}");
 
-      await waitFor(() => {
-        expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
-      });
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       expect(api.copyItem).not.toHaveBeenCalled();
     });
 

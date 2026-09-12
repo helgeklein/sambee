@@ -122,6 +122,32 @@ describe("Browser Component - Rendering", () => {
     expect(screen.getByText("readme.txt")).toBeInTheDocument();
   });
 
+  it("renders one toolbar without cross-pane commands in single-pane mode", async () => {
+    renderBrowser("/browse/smb/test-server-1");
+
+    await screen.findAllByText("Documents");
+
+    expect(screen.getAllByTestId("file-operations-toolbar")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "New folder" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Move" })).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("status-bar-focused-file-name")).toHaveLength(1);
+  });
+
+  it("renders one toolbar with transfer commands and an aligned status bar for each dual pane", async () => {
+    renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2");
+
+    await waitFor(() => {
+      expectDirectoryLoad("conn-1", "");
+      expectDirectoryLoad("conn-2", "");
+    });
+
+    expect(screen.getAllByTestId("file-operations-toolbar")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move" })).toBeInTheDocument();
+    expect(screen.getAllByTestId("status-bar-focused-file-name")).toHaveLength(2);
+  });
+
   it("displays loading state while fetching files", async () => {
     // Mock a delayed response
     vi.mocked(api.listDirectory).mockImplementation(() => new Promise<typeof mockDirectoryListing>(() => {}));

@@ -67,10 +67,7 @@ vi.mock("../../components/FileBrowser/FileList", () => ({
   ),
 }));
 
-vi.mock("../../components/FileBrowser/StatusBar", () => ({
-  STATUS_BAR_HEIGHT: 32,
-  StatusBar: ({ files }: { files: FileEntry[] }) => <div data-testid="status-bar">{files.length} items</div>,
-}));
+vi.mock("../../components/FileBrowser/StatusBar", () => ({ STATUS_BAR_HEIGHT: 32 }));
 
 vi.mock("../../components/FileBrowser/SortControls", () => ({
   SortControls: () => <div data-testid="sort-controls" />,
@@ -349,14 +346,8 @@ describe("FileBrowserPane", () => {
       expect(screen.queryByTestId("sort-controls")).not.toBeInTheDocument();
     });
 
-    it("renders status bar when files exist and not loading", () => {
+    it("does not render the parent-owned status bar", () => {
       render(<FileBrowserPane {...defaultProps()} />);
-      expect(screen.getByTestId("status-bar")).toBeInTheDocument();
-    });
-
-    it("hides status bar when sorted files are empty", () => {
-      const pane = createMockPane({ sortedFiles: [] });
-      render(<FileBrowserPane {...defaultProps({ pane })} />);
       expect(screen.queryByTestId("status-bar")).not.toBeInTheDocument();
     });
 
@@ -406,11 +397,6 @@ describe("FileBrowserPane", () => {
       render(<FileBrowserPane {...defaultProps({ useCompactLayout: true })} />);
       expect(screen.queryByTestId("view-mode-selector")).not.toBeInTheDocument();
       expect(screen.queryByTestId("sort-controls")).not.toBeInTheDocument();
-    });
-
-    it("does not render status bar", () => {
-      render(<FileBrowserPane {...defaultProps({ useCompactLayout: true })} />);
-      expect(screen.queryByTestId("status-bar")).not.toBeInTheDocument();
     });
 
     it("shows a read-only chip in compact layout for read-only connections", () => {
