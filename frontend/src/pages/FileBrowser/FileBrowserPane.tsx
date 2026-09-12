@@ -19,6 +19,8 @@ import React, { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { BreadcrumbsNavigation } from "../../components/FileBrowser/BreadcrumbsNavigation";
 import { BrowserViewerPicker } from "../../components/FileBrowser/BrowserViewerPicker";
+import { CompactCreateMenu } from "../../components/FileBrowser/CompactCreateMenu";
+import { CompactSelectionActions } from "../../components/FileBrowser/CompactSelectionActions";
 import ConfirmDeleteDialog from "../../components/FileBrowser/ConfirmDeleteDialog";
 import CreateItemDialog from "../../components/FileBrowser/CreateItemDialog";
 import { FileList } from "../../components/FileBrowser/FileList";
@@ -32,6 +34,7 @@ import type { Connection, FileEntry } from "../../types";
 import { FileType } from "../../types";
 import { canOpenFileInApp, isConnectionReadOnly } from "./access";
 import { getVirtualContentProviderIdForFilename } from "./contentProviders";
+import type { FileOperationAction } from "./fileOperationActions";
 import type { PaneId, PaneMode, UseFileBrowserPaneReturn } from "./types";
 
 const READ_ONLY_CONTENT_CAPABILITIES = {
@@ -102,6 +105,12 @@ export interface FileBrowserPaneProps {
   modeOptions?: UnifiedSearchBarModeOption[];
   /** Whether keyboard shortcut hints are useful in the active input context. */
   showKeyboardHints?: boolean;
+  /** Actions available through the compact create menu. */
+  compactCreateActions?: readonly FileOperationAction[];
+  /** Selection actions available in compact layout. */
+  compactSelectionActions?: readonly FileOperationAction[];
+  /** Starts archive extraction for a compact item action. */
+  onExtractArchive?: (file: FileEntry, index: number) => void;
 }
 
 // ============================================================================
@@ -128,6 +137,9 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   onSearchArrowDownToFileList,
   showKeyboardHints,
   modeOptions,
+  compactCreateActions = [],
+  compactSelectionActions = [],
+  onExtractArchive,
 }) => {
   const theme = useTheme();
   const { t } = useTranslation();
@@ -169,9 +181,13 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     rowVirtualizer,
     // Handlers
     handleFileClick,
+    toggleItemSelection,
     handleOpenFileForFile,
     handleOpenInAppForFile,
     handleRenameForFile,
+    handleDeleteForFile,
+    selectItem,
+    handleClearSelection,
     closeDeleteDialog,
     handleDeleteConfirm,
     closeRenameDialog,
@@ -193,8 +209,18 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     (file: FileEntry) => !(archiveLocation && file.type === FileType.FILE && getVirtualContentProviderIdForFilename(file.name)),
     [archiveLocation]
   );
+  const canExtractArchive = React.useCallback(
+    (file: FileEntry) => !archiveLocation && file.type === FileType.FILE && Boolean(getVirtualContentProviderIdForFilename(file.name)),
+    [archiveLocation]
+  );
   const [closingBrowserViewerPickerState, setClosingBrowserViewerPickerState] = React.useState<typeof browserViewerPickerState>(null);
+  const [selectionAnnouncement, setSelectionAnnouncement] = React.useState("");
   const renderedBrowserViewerPickerState = browserViewerPickerState ?? closingBrowserViewerPickerState;
+
+  const handleCompactClearSelection = React.useCallback(() => {
+    handleClearSelection();
+    setSelectionAnnouncement(t("fileBrowser.compactActions.selectionCleared"));
+  }, [handleClearSelection, t]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // File Row Styles — depend on isUsingKeyboard (global) and theme
@@ -379,6 +405,13 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
 
   return (
     <Box data-pane-id={paneId} sx={paneContainerSx} onClick={handlePaneClick} onFocusCapture={handlePaneFocus} onKeyDown={undefined}>
+      <Box
+        aria-live="polite"
+        aria-atomic="true"
+        sx={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }}
+      >
+        {selectionAnnouncement}
+      </Box>
       {/* Breadcrumbs + View/Sort controls (desktop) */}
       {!useCompactLayout && (
         <Box
@@ -421,6 +454,19 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
             refreshToken={searchRefreshToken}
             inputRef={searchInputRef}
             useCompactLayout={useCompactLayout}
+            compactOverlay={
+              useCompactLayout ? (
+                selectedFiles.size > 0 ? (
+                  <CompactSelectionActions
+                    actions={compactSelectionActions}
+                    selectedCount={selectedFiles.size}
+                    onClearSelection={handleCompactClearSelection}
+                  />
+                ) : (
+                  <CompactCreateMenu actions={compactCreateActions} />
+                )
+              ) : undefined
+            }
             onBlurToFileList={() => listContainerEl?.focus()}
             queryValue={searchQueryValue}
             onQueryValueChange={onSearchQueryValueChange}
@@ -467,6 +513,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
             focusedIndex={focusedIndex}
             selectedFiles={selectedFiles}
             onFileClick={handleFileClick}
+            onToggleItemSelection={toggleItemSelection}
             rowVirtualizer={rowVirtualizer}
             parentRef={parentRef}
             listContainerRef={listContainerRef}
@@ -480,6 +527,10 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
               canOpenFocusedFileInApp ? (file, index) => void handleOpenInAppForFile(file, index, { forcePicker: true }) : undefined
             }
             onRename={canRenameItems ? handleRenameForFile : undefined}
+            onDelete={canRenameItems ? handleDeleteForFile : undefined}
+            onExtractArchive={onExtractArchive}
+            canExtractArchive={canExtractArchive}
+            onSelectItem={selectItem}
           />
         </Box>
       )}

@@ -117,7 +117,12 @@ import type {
 } from "./FileBrowser/contentProviders";
 import { isDirectory, physicalLocation, virtualLocation } from "./FileBrowser/contentProviders";
 import { FileBrowserPane } from "./FileBrowser/FileBrowserPane";
-import { createFileOperationActions, type FileOperationActionId } from "./FileBrowser/fileOperationActions";
+import {
+  createFileOperationActions,
+  type FileOperationAction,
+  type FileOperationActionId,
+  type FileOperationSurface,
+} from "./FileBrowser/fileOperationActions";
 import {
   readFileBrowserPaneModePreference,
   readSelectedConnectionIdPreference,
@@ -2474,8 +2479,8 @@ const Browser: React.FC = () => {
   }, [t]);
 
   const handleArchiveExtractionRequest = useCallback(
-    (extractionScope: ArchiveExtractionScope = FULL_ARCHIVE_EXTRACTION_SCOPE) => {
-      const location = archiveExtractionSource;
+    (extractionScope: ArchiveExtractionScope = FULL_ARCHIVE_EXTRACTION_SCOPE, sourceOverride?: VirtualLocation) => {
+      const location = sourceOverride ?? archiveExtractionSource;
       if (
         !location ||
         (extractionScope.kind === "archive" && activePaneIsVirtualArchive) ||
@@ -2522,6 +2527,24 @@ const Browser: React.FC = () => {
       leftPane,
       rightPane,
     ]
+  );
+
+  const handleCompactArchiveExtraction = useCallback(
+    (file: FileEntry, _index: number) => {
+      const sourceLocation = activePane.currentLocation;
+      if (sourceLocation.kind !== "physical" || file.type !== "file") return;
+      const providerId = browserContentServices.providers.getVirtualProviderIdForFilename(file.name);
+      if (!providerId) return;
+      const archiveLocation = virtualLocation(
+        providerId,
+        sourceLocation.connectionId,
+        physicalLocation(sourceLocation.connectionId, file.path),
+        ""
+      );
+      if (!browserContentServices.providers.getCapabilities(archiveLocation).extract) return;
+      handleArchiveExtractionRequest(FULL_ARCHIVE_EXTRACTION_SCOPE, archiveLocation);
+    },
+    [activePane.currentLocation, browserContentServices.providers, handleArchiveExtractionRequest]
   );
 
   const completeArchiveExtraction = useCallback(
@@ -2692,76 +2715,83 @@ const Browser: React.FC = () => {
     handleOpenCopyMoveDialog("copy");
   }, [activePane, handleArchiveExtractionRequest, handleOpenCopyMoveDialog, isDualMode]);
 
-  const fileOperationActions = useMemo(() => {
-    const availability = {
-      "new-directory": getFileListShortcutAvailability("new-directory"),
-      "new-file": getFileListShortcutAvailability("new-file"),
-      rename: getFileListShortcutAvailability("rename"),
-      delete: getFileListShortcutAvailability("delete"),
-      copy: getFileListShortcutAvailability("copy"),
-      move: getFileListShortcutAvailability("move"),
-      "create-archive": getFileListShortcutAvailability("create-archive"),
-      "extract-archive": getFileListShortcutAvailability("extract-archive"),
-      refresh: getFileListShortcutAvailability("refresh"),
-    };
+  const buildFileOperationActions = useCallback(
+    (surface: FileOperationSurface): FileOperationAction[] => {
+      const availability = {
+        "new-directory": getFileListShortcutAvailability("new-directory"),
+        "new-file": getFileListShortcutAvailability("new-file"),
+        rename: getFileListShortcutAvailability("rename"),
+        delete: getFileListShortcutAvailability("delete"),
+        copy: getFileListShortcutAvailability("copy"),
+        move: getFileListShortcutAvailability("move"),
+        "create-archive": getFileListShortcutAvailability("create-archive"),
+        "extract-archive": getFileListShortcutAvailability("extract-archive"),
+        refresh: getFileListShortcutAvailability("refresh"),
+      };
 
-    const actionIds = Object.keys(availability) as FileOperationActionId[];
-    const unavailableReasons = Object.fromEntries(
-      actionIds.flatMap((action) => {
-        const actionAvailability = availability[action];
-        return actionAvailability.available ? [] : [[action, getUnavailableShortcutMessage(action, actionAvailability.reason)]];
-      })
-    ) as Partial<Record<FileOperationActionId, string>>;
+      const actionIds = Object.keys(availability) as FileOperationActionId[];
+      const unavailableReasons = Object.fromEntries(
+        actionIds.flatMap((action) => {
+          const actionAvailability = availability[action];
+          return actionAvailability.available ? [] : [[action, getUnavailableShortcutMessage(action, actionAvailability.reason)]];
+        })
+      ) as Partial<Record<FileOperationActionId, string>>;
 
-    return createFileOperationActions({
-      hasTwoPanes: isDualMode,
-      availability,
-      labels: {
-        "new-directory": t("fileBrowser.toolbar.newFolder"),
-        "new-file": t("fileBrowser.toolbar.newFile"),
-        rename: t("common.actions.rename"),
-        delete: t("common.actions.delete"),
-        copy: t("common.actions.copy"),
-        move: t("common.actions.move"),
-        "create-archive": t("fileBrowser.toolbar.createArchive"),
-        "extract-archive": t("fileBrowser.toolbar.extractArchive"),
-        refresh: t("fileBrowser.toolbar.refresh"),
-      },
-      shortcuts: {
-        "new-directory": BROWSER_SHORTCUTS.NEW_DIRECTORY.label,
-        "new-file": BROWSER_SHORTCUTS.NEW_FILE.label,
-        rename: BROWSER_SHORTCUTS.RENAME_ITEM.label,
-        delete: BROWSER_SHORTCUTS.DELETE_ITEM.label,
-        copy: COPY_MOVE_SHORTCUTS.COPY_TO_OTHER_PANE.label,
-        move: COPY_MOVE_SHORTCUTS.MOVE_TO_OTHER_PANE.label,
-        "create-archive": BROWSER_SHORTCUTS.CREATE_ARCHIVE.label,
-        "extract-archive": BROWSER_SHORTCUTS.EXTRACT_ARCHIVE.label,
-        refresh: BROWSER_SHORTCUTS.REFRESH.label,
-      },
-      unavailableReasons,
-      handlers: {
-        "new-directory": activePane.handleNewDirectoryRequest,
-        "new-file": activePane.handleNewFileRequest,
-        rename: () => activePane.handleRenameRequest({ requireListFocus: false }),
-        delete: () => activePane.handleDeleteRequest({ requireListFocus: false }),
-        copy: handleCopyToOtherPane,
-        move: handleMoveToOtherPane,
-        "create-archive": handleCreateArchiveRequest,
-        "extract-archive": handleArchiveExtractionRequest,
-        refresh: activePane.handleRefresh,
-      },
-    });
-  }, [
-    activePane,
-    getFileListShortcutAvailability,
-    getUnavailableShortcutMessage,
-    handleArchiveExtractionRequest,
-    handleCopyToOtherPane,
-    handleCreateArchiveRequest,
-    handleMoveToOtherPane,
-    isDualMode,
-    t,
-  ]);
+      return createFileOperationActions({
+        hasTwoPanes: isDualMode,
+        surface,
+        availability,
+        labels: {
+          "new-directory": t("fileBrowser.toolbar.newFolder"),
+          "new-file": t("fileBrowser.toolbar.newFile"),
+          rename: t("common.actions.rename"),
+          delete: t("common.actions.delete"),
+          copy: t("common.actions.copy"),
+          move: t("common.actions.move"),
+          "create-archive": t("fileBrowser.toolbar.createArchive"),
+          "extract-archive": t("fileBrowser.toolbar.extractArchive"),
+          refresh: t("fileBrowser.toolbar.refresh"),
+        },
+        shortcuts: {
+          "new-directory": BROWSER_SHORTCUTS.NEW_DIRECTORY.label,
+          "new-file": BROWSER_SHORTCUTS.NEW_FILE.label,
+          rename: BROWSER_SHORTCUTS.RENAME_ITEM.label,
+          delete: BROWSER_SHORTCUTS.DELETE_ITEM.label,
+          copy: COPY_MOVE_SHORTCUTS.COPY_TO_OTHER_PANE.label,
+          move: COPY_MOVE_SHORTCUTS.MOVE_TO_OTHER_PANE.label,
+          "create-archive": BROWSER_SHORTCUTS.CREATE_ARCHIVE.label,
+          "extract-archive": BROWSER_SHORTCUTS.EXTRACT_ARCHIVE.label,
+          refresh: BROWSER_SHORTCUTS.REFRESH.label,
+        },
+        unavailableReasons,
+        handlers: {
+          "new-directory": activePane.handleNewDirectoryRequest,
+          "new-file": activePane.handleNewFileRequest,
+          rename: () => activePane.handleRenameRequest({ requireListFocus: false }),
+          delete: () => activePane.handleDeleteRequest({ requireListFocus: false }),
+          copy: handleCopyToOtherPane,
+          move: handleMoveToOtherPane,
+          "create-archive": handleCreateArchiveRequest,
+          "extract-archive": handleArchiveExtractionRequest,
+          refresh: activePane.handleRefresh,
+        },
+      });
+    },
+    [
+      activePane,
+      getFileListShortcutAvailability,
+      getUnavailableShortcutMessage,
+      handleArchiveExtractionRequest,
+      handleCopyToOtherPane,
+      handleCreateArchiveRequest,
+      handleMoveToOtherPane,
+      isDualMode,
+      t,
+    ]
+  );
+  const fileOperationActions = useMemo(() => buildFileOperationActions("desktop-toolbar"), [buildFileOperationActions]);
+  const compactCreateActions = useMemo(() => buildFileOperationActions("compact-create-menu"), [buildFileOperationActions]);
+  const compactSelectionActions = useMemo(() => buildFileOperationActions("compact-selection-menu"), [buildFileOperationActions]);
 
   const browserCommandContext = useMemo(
     () => ({
@@ -3524,6 +3554,9 @@ const Browser: React.FC = () => {
                 onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
                 showKeyboardHints={showQuickBarKeyboardHints}
                 modeOptions={quickBarModeOptions}
+                compactCreateActions={compactCreateActions}
+                compactSelectionActions={compactSelectionActions}
+                onExtractArchive={handleCompactArchiveExtraction}
               />
 
               {/* Divider + Right Pane — dual mode only */}
@@ -3554,11 +3587,14 @@ const Browser: React.FC = () => {
                     onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
                     showKeyboardHints={showQuickBarKeyboardHints}
                     modeOptions={quickBarModeOptions}
+                    compactCreateActions={compactCreateActions}
+                    compactSelectionActions={compactSelectionActions}
+                    onExtractArchive={handleCompactArchiveExtraction}
                   />
                 </>
               )}
             </Box>
-            <FileOperationsToolbar actions={fileOperationActions} moreLabel={t("fileBrowser.toolbar.more")} />
+            {!useCompactLayout && <FileOperationsToolbar actions={fileOperationActions} moreLabel={t("fileBrowser.toolbar.more")} />}
             {!useCompactLayout && (
               <Box sx={{ display: "flex", minHeight: 0 }}>
                 <Box sx={{ flex: 1, minWidth: 0 }}>

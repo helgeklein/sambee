@@ -170,7 +170,7 @@ describe("Browser Component - Rendering", () => {
     expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
   });
 
-  it("keeps the toolbar visible and hides status bars in compact layout", async () => {
+  it("hides the toolbar and status bars in compact layout", async () => {
     const originalMatchMedia = window.matchMedia;
     window.matchMedia = vi.fn().mockImplementation((query: string) => ({
       matches: /max-width/.test(query),
@@ -187,8 +187,7 @@ describe("Browser Component - Rendering", () => {
       renderBrowser("/browse/smb/test-server-1");
 
       await screen.findAllByText("Documents");
-      expect(screen.getAllByTestId("file-operations-toolbar")).toHaveLength(1);
-      expect(screen.getByRole("button", { name: "New folder" })).toBeInTheDocument();
+      expect(screen.queryByTestId("file-operations-toolbar")).not.toBeInTheDocument();
       expect(screen.queryByTestId("status-bar-focused-file-name")).not.toBeInTheDocument();
     } finally {
       window.matchMedia = originalMatchMedia;

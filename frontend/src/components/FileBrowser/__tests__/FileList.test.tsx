@@ -1,6 +1,6 @@
 import type { Virtualizer } from "@tanstack/react-virtual";
-import { render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { setLocale, translate } from "../../../i18n";
 import type { FileEntry } from "../../../types";
 import { FileList } from "../FileList";
@@ -103,5 +103,88 @@ describe("FileList", () => {
 
     expect(screen.getByText("readme.txt")).toBeInTheDocument();
     expect(measureElement).not.toHaveBeenCalled();
+  });
+
+  it("opens compact item actions from the visible more actions button", () => {
+    const files: FileEntry[] = [
+      {
+        name: "readme.txt",
+        path: "readme.txt",
+        type: "file",
+        size: 123,
+        modified_at: "2026-07-15T00:00:00Z",
+        is_readable: true,
+        is_hidden: false,
+      },
+    ];
+    const rowVirtualizerWithItems = {
+      getVirtualItems: () => [{ index: 0, key: "file-0", start: 0, size: 56 }],
+      getTotalSize: () => 56,
+    } as unknown as Virtualizer<HTMLDivElement, Element>;
+    const onFileClick = vi.fn();
+    const onSelectItem = vi.fn();
+
+    render(
+      <FileList
+        files={files}
+        focusedIndex={0}
+        selectedFiles={new Set()}
+        onFileClick={onFileClick}
+        onSelectItem={onSelectItem}
+        rowVirtualizer={rowVirtualizerWithItems}
+        parentRef={{ current: null }}
+        listContainerRef={() => {}}
+        fileRowStyles={fileRowStylesStub}
+        useCompactLayout
+        viewMode="list"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions for readme.txt" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Select" }));
+
+    expect(onSelectItem).toHaveBeenCalledWith(files[0], 0);
+    expect(onFileClick).not.toHaveBeenCalled();
+  });
+
+  it("offers archive extraction only for eligible compact item actions", () => {
+    const files: FileEntry[] = [
+      {
+        name: "backup.zip",
+        path: "backup.zip",
+        type: "file",
+        size: 123,
+        modified_at: "2026-07-15T00:00:00Z",
+        is_readable: true,
+        is_hidden: false,
+      },
+    ];
+    const rowVirtualizerWithItems = {
+      getVirtualItems: () => [{ index: 0, key: "file-0", start: 0, size: 56 }],
+      getTotalSize: () => 56,
+    } as unknown as Virtualizer<HTMLDivElement, Element>;
+    const onExtractArchive = vi.fn();
+
+    render(
+      <FileList
+        files={files}
+        focusedIndex={0}
+        selectedFiles={new Set()}
+        onFileClick={() => {}}
+        onExtractArchive={onExtractArchive}
+        canExtractArchive={(file) => file.name.endsWith(".zip")}
+        rowVirtualizer={rowVirtualizerWithItems}
+        parentRef={{ current: null }}
+        listContainerRef={() => {}}
+        fileRowStyles={fileRowStylesStub}
+        useCompactLayout
+        viewMode="list"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions for backup.zip" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Extract archive" }));
+
+    expect(onExtractArchive).toHaveBeenCalledWith(files[0], 0);
   });
 });

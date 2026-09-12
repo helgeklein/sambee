@@ -52,4 +52,19 @@ describe("createFileOperationActions", () => {
     expect(actions.map((action) => action.id)).toContain("move");
     expect(deleteAction).toMatchObject({ enabled: false, tooltip: "delete (F1): Select an item to delete." });
   });
+
+  it("uses surface-specific placements and scopes", () => {
+    const itemActions = createFileOperationActions({ ...createContext(false), surface: "compact-item-menu" });
+    const createActions = createFileOperationActions({ ...createContext(false), surface: "compact-create-menu" });
+
+    expect(itemActions.map(({ id, scope }) => ({ id, scope }))).toEqual([
+      { id: "rename", scope: "item" },
+      { id: "delete", scope: "item" },
+      { id: "extract-archive", scope: "item" },
+    ]);
+    expect(createActions.map(({ id, scope }) => ({ id, scope }))).toEqual([
+      { id: "new-directory", scope: "pane" },
+      { id: "new-file", scope: "pane" },
+    ]);
+  });
 });

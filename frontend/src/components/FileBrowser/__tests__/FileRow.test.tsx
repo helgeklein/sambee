@@ -44,7 +44,7 @@ describe("FileRow", () => {
     await setLocale("en");
   });
 
-  it("renders translated context menu items and aria labels", async () => {
+  it("does not render an application context menu on desktop", async () => {
     await setLocale("en-XA");
 
     render(<FileRow {...createDefaultFileRowProps()} />);
@@ -56,11 +56,7 @@ describe("FileRow", () => {
 
     fireEvent.contextMenu(rowButton);
 
-    expect(screen.getByText(translate("common.actions.rename"))).toBeInTheDocument();
-    expect(screen.getByText(translate("fileBrowser.row.openInBrowserViewer"))).toBeInTheDocument();
-    expect(screen.getByText(translate("fileBrowser.row.chooseBrowserViewer"))).toBeInTheDocument();
-    expect(screen.getByText(translate("fileBrowser.row.openInNativeApp"))).toBeInTheDocument();
-    expect(screen.getByText(translate("fileBrowser.row.chooseNativeApp"))).toBeInTheDocument();
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
   it("invokes onClick when the row button is pressed", () => {
@@ -119,16 +115,15 @@ describe("FileRow", () => {
     expect(screen.queryByText(translate("fileBrowser.row.openInBrowserViewer"))).not.toBeInTheDocument();
   });
 
-  it("hides browser-viewer actions when the file cannot be opened in Sambee", () => {
+  it("opens compact item actions without activating the row", () => {
     const props = createDefaultFileRowProps();
-    props.canOpenInBrowserViewer = () => false;
+    const onOpenItemActions = vi.fn();
 
-    render(<FileRow {...props} />);
-    fireEvent.contextMenu(screen.getByRole("button", { name: /report\.pdf/i }));
+    render(<FileRow {...props} useCompactLayout showCompactActions onOpenItemActions={onOpenItemActions} />);
+    fireEvent.click(screen.getByRole("button", { name: "More actions for report.pdf" }));
 
-    expect(screen.queryByText(translate("fileBrowser.row.openInBrowserViewer"))).not.toBeInTheDocument();
-    expect(screen.queryByText(translate("fileBrowser.row.chooseBrowserViewer"))).not.toBeInTheDocument();
-    expect(screen.getByText(translate("fileBrowser.row.openInNativeApp"))).toBeInTheDocument();
+    expect(onOpenItemActions).toHaveBeenCalledWith(props.file, props.index, expect.any(HTMLElement));
+    expect(props.onClick).not.toHaveBeenCalled();
   });
 
   it("renders a shortcut's full target path", () => {
@@ -216,7 +211,7 @@ describe("FileRow", () => {
     expect(screen.getByText("Project Archive")).toBeInTheDocument();
   });
 
-  it("hides file actions for a shortcut resolving to a directory", () => {
+  it("does not attach application context actions to shortcut rows", () => {
     const props = createDefaultFileRowProps();
     props.isMultiSelected = false;
     props.file = {
@@ -231,12 +226,9 @@ describe("FileRow", () => {
     };
 
     render(<FileRow {...props} />);
-    fireEvent.contextMenu(screen.getByRole("button", { name: /shortcut target: Project Archive/i }));
+    const rowButton = screen.getByRole("button", { name: /shortcut target: Project Archive/i });
+    fireEvent.contextMenu(rowButton);
 
-    expect(screen.getByText(translate("common.actions.rename"))).toBeInTheDocument();
-    expect(screen.queryByText(translate("fileBrowser.row.openInBrowserViewer"))).not.toBeInTheDocument();
-    expect(screen.queryByText(translate("fileBrowser.row.chooseBrowserViewer"))).not.toBeInTheDocument();
-    expect(screen.queryByText(translate("fileBrowser.row.openInNativeApp"))).not.toBeInTheDocument();
-    expect(screen.queryByText(translate("fileBrowser.row.chooseNativeApp"))).not.toBeInTheDocument();
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 });

@@ -213,7 +213,7 @@ export interface UseFileBrowserPaneReturn {
   focusedIndex: number;
 
   // ── Selection State (multi-select) ────────────────────────────────────
-  /** Set of file names currently selected (multi-select). */
+  /** Set of canonical file paths currently selected (multi-select). */
   selectedFiles: Set<string>;
   /** Toggle selection of the focused file and move focus down (Insert / Space). */
   handleToggleSelection: (e?: KeyboardEvent) => void;
@@ -225,6 +225,10 @@ export interface UseFileBrowserPaneReturn {
   handleSelectAll: () => void;
   /** Clear all selections. */
   handleClearSelection: () => void;
+  /** Select one file without requiring list focus. */
+  selectItem: (file: FileEntry, index: number) => void;
+  /** Toggle one file without requiring list focus. */
+  toggleItemSelection: (file: FileEntry, index: number) => void;
   /**
    * Returns the effective selection: if files are explicitly selected,
    * returns those; otherwise returns the single focused file.
@@ -304,6 +308,7 @@ export interface UseFileBrowserPaneReturn {
   handleDeleteRequest: (options?: { requireListFocus?: boolean }) => void;
   handleDeleteConfirm: () => Promise<void>;
   closeDeleteDialog: () => void;
+  handleDeleteForFile: (file: FileEntry, index: number) => void;
   handleRenameRequest: (options?: { requireListFocus?: boolean }) => void;
   handleRenameConfirm: (newName: string) => Promise<void>;
   handleRenameForFile: (file: FileEntry, index: number) => void;

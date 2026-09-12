@@ -823,6 +823,17 @@ export const EN_TRANSLATIONS = {
       refresh: "Refresh",
       more: "More",
     },
+    compactActions: {
+      clearSelection: "Clear selection",
+      createNewItem: "Create new item",
+      deselect: "Deselect",
+      moreActionsFor: "More actions for {{name}}",
+      select: "Select",
+      selectedCount_one: "{{count}} item selected",
+      selectedCount_other: "{{count}} items selected",
+      selectionCleared: "Selection cleared",
+      selectionActions: "Selection actions",
+    },
     list: {
       emptyDirectory: "This directory is empty",
     },
