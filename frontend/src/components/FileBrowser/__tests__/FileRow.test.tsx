@@ -126,6 +126,13 @@ describe("FileRow", () => {
     expect(props.onClick).not.toHaveBeenCalled();
   });
 
+  it("exposes compact selection mode through aria-pressed", () => {
+    const props = createDefaultFileRowProps();
+    render(<FileRow {...props} useCompactLayout selectionMode />);
+
+    expect(screen.getByRole("button", { name: /report\.pdf/i })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("renders a shortcut's full target path", () => {
     const props = createDefaultFileRowProps();
     props.isMultiSelected = false;

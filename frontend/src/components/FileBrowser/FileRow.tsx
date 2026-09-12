@@ -36,6 +36,7 @@ interface FileRowProps {
   };
   viewMode: ViewMode;
   showCompactActions?: boolean;
+  selectionMode?: boolean;
   onOpenItemActions?: (file: FileEntry, index: number, anchorElement: HTMLElement) => void;
 }
 
@@ -114,6 +115,7 @@ export const FileRow = React.memo(
         fileRowStyles,
         viewMode,
         showCompactActions = false,
+        selectionMode = false,
         onOpenItemActions,
       },
       ref
@@ -183,6 +185,7 @@ export const FileRow = React.memo(
             sx={[rowStyle, canOpenItemActions ? { pr: 7 } : {}, isUnavailableArchiveEntry ? { cursor: "not-allowed", opacity: 0.5 } : {}]}
             dataSelected={isSelected ? "true" : undefined}
             ariaLabel={ariaLabel}
+            ariaPressed={useCompactLayout && selectionMode ? isMultiSelected : undefined}
           >
             {/* Icon: show checkmark when multi-selected, file icon otherwise */}
             {(() => {

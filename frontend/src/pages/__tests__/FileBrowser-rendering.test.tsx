@@ -189,6 +189,41 @@ describe("Browser Component - Rendering", () => {
       await screen.findAllByText("Documents");
       expect(screen.queryByTestId("file-operations-toolbar")).not.toBeInTheDocument();
       expect(screen.queryByTestId("status-bar-focused-file-name")).not.toBeInTheDocument();
+      await screen.findByRole("button", { name: "Create new item" });
+      fireEvent.click(screen.getByRole("button", { name: "Create new item" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "New folder" }));
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it("enters and exits compact selection mode through explicit controls", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: /max-width/.test(query),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+
+    try {
+      renderBrowser("/browse/smb/test-server-1");
+
+      await screen.findByRole("button", { name: "More actions for readme.txt" });
+      fireEvent.click(screen.getByRole("button", { name: "More actions for readme.txt" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Select" }));
+      expect(screen.getAllByText("1 item selected").length).toBeGreaterThan(0);
+
+      fireEvent.click(screen.getByRole("button", { name: /folder: documents/i }));
+      expect(screen.getAllByText("2 items selected").length).toBeGreaterThan(0);
+
+      fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+      expect(await screen.findByRole("button", { name: "Create new item" })).toBeInTheDocument();
     } finally {
       window.matchMedia = originalMatchMedia;
     }

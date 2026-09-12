@@ -225,10 +225,14 @@ export interface UseFileBrowserPaneReturn {
   handleSelectAll: () => void;
   /** Clear all selections. */
   handleClearSelection: () => void;
+  /** Removes canonical paths after a successful source-mutating operation. */
+  removeSelectedPaths: (paths: readonly string[]) => void;
   /** Select one file without requiring list focus. */
   selectItem: (file: FileEntry, index: number) => void;
   /** Toggle one file without requiring list focus. */
   toggleItemSelection: (file: FileEntry, index: number) => void;
+  /** Resolves canonical file paths to the current operation handles. */
+  getItemsByPaths: (paths: readonly string[]) => BrowserItem[];
   /**
    * Returns the effective selection: if files are explicitly selected,
    * returns those; otherwise returns the single focused file.

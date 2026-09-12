@@ -49,4 +49,19 @@ describe("CompactSelectionActions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Selection actions" }));
     expect(screen.getByRole("menuitem", { name: "Delete" })).toHaveAttribute("aria-disabled", "true");
   });
+
+  it("keeps the action snapshot that was present when the menu opened", () => {
+    const firstAction = { ...actions[0], onClick: vi.fn() };
+    const secondAction = { ...actions[0], label: "Later action", onClick: vi.fn() };
+    const { rerender } = render(
+      <CompactSelectionActions actions={actions} getActions={() => [firstAction]} selectedCount={1} onClearSelection={() => {}} />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Selection actions" }));
+    rerender(<CompactSelectionActions actions={actions} getActions={() => [secondAction]} selectedCount={2} onClearSelection={() => {}} />);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Create archive" }));
+
+    expect(firstAction.onClick).toHaveBeenCalledOnce();
+    expect(secondAction.onClick).not.toHaveBeenCalled();
+  });
 });

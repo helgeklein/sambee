@@ -2,6 +2,7 @@ import { Box, Typography } from "@mui/material";
 import type { Virtualizer } from "@tanstack/react-virtual";
 import React, { type ReactNode, useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { FileOperationAction } from "../../pages/FileBrowser/fileOperationActions";
 import type { ViewMode } from "../../pages/FileBrowser/types";
 import type { FileEntry } from "../../types";
 import { type CompactItemAction, CompactItemActionsMenu } from "./CompactItemActionsMenu";
@@ -33,10 +34,7 @@ interface FileListProps {
   canOpenInBrowserViewer?: (file: FileEntry) => boolean;
   onOpenAssociatedNativeApp?: (file: FileEntry, index: number) => void;
   onOpenNativePicker?: (file: FileEntry, index: number) => void;
-  onRename?: (file: FileEntry, index: number) => void;
-  onDelete?: (file: FileEntry, index: number) => void;
-  onExtractArchive?: (file: FileEntry, index: number) => void;
-  canExtractArchive?: (file: FileEntry) => boolean;
+  getCompactItemActions?: (file: FileEntry, index: number) => readonly FileOperationAction[];
   onSelectItem?: (file: FileEntry, index: number) => void;
 } //
 // FileList
@@ -61,10 +59,7 @@ export const FileList = React.memo(
     canOpenInBrowserViewer,
     onOpenAssociatedNativeApp,
     onOpenNativePicker,
-    onRename,
-    onDelete,
-    onExtractArchive,
-    canExtractArchive,
+    getCompactItemActions,
     onSelectItem,
   }: FileListProps) => {
     const { t } = useTranslation();
@@ -131,15 +126,7 @@ export const FileList = React.memo(
             onClick: () => onOpenNativePicker(file, index),
           });
         }
-        if (onRename) actions.push({ id: "rename", label: t("common.actions.rename"), onClick: () => onRename(file, index) });
-        if (onDelete) actions.push({ id: "delete", label: t("common.actions.delete"), onClick: () => onDelete(file, index) });
-        if (onExtractArchive && canExtractArchive?.(file)) {
-          actions.push({
-            id: "extract-archive",
-            label: t("fileBrowser.toolbar.extractArchive"),
-            onClick: () => onExtractArchive(file, index),
-          });
-        }
+        actions.push(...(getCompactItemActions?.(file, index) ?? []));
 
         const anchorBounds = anchorElement.getBoundingClientRect();
         setItemMenu({
@@ -150,14 +137,11 @@ export const FileList = React.memo(
       },
       [
         canOpenInBrowserViewer,
-        onDelete,
-        onExtractArchive,
-        canExtractArchive,
+        getCompactItemActions,
         onOpenAssociatedNativeApp,
         onOpenAssociatedViewer,
         onOpenNativePicker,
         onOpenViewerPicker,
-        onRename,
         onSelectItem,
         onToggleItemSelection,
         selectedFiles,
@@ -219,6 +203,7 @@ export const FileList = React.memo(
                     index={virtualItem.index}
                     isSelected={virtualItem.index === focusedIndex}
                     isMultiSelected={selectedFiles.has(file.path)}
+                    selectionMode={useCompactLayout && selectedFiles.size > 0}
                     virtualStart={virtualItem.start}
                     virtualSize={virtualItem.size}
                     onClick={useCompactLayout && selectedFiles.size > 0 && onToggleItemSelection ? onToggleItemSelection : onFileClick}

@@ -56,6 +56,7 @@ describe("createFileOperationActions", () => {
   it("uses surface-specific placements and scopes", () => {
     const itemActions = createFileOperationActions({ ...createContext(false), surface: "compact-item-menu" });
     const createActions = createFileOperationActions({ ...createContext(false), surface: "compact-create-menu" });
+    const selectionActions = createFileOperationActions({ ...createContext(true), surface: "compact-selection-menu" });
 
     expect(itemActions.map(({ id, scope }) => ({ id, scope }))).toEqual([
       { id: "rename", scope: "item" },
@@ -65,6 +66,16 @@ describe("createFileOperationActions", () => {
     expect(createActions.map(({ id, scope }) => ({ id, scope }))).toEqual([
       { id: "new-directory", scope: "pane" },
       { id: "new-file", scope: "pane" },
+    ]);
+    expect(selectionActions.map(({ id, scope }) => ({ id, scope }))).toEqual([
+      { id: "copy", scope: "selection" },
+      { id: "move", scope: "selection" },
+      { id: "create-archive", scope: "selection" },
+      { id: "delete", scope: "selection" },
+    ]);
+    expect(createFileOperationActions({ ...createContext(false), surface: "compact-selection-menu" }).map((action) => action.id)).toEqual([
+      "create-archive",
+      "delete",
     ]);
   });
 });

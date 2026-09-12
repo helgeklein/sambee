@@ -7,13 +7,15 @@ import type { FileOperationAction } from "../../pages/FileBrowser/fileOperationA
 
 interface CompactSelectionActionsProps {
   actions: readonly FileOperationAction[];
+  getActions?: () => readonly FileOperationAction[];
   selectedCount: number;
   onClearSelection: () => void;
 }
 
-export function CompactSelectionActions({ actions, selectedCount, onClearSelection }: CompactSelectionActionsProps) {
+export function CompactSelectionActions({ actions, getActions, selectedCount, onClearSelection }: CompactSelectionActionsProps) {
   const { t } = useTranslation();
   const [anchorElement, setAnchorElement] = useState<HTMLElement | null>(null);
+  const [menuActions, setMenuActions] = useState<readonly FileOperationAction[]>([]);
 
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, pointerEvents: "auto" }}>
@@ -30,14 +32,17 @@ export function CompactSelectionActions({ actions, selectedCount, onClearSelecti
           aria-label={t("fileBrowser.compactActions.selectionActions")}
           aria-haspopup="menu"
           aria-expanded={anchorElement ? "true" : undefined}
-          onClick={(event) => setAnchorElement(event.currentTarget)}
+          onClick={(event) => {
+            setMenuActions(getActions?.() ?? actions);
+            setAnchorElement(event.currentTarget);
+          }}
           sx={{ width: 44, height: 44 }}
         >
           <MoreVertIcon />
         </IconButton>
       </Tooltip>
       <Menu anchorEl={anchorElement} open={Boolean(anchorElement)} onClose={() => setAnchorElement(null)}>
-        {actions.map((action) => (
+        {menuActions.map((action) => (
           <Tooltip key={action.id} title={action.tooltip} placement="left">
             <span>
               <MenuItem

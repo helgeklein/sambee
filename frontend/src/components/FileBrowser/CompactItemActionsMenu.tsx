@@ -22,6 +22,7 @@ export function CompactItemActionsMenu({ actions, anchorPosition, onClose }: Com
           <span>
             <MenuItem
               disabled={action.enabled === false}
+              aria-description={action.tooltip}
               onClick={() => {
                 action.onClick();
                 onClose();

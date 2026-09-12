@@ -171,8 +171,11 @@ describe("FileList", () => {
         focusedIndex={0}
         selectedFiles={new Set()}
         onFileClick={() => {}}
-        onExtractArchive={onExtractArchive}
-        canExtractArchive={(file) => file.name.endsWith(".zip")}
+        getCompactItemActions={(file) =>
+          file.name.endsWith(".zip")
+            ? [{ id: "extract-archive", label: "Extract archive", enabled: true, onClick: () => onExtractArchive(file, 0) }]
+            : []
+        }
         rowVirtualizer={rowVirtualizerWithItems}
         parentRef={{ current: null }}
         listContainerRef={() => {}}

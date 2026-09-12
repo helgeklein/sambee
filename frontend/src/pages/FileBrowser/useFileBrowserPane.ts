@@ -2519,6 +2519,15 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     setSelectedFiles(new Set());
   }, []);
 
+  const removeSelectedPaths = useCallback((paths: readonly string[]) => {
+    if (paths.length === 0) return;
+    const removedPaths = new Set(paths);
+    setSelectedFiles((previous) => {
+      const next = new Set([...previous].filter((path) => !removedPaths.has(path)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, []);
+
   const selectItem = useCallback(
     (file: FileEntry, index: number) => {
       updateFocus(index, { immediate: true });
@@ -2555,6 +2564,11 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     const focused = itemsRef.current[focusedIndex];
     return focused ? [focused] : [];
   }, [selectedFiles, focusedIndex]);
+
+  const getItemsByPaths = useCallback((paths: readonly string[]) => {
+    const pathSet = new Set(paths);
+    return itemsRef.current.filter((item) => pathSet.has(item.entry.path));
+  }, []);
 
   // Clear selection when the directory or connection changes
   // biome-ignore lint/correctness/useExhaustiveDependencies: connectionId is needed as a trigger
@@ -2733,15 +2747,16 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   );
 
   const handleRenameForFile = useCallback(
-    (file: FileEntry, _index: number) => {
+    (file: FileEntry, index: number) => {
       if (!contentCapabilities.mutate || connectionIsReadOnly) return;
       const item = getItemForEntry(file);
       if (!item) return;
+      updateFocus(index, { immediate: true });
       setRenameError(null);
       setRenameTarget(item);
       setRenameDialogOpen(true);
     },
-    [connectionIsReadOnly, contentCapabilities.mutate, getItemForEntry]
+    [connectionIsReadOnly, contentCapabilities.mutate, getItemForEntry, updateFocus]
   );
 
   const closeRenameDialog = useCallback(() => {
@@ -3453,8 +3468,10 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     handleSelectUp,
     handleSelectAll,
     handleClearSelection,
+    removeSelectedPaths,
     selectItem,
     toggleItemSelection,
+    getItemsByPaths,
     getEffectiveSelection,
 
     // Computed

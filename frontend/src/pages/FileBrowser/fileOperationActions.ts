@@ -1,3 +1,6 @@
+import type { BrowserItem, ContentLocation } from "./contentProviders";
+import type { PaneId } from "./types";
+
 export type FileOperationActionId =
   | "new-directory"
   | "new-file"
@@ -17,6 +20,21 @@ export interface FileOperationAvailability {
 export type FileOperationSurface = "desktop-toolbar" | "compact-item-menu" | "compact-selection-menu" | "compact-create-menu";
 
 export type FileOperationScope = "item" | "selection" | "pane";
+
+export interface FileOperationPolicyContext {
+  paneId: PaneId;
+  items: readonly BrowserItem[];
+  focusedItem?: BrowserItem;
+}
+
+export interface CapturedDestination {
+  paneId: PaneId;
+  location: ContentLocation;
+}
+
+export interface FileOperationInvocationContext extends FileOperationPolicyContext {
+  destination?: CapturedDestination;
+}
 
 export interface FileOperationPlacement {
   surface: FileOperationSurface;
