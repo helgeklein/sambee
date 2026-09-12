@@ -1,6 +1,8 @@
 import { act, createEvent, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setLocale, translate } from "../../../i18n";
+import { formatDate, formatFileSize } from "../../../pages/FileBrowser/formatters";
+import { FILE_BROWSER_ROW_HEIGHT } from "../../../theme/constants";
 import { FileType } from "../../../types";
 import { FileRow, shortenTargetPath } from "../FileRow";
 
@@ -250,6 +252,74 @@ describe("FileRow", () => {
 
     expect(screen.getByText("report.pdf")).toHaveStyle({ fontSize: "17px" });
     expect(screen.getByTestId("CheckCircleIcon")).toHaveStyle({ fontSize: "28px" });
+  });
+
+  it("renders compact file metadata in a fixed-height secondary line", () => {
+    const props = createDefaultFileRowProps();
+    const metadata = `${formatFileSize(props.file.size)} \u00b7 ${formatDate(props.file.modified_at)}`;
+    const { container } = render(
+      <FileRow
+        {...props}
+        useCompactLayout
+        showCompactActions
+        virtualSize={FILE_BROWSER_ROW_HEIGHT.MOBILE_PX}
+        onOpenItemActions={() => {}}
+      />
+    );
+
+    expect(container.querySelector("[data-index='0']")).toHaveStyle({ height: "72px" });
+    expect(screen.getByText(metadata)).toHaveStyle({
+      color: "rgba(0, 0, 0, 0.6)",
+      fontSize: "12px",
+      fontVariantNumeric: "tabular-nums",
+      marginTop: "1px",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+    });
+    expect(screen.getByRole("button", { name: "More actions for report.pdf" })).toHaveStyle({ height: "44px", width: "44px" });
+  });
+
+  it("renders only available compact file metadata values without a dangling separator", () => {
+    const props = createDefaultFileRowProps();
+    const { rerender } = render(<FileRow {...props} useCompactLayout file={{ ...props.file, modified_at: undefined }} />);
+
+    expect(screen.getByText(formatFileSize(props.file.size))).toBeInTheDocument();
+    expect(screen.queryByText(/\u00b7/)).not.toBeInTheDocument();
+
+    rerender(<FileRow {...props} useCompactLayout file={{ ...props.file, size: undefined }} />);
+
+    expect(screen.getByText(formatDate(props.file.modified_at))).toBeInTheDocument();
+    expect(screen.queryByText(/\u00b7/)).not.toBeInTheDocument();
+  });
+
+  it("does not render compact metadata for folders or directory shortcuts", () => {
+    const props = createDefaultFileRowProps();
+    const metadata = `${formatFileSize(props.file.size)} \u00b7 ${formatDate(props.file.modified_at)}`;
+    const { rerender } = render(
+      <FileRow {...props} useCompactLayout file={{ ...props.file, name: "Documents", type: FileType.DIRECTORY }} />
+    );
+
+    expect(screen.queryByText(metadata)).not.toBeInTheDocument();
+
+    rerender(
+      <FileRow
+        {...props}
+        useCompactLayout
+        file={{
+          ...props.file,
+          name: "Documents.lnk",
+          link_kind: "windows_shortcut",
+          link_target: {
+            source_path: "Documents.lnk",
+            state: "resolved",
+            target: { name: "Documents", type: FileType.DIRECTORY },
+          },
+        }}
+      />
+    );
+
+    expect(screen.queryByText(metadata)).not.toBeInTheDocument();
   });
 
   it("rerenders when deferred shortcut metadata arrives", () => {

@@ -68,9 +68,13 @@ Shortcuts (`.lnk` files), symlinks, and junctions on local drives now show the t
 
 Copy and move operations can now overwrite an existing file or replace it only when the source is newer. The same choices work for batches and apply to all supported local and SMB transfers. Directories with the same name are merged safely, preserving destination-only content and resolving only conflicting files.
 
-### Command Toolbar & Mobile Actions
+### Command Toolbar (Desktop) & Per-Row Actions (Mobile)
 
 A new toolbar at the bottom of the file list makes available commands discoverable. On small screens, typical mobile controls are used instead: a "+" icon to create new files or directories, per-row item actions menus to access commands that operate on individual files or folders.
+
+### Item Selection on Small Screens (Mobile)
+
+On phones and other small screen devices, files and folders can be selected either through a long press or via the item action menu. Once one item is selected, Sambee switches to multi-selection mode where additional items can be selected through a single tap. An action bar at the bottom of the sceen provides access to commands.
 
 ### Other Changes
 

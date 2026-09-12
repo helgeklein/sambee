@@ -50,13 +50,14 @@ export const TOOLBAR_HEIGHT = {
 
 /** File-browser row heights for compact/mobile and desktop layouts. */
 export const FILE_BROWSER_ROW_HEIGHT = {
-  MOBILE_PX: 56,
+  MOBILE_PX: 72,
   DESKTOP_PX: 40,
 } as const;
 
 /** Visual scale used by the compact layout without changing its fixed geometry. */
 export const COMPACT_LAYOUT_SIZE = {
   FILE_ROW_TEXT_PX: 17,
+  FILE_ROW_METADATA_PX: 12,
   FILE_ROW_ICON_PX: 28,
   MENU_TEXT_PX: 17,
   MENU_ICON_PX: 24,

@@ -2,6 +2,7 @@ import type { Virtualizer } from "@tanstack/react-virtual";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setLocale, translate } from "../../../i18n";
+import { FILE_BROWSER_ROW_HEIGHT } from "../../../theme/constants";
 import type { FileEntry } from "../../../types";
 import { FileList } from "../FileList";
 
@@ -118,8 +119,8 @@ describe("FileList", () => {
       },
     ];
     const rowVirtualizerWithItems = {
-      getVirtualItems: () => [{ index: 0, key: "file-0", start: 0, size: 56 }],
-      getTotalSize: () => 56,
+      getVirtualItems: () => [{ index: 0, key: "file-0", start: 0, size: FILE_BROWSER_ROW_HEIGHT.MOBILE_PX }],
+      getTotalSize: () => FILE_BROWSER_ROW_HEIGHT.MOBILE_PX,
     } as unknown as Virtualizer<HTMLDivElement, Element>;
     const onFileClick = vi.fn();
     const onSelectItem = vi.fn();
@@ -152,6 +153,7 @@ describe("FileList", () => {
 
     expect(onSelectItem).toHaveBeenCalledWith(files[0], 0);
     expect(onFileClick).not.toHaveBeenCalled();
+    expect(screen.getByText("123 B \u00b7 07/15/2026, 12:00 AM")).toBeInTheDocument();
   });
 
   it("reserves virtual-list space for the compact selection dock", () => {
@@ -201,8 +203,8 @@ describe("FileList", () => {
       },
     ];
     const rowVirtualizerWithItems = {
-      getVirtualItems: () => [{ index: 0, key: "file-0", start: 0, size: 56 }],
-      getTotalSize: () => 56,
+      getVirtualItems: () => [{ index: 0, key: "file-0", start: 0, size: FILE_BROWSER_ROW_HEIGHT.MOBILE_PX }],
+      getTotalSize: () => FILE_BROWSER_ROW_HEIGHT.MOBILE_PX,
     } as unknown as Virtualizer<HTMLDivElement, Element>;
     const onExtractArchive = vi.fn();
 

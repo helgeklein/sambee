@@ -48,6 +48,15 @@ interface FileRowProps {
 
 export const shortenTargetPath = abbreviatePath;
 
+function getCompactFileMetadata(file: FileEntry): string | null {
+  if (file.type === "directory" || file.link_target?.target.type === "directory") {
+    return null;
+  }
+
+  const metadata = [formatFileSize(file.size), formatDate(file.modified_at)].filter(Boolean);
+  return metadata.length > 0 ? metadata.join(" \u00b7 ") : null;
+}
+
 function TargetPathLabel({ path, rowTextSx }: { path: string; rowTextSx?: Record<string, string> }) {
   const labelRef = useRef<HTMLSpanElement>(null);
   const measureRef = useRef<HTMLSpanElement>(null);
@@ -139,6 +148,7 @@ export const FileRow = React.memo(
       const isUnavailableArchiveEntry = file.archive_entry_state !== undefined && !file.is_readable;
       const rowTextSx = useCompactLayout ? { fontSize: `${COMPACT_LAYOUT_SIZE.FILE_ROW_TEXT_PX}px` } : undefined;
       const fileIconSize = useCompactLayout ? COMPACT_LAYOUT_SIZE.FILE_ROW_ICON_PX : 24;
+      const compactMetadata = useCompactLayout ? getCompactFileMetadata(file) : null;
       const canOpenItemActions = showCompactActions && !isUnavailableArchiveEntry && onOpenItemActions !== undefined;
       const itemTypeLabel = t(file.type === "directory" ? "fileBrowser.row.itemTypes.folder" : "fileBrowser.row.itemTypes.file");
       const linkTargetName = linkTarget?.name;
@@ -304,7 +314,33 @@ export const FileRow = React.memo(
                 });
               })();
 
-              return isListMode ? (
+              return useCompactLayout ? (
+                <>
+                  <Box sx={fileRowStyles.iconBox}>{icon}</Box>
+                  <Box sx={{ ...fileRowStyles.contentBox, display: "flex", flexDirection: "column", minWidth: 0 }}>
+                    {fileName}
+                    {compactMetadata ? (
+                      <Typography
+                        variant="body2"
+                        noWrap
+                        sx={{
+                          color: "text.secondary",
+                          fontSize: `${COMPACT_LAYOUT_SIZE.FILE_ROW_METADATA_PX}px`,
+                          fontVariantNumeric: "tabular-nums",
+                          lineHeight: 1.35,
+                          mt: "1px",
+                          minWidth: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          width: "100%",
+                        }}
+                      >
+                        {compactMetadata}
+                      </Typography>
+                    ) : null}
+                  </Box>
+                </>
+              ) : isListMode ? (
                 // List mode: icon + name only
                 <>
                   <Box sx={fileRowStyles.iconBox}>{icon}</Box>
