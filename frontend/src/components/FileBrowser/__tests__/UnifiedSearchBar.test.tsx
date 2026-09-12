@@ -272,6 +272,12 @@ describe("UnifiedSearchBar", () => {
     await setLocale("en");
   });
 
+  it("uses the compact mode label size", () => {
+    renderWithProvider(<UnifiedSearchBar provider={noResultsProvider} modeOptions={modeOptions} useCompactLayout />);
+
+    expect(screen.getByText("Navigate")).toHaveStyle({ fontSize: "14px" });
+  });
+
   it("uses translated clear-search aria label", async () => {
     const user = userEvent.setup();
     const onQueryValueChange = vi.fn();
@@ -332,6 +338,20 @@ describe("UnifiedSearchBar", () => {
 
     expect(await screen.findByText("1 result")).toBeInTheDocument();
     expect(screen.queryByText("Keyboard shortcuts")).not.toBeInTheDocument();
+  });
+
+  it("hides shortcut hints while retaining footer information in compact layout", async () => {
+    const user = userEvent.setup();
+    const provider = { ...createGroupedProvider(vi.fn()), footerHint: "Keyboard shortcuts" };
+
+    renderWithProvider(<UnifiedSearchBar provider={provider} useCompactLayout />);
+
+    await user.click(screen.getByRole("textbox"));
+
+    expect(await screen.findByText("2 results")).toBeInTheDocument();
+    expect(screen.queryByText("Keyboard shortcuts")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Recent files" })).toHaveStyle({ fontSize: "14px" });
+    expect(screen.getByText("Quarterly report")).toHaveStyle({ fontSize: "16px", lineHeight: "1.25" });
   });
 
   it("shows a retryable error instead of no-results when a search request fails", async () => {

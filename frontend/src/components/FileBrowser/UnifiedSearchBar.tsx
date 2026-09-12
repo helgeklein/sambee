@@ -46,6 +46,7 @@ import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import { getSecondaryToolbarMenuPaperStyle, pillButtonStyle } from "../../theme/commonStyles";
+import { COMPACT_LAYOUT_SIZE } from "../../theme/constants";
 import {
   getQuickBarResultRowHeight,
   QUICK_BAR_RESULT_ITEM_HEIGHT,
@@ -83,11 +84,13 @@ const HORIZONTAL_CHROME_SPACING = {
   sm: `${QUICK_BAR_SPACING.sm.horizontal}px`,
 } as const;
 
-const QUICK_BAR_MODE_LABEL_SX = {
-  fontSize: "0.7rem",
-  fontWeight: 600,
-  lineHeight: 1.2,
-} as const;
+function getQuickBarModeLabelSx(useCompactLayout: boolean) {
+  return {
+    fontSize: useCompactLayout ? `${COMPACT_LAYOUT_SIZE.SEARCH_MODE_LABEL_PX}px` : "0.7rem",
+    fontWeight: 600,
+    lineHeight: 1.2,
+  } as const;
+}
 
 const QUICK_BAR_MODE_BUTTON_SX = {
   ...pillButtonStyle,
@@ -326,7 +329,7 @@ export function UnifiedSearchBar({
           sx={QUICK_BAR_MODE_BUTTON_SX}
         >
           <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.125, whiteSpace: "nowrap" }}>
-            <Typography variant="body2" sx={QUICK_BAR_MODE_LABEL_SX}>
+            <Typography variant="body2" sx={getQuickBarModeLabelSx(useCompactLayout)}>
               {provider.modeLabel}
             </Typography>
             <ArrowDropDownIcon sx={{ fontSize: "1rem" }} />
@@ -392,6 +395,7 @@ export function UnifiedSearchBar({
     provider.modeId,
     provider.modeLabel,
     t,
+    useCompactLayout,
   ]);
 
   const endAdornment = useMemo(() => {
@@ -1167,7 +1171,11 @@ export function UnifiedSearchBar({
                             transform: `translateY(${virtualRow.start}px)`,
                           }}
                         >
-                          <QuickBarResultGroupHeader label={result.label} showDivider={virtualRow.index > 0} />
+                          <QuickBarResultGroupHeader
+                            label={result.label}
+                            showDivider={virtualRow.index > 0}
+                            useCompactLayout={useCompactLayout}
+                          />
                         </Box>
                       );
                     }
@@ -1192,7 +1200,7 @@ export function UnifiedSearchBar({
                         role="option"
                         aria-selected={virtualRow.index === selectedIndex}
                       >
-                        <QuickBarResultRow result={result} />
+                        <QuickBarResultRow result={result} useCompactLayout={useCompactLayout} />
                       </ListItemButton>
                     );
                   })}
@@ -1249,7 +1257,7 @@ export function UnifiedSearchBar({
                   backgroundColor: "action.selected",
                 }}
               >
-                {showKeyboardHints && footerHint && (
+                {!useCompactLayout && showKeyboardHints && footerHint && (
                   <Box
                     sx={{
                       display: "flex",

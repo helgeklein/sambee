@@ -166,7 +166,7 @@ describe("HamburgerMenu", () => {
       </SambeeThemeProvider>
     );
 
-    expect(screen.getByText("Connection")).toBeInTheDocument();
+    expect(screen.getByText("Connection")).toHaveStyle({ fontSize: "14px" });
     // The Select dropdown renders the connection names - verify connections are available
     // by checking for the select input
     const selectInputs = screen.getAllByRole("combobox");

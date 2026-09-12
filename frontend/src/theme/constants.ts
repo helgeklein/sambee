@@ -54,6 +54,22 @@ export const FILE_BROWSER_ROW_HEIGHT = {
   DESKTOP_PX: 40,
 } as const;
 
+/** Visual scale used by the compact layout without changing its fixed geometry. */
+export const COMPACT_LAYOUT_SIZE = {
+  FILE_ROW_TEXT_PX: 17,
+  FILE_ROW_ICON_PX: 28,
+  MENU_TEXT_PX: 17,
+  MENU_ICON_PX: 24,
+  DIALOG_TITLE_PX: 20,
+  DIALOG_BODY_PX: 17,
+  DIALOG_FORM_LABEL_PX: 16,
+  DRAWER_SECTION_LABEL_PX: 14,
+  MOBILE_TOOLBAR_TITLE_PX: 18,
+  SEARCH_MODE_LABEL_PX: 14,
+  SEARCH_RESULT_GROUP_HEADING_PX: 14,
+  SEARCH_RESULT_PRIMARY_TEXT_PX: 16,
+} as const;
+
 //
 // Page input field sizing
 //

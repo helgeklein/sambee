@@ -4,6 +4,7 @@ import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import KeyboardCommandKeyIcon from "@mui/icons-material/KeyboardCommandKey";
 import { Box, Typography } from "@mui/material";
 import type React from "react";
+import { COMPACT_LAYOUT_SIZE } from "../../theme/constants";
 import type { SearchResult, SearchResultIcon, SearchResultItem, SearchTextHighlight } from "./search/types";
 
 /** Shared height for a two-line quick-bar result row. */
@@ -48,7 +49,7 @@ export function getQuickBarResultRowHeight(result: SearchResult): number {
   return result.kind === "group-header" ? QUICK_BAR_RESULT_GROUP_HEADER_HEIGHT : QUICK_BAR_RESULT_ITEM_HEIGHT;
 }
 
-export function QuickBarResultRow({ result }: { result: SearchResultItem }) {
+export function QuickBarResultRow({ result, useCompactLayout = false }: { result: SearchResultItem; useCompactLayout?: boolean }) {
   const isDirectory = result.icon === "directory";
 
   return (
@@ -66,7 +67,16 @@ export function QuickBarResultRow({ result }: { result: SearchResultItem }) {
         {getResultIcon(result.icon)}
       </Box>
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography component="div" variant="body2" sx={{ color: isDirectory ? "text.secondary" : undefined }} noWrap>
+        <Typography
+          component="div"
+          variant="body2"
+          sx={{
+            color: isDirectory ? "text.secondary" : undefined,
+            fontSize: useCompactLayout ? `${COMPACT_LAYOUT_SIZE.SEARCH_RESULT_PRIMARY_TEXT_PX}px` : undefined,
+            lineHeight: useCompactLayout ? 1.25 : undefined,
+          }}
+          noWrap
+        >
           {renderHighlightedText(result.primaryText, result.primaryHighlight)}
         </Typography>
         {result.secondaryText ? (
@@ -99,7 +109,15 @@ export function QuickBarResultRow({ result }: { result: SearchResultItem }) {
   );
 }
 
-export function QuickBarResultGroupHeader({ label, showDivider }: { label: string; showDivider: boolean }) {
+export function QuickBarResultGroupHeader({
+  label,
+  showDivider,
+  useCompactLayout = false,
+}: {
+  label: string;
+  showDivider: boolean;
+  useCompactLayout?: boolean;
+}) {
   return (
     <Box
       role="presentation"
@@ -112,7 +130,17 @@ export function QuickBarResultGroupHeader({ label, showDivider }: { label: strin
         px: 2,
       }}
     >
-      <Typography component="div" role="heading" aria-level={2} variant="caption" sx={{ color: "text.secondary", fontWeight: 600 }}>
+      <Typography
+        component="div"
+        role="heading"
+        aria-level={2}
+        variant="caption"
+        sx={{
+          color: "text.secondary",
+          fontWeight: 600,
+          fontSize: useCompactLayout ? `${COMPACT_LAYOUT_SIZE.SEARCH_RESULT_GROUP_HEADING_PX}px` : undefined,
+        }}
+      >
         {label}
       </Typography>
     </Box>

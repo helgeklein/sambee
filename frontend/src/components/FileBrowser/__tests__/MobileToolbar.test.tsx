@@ -13,6 +13,14 @@ describe("MobileToolbar", () => {
     await setLocale("en");
   });
 
+  it("uses the compact toolbar title size", async () => {
+    await setLocale("en");
+
+    renderWithProvider(<MobileToolbar currentDirectoryName="Documents" onOpenMenu={vi.fn()} onNavigateUp={vi.fn()} canNavigateUp={true} />);
+
+    expect(screen.getByText("Documents")).toHaveStyle({ fontSize: "18px" });
+  });
+
   it("uses translated mobile toolbar labels", async () => {
     await setLocale("en-XA");
 

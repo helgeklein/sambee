@@ -17,6 +17,7 @@ import {
 } from "@mui/material";
 import type React from "react";
 import { useTranslation } from "react-i18next";
+import { COMPACT_LAYOUT_SIZE } from "../../theme/constants";
 import { SAFE_AREA_INSET } from "../../theme/mobileShell";
 import type { Connection } from "../../types";
 
@@ -81,7 +82,10 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
         {/* Connection Selector */}
         {connections.length > 0 && (
           <Box sx={{ mb: 2 }}>
-            <Typography variant="caption" sx={{ mb: 1, display: "block", color: "text.secondary" }}>
+            <Typography
+              variant="caption"
+              sx={{ mb: 1, display: "block", color: "text.secondary", fontSize: `${COMPACT_LAYOUT_SIZE.DRAWER_SECTION_LABEL_PX}px` }}
+            >
               {t("common.labels.connection")}
             </Typography>
             <FormControl fullWidth size="small">

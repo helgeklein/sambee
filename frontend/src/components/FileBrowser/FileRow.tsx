@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatDate, formatFileSize } from "../../pages/FileBrowser/formatters";
 import type { ViewMode } from "../../pages/FileBrowser/types";
+import { COMPACT_LAYOUT_SIZE } from "../../theme/constants";
 import type { FileEntry } from "../../types";
 import { isShortcutFile } from "../../utils/fileEntries";
 import { getFileIcon } from "../../utils/fileIcons";
@@ -135,7 +136,8 @@ export const FileRow = React.memo(
       const isFile = file.type !== "directory" && linkTarget?.type !== "directory";
       const isUnavailableArchiveEntry = file.archive_entry_state !== undefined && !file.is_readable;
       const hasBrowserViewerActions = isFile && (canOpenInBrowserViewer?.(file) ?? true);
-      const rowTextSx = useCompactLayout ? { fontSize: "16px" } : undefined;
+      const rowTextSx = useCompactLayout ? { fontSize: `${COMPACT_LAYOUT_SIZE.FILE_ROW_TEXT_PX}px` } : undefined;
+      const fileIconSize = useCompactLayout ? COMPACT_LAYOUT_SIZE.FILE_ROW_ICON_PX : 24;
       const hasContextMenu = !!(
         !isUnavailableArchiveEntry &&
         (onRename ||
@@ -248,17 +250,17 @@ export const FileRow = React.memo(
             {(() => {
               const icon = (() => {
                 if (isMultiSelected) {
-                  return <CheckCircleIcon sx={{ fontSize: 24, color: "primary.main" }} />;
+                  return <CheckCircleIcon sx={{ fontSize: fileIconSize, color: "primary.main" }} />;
                 }
 
                 if (isShortcut) {
-                  return <ShortcutIcon sx={{ fontSize: 24, color: "text.secondary" }} />;
+                  return <ShortcutIcon sx={{ fontSize: fileIconSize, color: "text.secondary" }} />;
                 }
 
                 return getFileIcon({
                   filename: file.name,
                   isDirectory: file.type === "directory",
-                  size: 24,
+                  size: fileIconSize,
                 });
               })();
 
@@ -273,7 +275,7 @@ export const FileRow = React.memo(
                 <Box
                   sx={{
                     display: "grid",
-                    gridTemplateColumns: "24px 1fr auto auto",
+                    gridTemplateColumns: `${fileIconSize}px 1fr auto auto`,
                     columnGap: 1,
                     alignItems: "center",
                     width: "100%",

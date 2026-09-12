@@ -182,7 +182,8 @@ describe("FileRow", () => {
 
     rerender(<FileRow {...props} useCompactLayout />);
 
-    expect(screen.getByText("report.pdf")).toHaveStyle({ fontSize: "16px" });
+    expect(screen.getByText("report.pdf")).toHaveStyle({ fontSize: "17px" });
+    expect(screen.getByTestId("CheckCircleIcon")).toHaveStyle({ fontSize: "28px" });
   });
 
   it("rerenders when deferred shortcut metadata arrives", () => {

@@ -27,6 +27,7 @@ import { STATUS_BAR_HEIGHT } from "../../components/FileBrowser/StatusBar";
 import type { SearchProvider } from "../../components/FileBrowser/search";
 import type { UnifiedSearchBarModeOption } from "../../components/FileBrowser/UnifiedSearchBar";
 import { UnifiedSearchBar } from "../../components/FileBrowser/UnifiedSearchBar";
+import { COMPACT_LAYOUT_SIZE } from "../../theme/constants";
 import type { Connection, FileEntry } from "../../types";
 import { FileType } from "../../types";
 import { canOpenFileInApp, isConnectionReadOnly } from "./access";
@@ -205,7 +206,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        width: 24,
+        width: useCompactLayout ? COMPACT_LAYOUT_SIZE.FILE_ROW_ICON_PX : 24,
         flexShrink: 0,
       },
       contentBox: {
@@ -290,7 +291,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         },
       },
     }),
-    [theme, isUsingKeyboard, showSelectionHighlight]
+    [theme, isUsingKeyboard, showSelectionHighlight, useCompactLayout]
   );
 
   // ──────────────────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import { alpha, createTheme, type Theme } from "@mui/material";
 import { createContext, type ReactNode, useContext, useEffect, useMemo } from "react";
 import { useCurrentUserSetting } from "../services/userSettingsStore";
+import { COMPACT_LAYOUT_SIZE } from "./constants";
 import {
   FORM_SURFACE_CSS_VARIABLE,
   getDarkChromeSurfaceColor,
@@ -188,6 +189,30 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
             },
           },
         },
+        MuiDialogTitle: {
+          styleOverrides: {
+            root: ({ theme }) => ({
+              [theme.breakpoints.down("sm")]: {
+                fontSize: `${COMPACT_LAYOUT_SIZE.DIALOG_TITLE_PX}px`,
+              },
+            }),
+          },
+        },
+        MuiDialogContent: {
+          styleOverrides: {
+            root: ({ theme }) => ({
+              [theme.breakpoints.down("sm")]: {
+                fontSize: `${COMPACT_LAYOUT_SIZE.DIALOG_BODY_PX}px`,
+                "& .MuiTypography-body1, & .MuiTypography-body2, & .MuiDialogContentText-root": {
+                  fontSize: `${COMPACT_LAYOUT_SIZE.DIALOG_BODY_PX}px`,
+                },
+                "& .MuiInputLabel-root": {
+                  fontSize: `${COMPACT_LAYOUT_SIZE.DIALOG_FORM_LABEL_PX}px`,
+                },
+              },
+            }),
+          },
+        },
         MuiLink: {
           defaultProps: {
             underline: "none",
@@ -234,7 +259,16 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
         },
         MuiMenuItem: {
           styleOverrides: {
-            root: {
+            root: ({ theme }) => ({
+              [theme.breakpoints.down("sm")]: {
+                fontSize: `${COMPACT_LAYOUT_SIZE.MENU_TEXT_PX}px`,
+                "& .MuiListItemText-primary, & .MuiTypography-root": {
+                  fontSize: `${COMPACT_LAYOUT_SIZE.MENU_TEXT_PX}px`,
+                },
+                "& .MuiSvgIcon-root": {
+                  fontSize: `${COMPACT_LAYOUT_SIZE.MENU_ICON_PX}px`,
+                },
+              },
               "&:hover": {
                 backgroundColor: action.selected,
               },
@@ -251,7 +285,7 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
                   backgroundColor: action.selected,
                 },
               },
-            },
+            }),
           },
         },
         MuiListItemIcon: {

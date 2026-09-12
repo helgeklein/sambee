@@ -3323,9 +3323,11 @@ const Browser: React.FC = () => {
 
   // ── Computed values for the active pane (used in toolbar / mobile) ────────
   const activeCurrentPath = activePane.currentPath;
-  const pathParts = activeCurrentPath ? activeCurrentPath.split("/") : [];
+  const activeArchiveLocation = activePane.archiveLocation;
+  const activeDisplayPath = activeArchiveLocation?.virtualPath || activeArchiveLocation?.archivePath || activeCurrentPath;
+  const pathParts = activeDisplayPath ? activeDisplayPath.split("/") : [];
   const currentDirectoryName = (pathParts.length > 0 && pathParts[pathParts.length - 1]) || "Root";
-  const canNavigateUp = activePane.archiveLocation !== null || activeCurrentPath !== "";
+  const canNavigateUp = activeArchiveLocation !== null || activeCurrentPath !== "";
 
   // Force single-pane on mobile
   const effectivePaneMode: PaneMode = useCompactLayout ? "single" : paneMode;

@@ -19,6 +19,7 @@ import {
 } from "@mui/material";
 import { type ReactNode, type Ref, useEffect, useId, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { COMPACT_LAYOUT_SIZE } from "../../theme/constants";
 import {
   mobileFullscreenDrawerPaperSx,
   mobileSafeAreaAppBarSx,
@@ -204,7 +205,12 @@ export function ResponsiveDialogShell({
                   <ArrowBackIcon />
                 </IconButton>
               )}
-              <Typography id={titleId} variant="h6" component="h1" sx={{ flex: 1, ml: showCloseButton ? 0 : 2 }}>
+              <Typography
+                id={titleId}
+                variant="h6"
+                component="h1"
+                sx={{ flex: 1, ml: showCloseButton ? 0 : 2, fontSize: `${COMPACT_LAYOUT_SIZE.DIALOG_TITLE_PX}px` }}
+              >
                 {title}
               </Typography>
               {showCloseButton && (
@@ -223,7 +229,17 @@ export function ResponsiveDialogShell({
           <Box
             sx={[
               responsiveDialogShellContentPaddingSx,
-              { ...mobileScrollableContentSx, pb: `calc(16px + ${SAFE_AREA_INSET.BOTTOM})` },
+              {
+                ...mobileScrollableContentSx,
+                pb: `calc(16px + ${SAFE_AREA_INSET.BOTTOM})`,
+                fontSize: `${COMPACT_LAYOUT_SIZE.DIALOG_BODY_PX}px`,
+                "& .MuiTypography-body1, & .MuiTypography-body2, & .MuiDialogContentText-root": {
+                  fontSize: `${COMPACT_LAYOUT_SIZE.DIALOG_BODY_PX}px`,
+                },
+                "& .MuiInputLabel-root": {
+                  fontSize: `${COMPACT_LAYOUT_SIZE.DIALOG_FORM_LABEL_PX}px`,
+                },
+              },
               ...(Array.isArray(contentSx) ? contentSx : contentSx ? [contentSx] : []),
             ]}
           >
