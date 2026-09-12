@@ -76,6 +76,10 @@ A new toolbar at the bottom of the file list makes available commands discoverab
 
 On phones and other small screen devices, files and folders can be selected either through a long press or via the item action menu. Once one item is selected, Sambee switches to multi-selection mode where additional items can be selected through a single tap. An action bar at the bottom of the sceen provides access to commands.
 
+### File Metadata on Small Screens (Mobile)
+
+On phones and other small screen devices, file size and modification time are now displayed in a two-line layout.
+
 ### Other Changes
 
 - When keyboard shortcuts are ignored Sambee now shows a toast message to make the user unobtrusively aware of the fact.
