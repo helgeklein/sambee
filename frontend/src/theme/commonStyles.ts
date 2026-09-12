@@ -217,6 +217,27 @@ export const fileOperationsToolbarButtonSx: SxProps<Theme> = {
   minWidth: 0,
   px: 1.5,
   flexShrink: 0,
+  color: (theme) => theme.palette.text.secondary,
   textTransform: "none",
   whiteSpace: "nowrap",
+  "&:hover": {
+    bgcolor: (theme) => theme.palette.action.selected,
+  },
+  "&.Mui-disabled": {
+    color: (theme) => theme.palette.action.disabled,
+  },
+};
+
+export const fileOperationsToolbarOverflowButtonSx: SxProps<Theme> = {
+  minWidth: 44,
+  minHeight: 44,
+  p: 1,
+  flexShrink: 0,
+  color: (theme) => theme.palette.text.secondary,
+  "&:hover": {
+    bgcolor: (theme) => theme.palette.action.selected,
+  },
+  "&.Mui-disabled": {
+    color: (theme) => theme.palette.action.disabled,
+  },
 };

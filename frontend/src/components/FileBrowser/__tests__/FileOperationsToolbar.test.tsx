@@ -58,6 +58,37 @@ describe("FileOperationsToolbar", () => {
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Copy (F5)");
   });
 
+  it("renders an accessible vertical-dots control for overflowing commands", async () => {
+    const user = userEvent.setup();
+    const observers: ResizeObserverCallback[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          observers.push(callback);
+        }
+        observe(_target: Element) {
+          observers.at(-1)?.([{ contentRect: { width: 180 } } as ResizeObserverEntry], this as unknown as ResizeObserver);
+        }
+        unobserve() {}
+        disconnect() {}
+      }
+    );
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
+      if (this.dataset.operationId) return { width: 100 } as DOMRect;
+      if (this.hasAttribute("data-more-button")) return { width: 44 } as DOMRect;
+      if (this.dataset.testid === "file-operations-toolbar") return { width: 180 } as DOMRect;
+      return { width: 0 } as DOMRect;
+    });
+
+    renderToolbar([createAction("copy", { label: "Copy" }), createAction("move", { label: "Move" })]);
+
+    const moreButton = await screen.findByRole("button", { name: "More" });
+    expect(moreButton.querySelector('[data-testid="MoreVertIcon"]')).not.toBeNull();
+    await user.hover(moreButton);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("More");
+  });
+
   it("moves lower-priority commands into More when the toolbar is narrow", async () => {
     const observers: ResizeObserverCallback[] = [];
     let toolbarWidth = 180;

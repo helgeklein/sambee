@@ -1,7 +1,8 @@
-import { Box, Button, Menu, MenuItem, Tooltip } from "@mui/material";
+import { MoreVert as MoreVertIcon } from "@mui/icons-material";
+import { Box, Button, IconButton, Menu, MenuItem, Tooltip } from "@mui/material";
 import React, { useLayoutEffect, useRef, useState } from "react";
 import type { FileOperationAction } from "../../pages/FileBrowser/fileOperationActions";
-import { fileOperationsToolbarButtonSx, fileOperationsToolbarSx } from "../../theme/commonStyles";
+import { fileOperationsToolbarButtonSx, fileOperationsToolbarOverflowButtonSx, fileOperationsToolbarSx } from "../../theme/commonStyles";
 
 const BUTTON_GAP_PX = 8;
 
@@ -82,20 +83,23 @@ export function FileOperationsToolbar({ actions, moreLabel }: FileOperationsTool
       <Box
         ref={toolbarRef}
         data-testid="file-operations-toolbar"
-        sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0, overflow: "hidden" }}
+        sx={{ display: "flex", flex: 1, alignItems: "center", gap: 1, minWidth: 0, overflow: "hidden" }}
       >
         {visibleActions.map((action) => (
           <CommandButton key={action.id} action={action} />
         ))}
         {overflowActions.length > 0 && (
-          <Button
-            aria-haspopup="menu"
-            aria-expanded={moreAnchor ? "true" : undefined}
-            onClick={(event) => setMoreAnchor(event.currentTarget)}
-            sx={fileOperationsToolbarButtonSx}
-          >
-            {moreLabel}
-          </Button>
+          <Tooltip title={moreLabel}>
+            <IconButton
+              aria-label={moreLabel}
+              aria-haspopup="menu"
+              aria-expanded={moreAnchor ? "true" : undefined}
+              onClick={(event) => setMoreAnchor(event.currentTarget)}
+              sx={{ ...fileOperationsToolbarOverflowButtonSx, ml: "auto" }}
+            >
+              <MoreVertIcon />
+            </IconButton>
+          </Tooltip>
         )}
       </Box>
 
@@ -127,9 +131,9 @@ export function FileOperationsToolbar({ actions, moreLabel }: FileOperationsTool
             {action.label}
           </Button>
         ))}
-        <Button data-more-button sx={fileOperationsToolbarButtonSx}>
-          {moreLabel}
-        </Button>
+        <IconButton data-more-button aria-label={moreLabel} sx={fileOperationsToolbarOverflowButtonSx}>
+          <MoreVertIcon />
+        </IconButton>
       </Box>
     </Box>
   );
