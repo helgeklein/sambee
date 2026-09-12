@@ -2412,10 +2412,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // Selection (multi-select)
   // ──────────────────────────────────────────────────────────────────────────
 
-  /**
-   * Toggle the focused file's selection and advance focus down (Norton Commander style).
-   * Insert / Space both trigger this.
-   */
+  /** Toggle the focused file's selection. Insert / Space both trigger this. */
   const handleToggleSelection = useCallback(
     (_e?: KeyboardEvent) => {
       if (!listContainerEl) return;
@@ -2437,13 +2434,8 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         }
         return next;
       });
-
-      // Move focus down (Norton Commander style)
-      if (focusedIndex < files.length - 1) {
-        updateFocus(focusedIndex + 1);
-      }
     },
-    [focusedIndex, updateFocus, listContainerEl]
+    [focusedIndex, listContainerEl]
   );
 
   /**
@@ -2530,6 +2522,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
   const selectItem = useCallback(
     (file: FileEntry, index: number) => {
+      skipNextLayoutScrollRef.current = true;
       updateFocus(index, { immediate: true });
       setSelectedFiles((previous) => new Set(previous).add(file.path));
     },
@@ -2538,6 +2531,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
   const toggleItemSelection = useCallback(
     (file: FileEntry, index: number) => {
+      skipNextLayoutScrollRef.current = true;
       updateFocus(index, { immediate: true });
       setSelectedFiles((previous) => {
         const next = new Set(previous);
@@ -2610,6 +2604,16 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       setDeleteDialogOpen(true);
     },
     [connectionIsReadOnly, contentCapabilities.mutate, getEffectiveSelection, getFocusedFileForAction]
+  );
+
+  const handleDeleteItems = useCallback(
+    (items: readonly BrowserItem[]) => {
+      if (!contentCapabilities.mutate || connectionIsReadOnly || items.length === 0) return;
+
+      setDeleteTargets([...items]);
+      setDeleteDialogOpen(true);
+    },
+    [connectionIsReadOnly, contentCapabilities.mutate]
   );
 
   const handleDeleteForFile = useCallback(
@@ -3542,6 +3546,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
     // CRUD dialogs
     handleDeleteRequest,
+    handleDeleteItems,
     handleDeleteConfirm,
     closeDeleteDialog,
     handleDeleteForFile,

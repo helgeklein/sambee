@@ -6,6 +6,11 @@ interface FileRowButtonProps {
   children: React.ReactNode;
   sx?: SxProps<Theme>;
   onClick?: React.MouseEventHandler<HTMLButtonElement>;
+  onPointerDown?: React.PointerEventHandler<HTMLButtonElement>;
+  onPointerMove?: React.PointerEventHandler<HTMLButtonElement>;
+  onPointerUp?: React.PointerEventHandler<HTMLButtonElement>;
+  onPointerCancel?: React.PointerEventHandler<HTMLButtonElement>;
+  onContextMenu?: React.MouseEventHandler<HTMLButtonElement>;
   tabIndex?: number;
   disabled?: boolean;
   ariaLabel?: string;
@@ -35,7 +40,24 @@ const fileRowButtonBaseSx: SxProps<Theme> = {
 };
 
 export const FileRowButton = React.forwardRef<HTMLButtonElement, FileRowButtonProps>(
-  ({ children, sx, onClick, tabIndex = -1, disabled = false, ariaLabel, ariaPressed, dataSelected }, ref) => (
+  (
+    {
+      children,
+      sx,
+      onClick,
+      onPointerDown,
+      onPointerMove,
+      onPointerUp,
+      onPointerCancel,
+      onContextMenu,
+      tabIndex = -1,
+      disabled = false,
+      ariaLabel,
+      ariaPressed,
+      dataSelected,
+    },
+    ref
+  ) => (
     <ButtonBase
       ref={ref}
       type="button"
@@ -48,6 +70,11 @@ export const FileRowButton = React.forwardRef<HTMLButtonElement, FileRowButtonPr
       aria-pressed={ariaPressed}
       data-selected={dataSelected}
       onClick={onClick}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onContextMenu={onContextMenu}
       sx={[fileRowButtonBaseSx, ...(Array.isArray(sx) ? sx : sx ? [sx] : [])]}
     >
       {children}

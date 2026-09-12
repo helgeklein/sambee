@@ -6,13 +6,17 @@ import type { FileOperationAction } from "../../pages/FileBrowser/fileOperationA
 import type { ViewMode } from "../../pages/FileBrowser/types";
 import type { FileEntry } from "../../types";
 import { type CompactItemAction, CompactItemActionsMenu } from "./CompactItemActionsMenu";
+import { COMPACT_SELECTION_DOCK_HEIGHT_PX } from "./CompactSelectionActions";
 import { FileRow } from "./FileRow";
+
+type CompactOverlayLayout = "dock" | "floating";
 
 interface FileListProps {
   files: FileEntry[];
   showEmptyState?: boolean;
   useCompactLayout?: boolean;
   compactOverlay?: ReactNode;
+  compactOverlayLayout?: CompactOverlayLayout;
   focusedIndex: number;
   selectedFiles: Set<string>;
   onFileClick: (file: FileEntry, index?: number) => void;
@@ -45,6 +49,7 @@ export const FileList = React.memo(
     showEmptyState = true,
     useCompactLayout = false,
     compactOverlay,
+    compactOverlayLayout = "floating",
     focusedIndex,
     selectedFiles,
     onFileClick,
@@ -181,7 +186,11 @@ export const FileList = React.memo(
             style={{
               flex: 1,
               overflow: "auto",
-              paddingBottom: compactOverlay ? "calc(56px + 16px + env(safe-area-inset-bottom))" : undefined,
+              paddingBottom: compactOverlay
+                ? compactOverlayLayout === "dock"
+                  ? `calc(${COMPACT_SELECTION_DOCK_HEIGHT_PX}px + env(safe-area-inset-bottom))`
+                  : "calc(56px + 16px + env(safe-area-inset-bottom))"
+                : undefined,
               WebkitOverflowScrolling: "touch",
             }}
           >
@@ -211,6 +220,7 @@ export const FileList = React.memo(
                     viewMode={viewMode}
                     showCompactActions={useCompactLayout}
                     onOpenItemActions={openItemActions}
+                    onLongPressSelect={useCompactLayout ? onSelectItem : undefined}
                   />
                 );
               })}
@@ -221,8 +231,9 @@ export const FileList = React.memo(
           <Box
             sx={{
               position: "absolute",
-              right: 16,
-              bottom: "max(16px, env(safe-area-inset-bottom))",
+              ...(compactOverlayLayout === "dock"
+                ? { left: 0, right: 0, bottom: 0 }
+                : { right: 16, bottom: "max(16px, env(safe-area-inset-bottom))" }),
               pointerEvents: "none",
             }}
           >

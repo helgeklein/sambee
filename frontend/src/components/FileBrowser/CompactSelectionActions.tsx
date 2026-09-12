@@ -5,6 +5,8 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { FileOperationAction } from "../../pages/FileBrowser/fileOperationActions";
 
+export const COMPACT_SELECTION_DOCK_HEIGHT_PX = 64;
+
 interface CompactSelectionActionsProps {
   actions: readonly FileOperationAction[];
   getActions?: () => readonly FileOperationAction[];
@@ -18,10 +20,27 @@ export function CompactSelectionActions({ actions, getActions, selectedCount, on
   const [menuActions, setMenuActions] = useState<readonly FileOperationAction[]>([]);
 
   return (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, pointerEvents: "auto" }}>
+    <Box
+      data-testid="compact-selection-dock"
+      sx={{
+        boxSizing: "border-box",
+        display: "flex",
+        alignItems: "center",
+        gap: 0.5,
+        minHeight: COMPACT_SELECTION_DOCK_HEIGHT_PX,
+        px: 2,
+        pb: "env(safe-area-inset-bottom)",
+        backgroundColor: "background.paper",
+        borderTop: 1,
+        borderColor: "divider",
+        boxShadow: 3,
+        pointerEvents: "auto",
+      }}
+    >
       <Typography aria-live="polite" aria-atomic="true" variant="body2" sx={{ whiteSpace: "nowrap" }}>
         {t("fileBrowser.compactActions.selectedCount", { count: selectedCount })}
       </Typography>
+      <Box sx={{ flex: 1 }} />
       <Tooltip title={t("fileBrowser.compactActions.clearSelection")}>
         <IconButton aria-label={t("fileBrowser.compactActions.clearSelection")} onClick={onClearSelection} sx={{ width: 44, height: 44 }}>
           <ClearIcon />

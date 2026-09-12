@@ -266,6 +266,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         <CompactCreateMenu actions={compactCreateActions} />
       )
     ) : undefined;
+  const compactOverlayLayout = selectedFiles.size > 0 ? "dock" : "floating";
 
   // ──────────────────────────────────────────────────────────────────────────
   // File Row Styles — depend on isUsingKeyboard (global) and theme
@@ -329,7 +330,6 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         py: 1.5,
         cursor: "pointer",
         userSelect: "none",
-        borderLeft: `3px solid ${theme.palette.primary.main}`,
         transition: "background-color 80ms ease-out",
         background: alpha(theme.palette.primary.main, 0.16),
         color: theme.palette.primary.main,
@@ -349,7 +349,6 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         py: 1.5,
         cursor: "pointer",
         userSelect: "none",
-        borderLeft: `3px solid ${theme.palette.primary.main}`,
         transition: "background-color 80ms ease-out",
         background:
           isUsingKeyboard && showSelectionHighlight ? alpha(theme.palette.primary.main, 0.26) : alpha(theme.palette.primary.main, 0.16),
@@ -543,6 +542,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
             showEmptyState={error === null}
             useCompactLayout={useCompactLayout}
             compactOverlay={compactOverlay}
+            compactOverlayLayout={compactOverlay ? compactOverlayLayout : undefined}
             focusedIndex={focusedIndex}
             selectedFiles={selectedFiles}
             onFileClick={handleFileClick}

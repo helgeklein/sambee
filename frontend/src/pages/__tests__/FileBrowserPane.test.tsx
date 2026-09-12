@@ -250,6 +250,7 @@ function createMockPane(overrides: Partial<UseFileBrowserPaneReturn> = {}): UseF
 
     // CRUD handlers
     handleDeleteRequest: vi.fn(),
+    handleDeleteItems: vi.fn(),
     handleDeleteConfirm: vi.fn(),
     closeDeleteDialog: vi.fn(),
     handleRenameRequest: vi.fn(),

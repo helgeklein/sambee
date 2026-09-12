@@ -39,6 +39,7 @@ describe("CompactSelectionActions", () => {
     const onClearSelection = vi.fn();
     render(<CompactSelectionActions actions={actions} selectedCount={2} onClearSelection={onClearSelection} />);
 
+    expect(screen.getByTestId("compact-selection-dock")).toHaveStyle({ minHeight: "64px" });
     expect(screen.getByText("2 items selected")).toHaveAttribute("aria-live", "polite");
     fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
     expect(onClearSelection).toHaveBeenCalledOnce();

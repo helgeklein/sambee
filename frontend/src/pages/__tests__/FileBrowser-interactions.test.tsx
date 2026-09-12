@@ -2487,6 +2487,11 @@ describe("Browser Component - Interactions", () => {
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /Documents.*selected/i })).toBeInTheDocument();
       });
+      expect(screen.getByRole("button", { name: /Documents.*selected/i })).toHaveAttribute("data-selected", "true");
+      await user.keyboard("{ArrowDown}");
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Folder: Pictures" })).toHaveAttribute("data-selected", "true");
+      });
       await user.keyboard("{Insert}");
       await user.keyboard("{Delete}");
 
@@ -2496,6 +2501,36 @@ describe("Browser Component - Interactions", () => {
       await waitFor(() => {
         expect(api.deleteItem).toHaveBeenCalledTimes(2);
       });
+    });
+
+    it("deletes every item selected through the compact selection menu", async () => {
+      const originalMatchMedia = window.matchMedia;
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: /max-width/.test(query),
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }));
+
+      try {
+        const user = userEvent.setup();
+        renderBrowser("/browse/smb/test-server-1");
+
+        await user.click(await screen.findByRole("button", { name: "More actions for Documents" }));
+        await user.click(screen.getByRole("menuitem", { name: "Select" }));
+        await user.click(screen.getByRole("button", { name: "More actions for Pictures" }));
+        await user.click(screen.getByRole("menuitem", { name: "Select" }));
+        await user.click(screen.getByRole("button", { name: "Selection actions" }));
+        await user.click(screen.getByRole("menuitem", { name: "Delete" }));
+
+        expect(await screen.findByText("The following 2 items will be permanently deleted:")).toBeInTheDocument();
+      } finally {
+        window.matchMedia = originalMatchMedia;
+      }
     });
 
     it("closes dialog when Cancel is clicked", async () => {

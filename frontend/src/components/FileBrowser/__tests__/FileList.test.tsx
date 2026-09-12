@@ -147,6 +147,40 @@ describe("FileList", () => {
     expect(onFileClick).not.toHaveBeenCalled();
   });
 
+  it("reserves virtual-list space for the compact selection dock", () => {
+    const files: FileEntry[] = [
+      {
+        name: "readme.txt",
+        path: "readme.txt",
+        type: "file",
+        size: 123,
+        modified_at: "2026-07-15T00:00:00Z",
+        is_readable: true,
+        is_hidden: false,
+      },
+    ];
+
+    render(
+      <FileList
+        files={files}
+        focusedIndex={0}
+        selectedFiles={new Set([files[0].path])}
+        onFileClick={() => {}}
+        compactOverlay={<div data-testid="selection-dock-overlay" />}
+        compactOverlayLayout="dock"
+        rowVirtualizer={rowVirtualizerStub}
+        parentRef={{ current: null }}
+        listContainerRef={() => {}}
+        fileRowStyles={fileRowStylesStub}
+        useCompactLayout
+        viewMode="list"
+      />
+    );
+
+    expect(screen.getByTestId("virtual-list").style.paddingBottom).toBe("calc(64px + env(safe-area-inset-bottom))");
+    expect(screen.getByTestId("selection-dock-overlay").parentElement).toHaveStyle({ left: "0px", right: "0px", bottom: "0px" });
+  });
+
   it("offers archive extraction only for eligible compact item actions", () => {
     const files: FileEntry[] = [
       {

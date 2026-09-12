@@ -3,6 +3,7 @@
 //
 
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import CircleOutlinedIcon from "@mui/icons-material/CircleOutlined";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import ShortcutIcon from "@mui/icons-material/Shortcut";
 import { Box, IconButton, Typography } from "@mui/material";
@@ -16,6 +17,10 @@ import { isShortcutFile } from "../../utils/fileEntries";
 import { getFileIcon } from "../../utils/fileIcons";
 import { abbreviatePath } from "../../utils/pathDisplay";
 import { FileRowButton } from "./FileRowButton";
+
+const LONG_PRESS_DURATION_MS = 450;
+const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
+const LONG_PRESS_SUPPRESSION_DURATION_MS = 1000;
 
 interface FileRowProps {
   file: FileEntry;
@@ -38,6 +43,7 @@ interface FileRowProps {
   showCompactActions?: boolean;
   selectionMode?: boolean;
   onOpenItemActions?: (file: FileEntry, index: number, anchorElement: HTMLElement) => void;
+  onLongPressSelect?: (file: FileEntry, index: number) => void;
 }
 
 export const shortenTargetPath = abbreviatePath;
@@ -117,10 +123,16 @@ export const FileRow = React.memo(
         showCompactActions = false,
         selectionMode = false,
         onOpenItemActions,
+        onLongPressSelect,
       },
       ref
     ) => {
       const { t } = useTranslation();
+      const longPressTimerRef = useRef<number | null>(null);
+      const suppressionTimerRef = useRef<number | null>(null);
+      const longPressStartRef = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
+      const suppressNextClickRef = useRef(false);
+      const suppressContextMenuRef = useRef(false);
       const isListMode = viewMode === "list";
       const linkTarget = file.link_target?.target;
       const isShortcut = isShortcutFile(file);
@@ -164,6 +176,69 @@ export const FileRow = React.memo(
         </Box>
       );
 
+      const clearLongPressTimer = React.useCallback(() => {
+        if (longPressTimerRef.current !== null) {
+          window.clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+      }, []);
+
+      const clearSuppressionTimer = React.useCallback(() => {
+        if (suppressionTimerRef.current !== null) {
+          window.clearTimeout(suppressionTimerRef.current);
+          suppressionTimerRef.current = null;
+        }
+      }, []);
+
+      useEffect(
+        () => () => {
+          clearLongPressTimer();
+          clearSuppressionTimer();
+        },
+        [clearLongPressTimer, clearSuppressionTimer]
+      );
+
+      const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+        if (!useCompactLayout || selectionMode || event.pointerType !== "touch" || !onLongPressSelect) return;
+
+        const pointerId = event.pointerId;
+        longPressStartRef.current = { pointerId, clientX: event.clientX, clientY: event.clientY };
+        suppressContextMenuRef.current = true;
+        clearLongPressTimer();
+        longPressTimerRef.current = window.setTimeout(() => {
+          if (longPressStartRef.current?.pointerId !== pointerId) return;
+
+          longPressTimerRef.current = null;
+          suppressNextClickRef.current = true;
+          clearSuppressionTimer();
+          suppressionTimerRef.current = window.setTimeout(() => {
+            suppressNextClickRef.current = false;
+            suppressContextMenuRef.current = false;
+            suppressionTimerRef.current = null;
+          }, LONG_PRESS_SUPPRESSION_DURATION_MS);
+          onLongPressSelect(file, index);
+        }, LONG_PRESS_DURATION_MS);
+      };
+
+      const cancelLongPress = (pointerId: number) => {
+        if (longPressStartRef.current?.pointerId !== pointerId) return;
+
+        longPressStartRef.current = null;
+        clearLongPressTimer();
+        if (!suppressNextClickRef.current) {
+          suppressContextMenuRef.current = false;
+        }
+      };
+
+      const handlePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+        const start = longPressStartRef.current;
+        if (!start || start.pointerId !== event.pointerId) return;
+
+        if (Math.hypot(event.clientX - start.clientX, event.clientY - start.clientY) > LONG_PRESS_MOVE_TOLERANCE_PX) {
+          cancelLongPress(event.pointerId);
+        }
+      };
+
       return (
         <div
           ref={ref}
@@ -180,18 +255,42 @@ export const FileRow = React.memo(
         >
           <FileRowButton
             tabIndex={-1}
-            onClick={() => onClick(file, index)}
+            onClick={(event) => {
+              if (suppressNextClickRef.current) {
+                suppressNextClickRef.current = false;
+                suppressContextMenuRef.current = false;
+                clearSuppressionTimer();
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+              }
+              onClick(file, index);
+            }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={(event) => cancelLongPress(event.pointerId)}
+            onPointerCancel={(event) => cancelLongPress(event.pointerId)}
+            onContextMenu={(event) => {
+              if (!suppressContextMenuRef.current) return;
+              suppressContextMenuRef.current = false;
+              event.preventDefault();
+              event.stopPropagation();
+            }}
             disabled={isUnavailableArchiveEntry}
             sx={[rowStyle, canOpenItemActions ? { pr: 7 } : {}, isUnavailableArchiveEntry ? { cursor: "not-allowed", opacity: 0.5 } : {}]}
             dataSelected={isSelected ? "true" : undefined}
             ariaLabel={ariaLabel}
             ariaPressed={useCompactLayout && selectionMode ? isMultiSelected : undefined}
           >
-            {/* Icon: show checkmark when multi-selected, file icon otherwise */}
+            {/* Selection mode uses an explicit selected/unselected icon pair. */}
             {(() => {
               const icon = (() => {
                 if (isMultiSelected) {
                   return <CheckCircleIcon sx={{ fontSize: fileIconSize, color: "primary.main" }} />;
+                }
+
+                if (useCompactLayout && selectionMode) {
+                  return <CircleOutlinedIcon sx={{ fontSize: fileIconSize, color: "text.secondary" }} />;
                 }
 
                 if (isShortcut) {
@@ -272,6 +371,8 @@ export const FileRow = React.memo(
     prev.virtualSize === next.virtualSize &&
     prev.viewMode === next.viewMode &&
     prev.showCompactActions === next.showCompactActions &&
+    prev.selectionMode === next.selectionMode &&
+    prev.onLongPressSelect === next.onLongPressSelect &&
     prev.onOpenItemActions === next.onOpenItemActions
 );
 

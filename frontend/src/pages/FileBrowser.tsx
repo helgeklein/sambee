@@ -2847,7 +2847,13 @@ const Browser: React.FC = () => {
           },
           delete: () => {
             const invocation = createInvocation();
-            runFocusedItemAction(invocation, getPaneForId(invocation.paneId).handleDeleteForFile);
+            const sourcePane = getPaneForId(invocation.paneId);
+            activateOperationPane(invocation.paneId);
+            if (surface === "compact-item-menu") {
+              runFocusedItemAction(invocation, sourcePane.handleDeleteForFile);
+              return;
+            }
+            sourcePane.handleDeleteItems(invocation.items);
           },
           copy: () => handleCopyToOtherPane(createInvocation()),
           move: () => handleMoveToOtherPane(createInvocation()),
@@ -3247,7 +3253,7 @@ const Browser: React.FC = () => {
         onUnavailable: (event) => handleUnavailableShortcut("extract-archive", event),
       },
       // ── Selection Shortcuts (Norton Commander multi-select) ──────────────
-      // Toggle selection on focused file, then move focus down (Insert / Space)
+      // Toggle selection on the focused file (Insert / Space)
       {
         ...SELECTION_SHORTCUTS.TOGGLE_SELECTION,
         handler: () => activePane.handleToggleSelection(),

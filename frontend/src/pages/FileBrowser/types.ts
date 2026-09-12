@@ -215,7 +215,7 @@ export interface UseFileBrowserPaneReturn {
   // ── Selection State (multi-select) ────────────────────────────────────
   /** Set of canonical file paths currently selected (multi-select). */
   selectedFiles: Set<string>;
-  /** Toggle selection of the focused file and move focus down (Insert / Space). */
+  /** Toggle selection of the focused file (Insert / Space). */
   handleToggleSelection: (e?: KeyboardEvent) => void;
   /** Select the focused file and move focus down (Alt+ArrowDown). */
   handleSelectDown: (e?: KeyboardEvent) => void;
@@ -310,6 +310,8 @@ export interface UseFileBrowserPaneReturn {
 
   // ── CRUD Dialog Handlers ───────────────────────────────────────────────
   handleDeleteRequest: (options?: { requireListFocus?: boolean }) => void;
+  /** Opens the delete dialog for explicitly captured item targets. */
+  handleDeleteItems: (items: readonly BrowserItem[]) => void;
   handleDeleteConfirm: () => Promise<void>;
   closeDeleteDialog: () => void;
   handleDeleteForFile: (file: FileEntry, index: number) => void;

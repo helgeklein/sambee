@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, createEvent, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setLocale, translate } from "../../../i18n";
 import { FileType } from "../../../types";
@@ -41,6 +41,7 @@ function createDefaultFileRowProps() {
 
 describe("FileRow", () => {
   afterEach(async () => {
+    vi.useRealTimers();
     await setLocale("en");
   });
 
@@ -126,11 +127,74 @@ describe("FileRow", () => {
     expect(props.onClick).not.toHaveBeenCalled();
   });
 
+  it("enters compact selection mode after a touch long press without activating the row", () => {
+    vi.useFakeTimers();
+    const props = createDefaultFileRowProps();
+    props.isMultiSelected = false;
+    const onLongPressSelect = vi.fn();
+
+    render(<FileRow {...props} useCompactLayout onLongPressSelect={onLongPressSelect} />);
+
+    const rowButton = screen.getByRole("button", { name: /report\.pdf/i });
+    fireEvent.pointerDown(rowButton, { pointerId: 1, pointerType: "touch", clientX: 10, clientY: 10 });
+    act(() => vi.advanceTimersByTime(450));
+    const contextMenuEvent = createEvent.contextMenu(rowButton);
+    fireEvent(rowButton, contextMenuEvent);
+    fireEvent.pointerUp(rowButton, { pointerId: 1, pointerType: "touch" });
+    fireEvent.click(rowButton);
+
+    expect(onLongPressSelect).toHaveBeenCalledWith(props.file, props.index);
+    expect(props.onClick).not.toHaveBeenCalled();
+    expect(contextMenuEvent.defaultPrevented).toBe(true);
+  });
+
+  it("cancels compact long press when the touch becomes a scroll gesture", () => {
+    vi.useFakeTimers();
+    const props = createDefaultFileRowProps();
+    props.isMultiSelected = false;
+    const onLongPressSelect = vi.fn();
+
+    render(<FileRow {...props} useCompactLayout onLongPressSelect={onLongPressSelect} />);
+
+    const rowButton = screen.getByRole("button", { name: /report\.pdf/i });
+    fireEvent.pointerDown(rowButton, { pointerId: 1, pointerType: "touch", clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(rowButton, { pointerId: 1, pointerType: "touch", clientX: 21, clientY: 10 });
+    act(() => vi.advanceTimersByTime(450));
+    fireEvent.click(rowButton);
+
+    expect(onLongPressSelect).not.toHaveBeenCalled();
+    expect(props.onClick).toHaveBeenCalledWith(props.file, props.index);
+  });
+
+  it("does not apply long-press selection when selection mode is already active", () => {
+    vi.useFakeTimers();
+    const props = createDefaultFileRowProps();
+    const onLongPressSelect = vi.fn();
+
+    render(<FileRow {...props} useCompactLayout selectionMode onLongPressSelect={onLongPressSelect} />);
+
+    const rowButton = screen.getByRole("button", { name: /report\.pdf/i });
+    fireEvent.pointerDown(rowButton, { pointerId: 1, pointerType: "touch", clientX: 10, clientY: 10 });
+    act(() => vi.advanceTimersByTime(450));
+
+    expect(onLongPressSelect).not.toHaveBeenCalled();
+  });
+
   it("exposes compact selection mode through aria-pressed", () => {
     const props = createDefaultFileRowProps();
     render(<FileRow {...props} useCompactLayout selectionMode />);
 
     expect(screen.getByRole("button", { name: /report\.pdf/i })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("shows an unselected icon for compact rows in selection mode", () => {
+    const props = createDefaultFileRowProps();
+    props.isMultiSelected = false;
+
+    render(<FileRow {...props} useCompactLayout selectionMode />);
+
+    expect(screen.getByTestId("CircleOutlinedIcon")).toHaveStyle({ fontSize: "28px" });
+    expect(screen.queryByTestId("CheckCircleIcon")).not.toBeInTheDocument();
   });
 
   it("renders a shortcut's full target path", () => {
