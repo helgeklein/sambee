@@ -19,7 +19,7 @@ The implementation will add one responsive full-width file-operations toolbar at
 
 ### Commands
 
-Show the complete file-operation command set as icon buttons, with accessible labels and desktop tooltips. Render as many icons as fit in the available toolbar width. Commands shown in order of priority:
+Show the complete file-operation command set as text buttons. Render as many buttons as fit in the available toolbar width. Commands shown in order of priority:
 
 1. New folder
 1. New file
@@ -31,13 +31,15 @@ Show the complete file-operation command set as icon buttons, with accessible la
 1. Extract archive
 1. Refresh
 
-When the icon row cannot fit every command shown in the current mode, move the lowest-priority commands into an icon-only More menu. Preserve the user-facing command order between the icon row and menu. The More menu appears only when one or more commands overflow.
+When the button row cannot fit every command shown in the current mode, move the lowest-priority commands into a text `More` menu. Preserve the user-facing command order between the button row and menu. The `More` button appears only when one or more commands overflow.
+
+Give every command button and overflow menu item a tooltip that combines its label with its existing keyboard shortcut, such as `Copy (F5)`. Derive shortcut text from the shared keyboard-shortcut definitions so tooltips, keyboard help, and command behavior cannot drift.
 
 Do not add open, viewer-picker, or native-app commands to the toolbar. Opening remains a direct row action; duplicating those commands would add noise without improving file-management discoverability.
 
 ### Availability and feedback
 
-- Every command shown in the current mode remains visible, either as an icon or in More, and is disabled when unavailable. This makes the available operation set discoverable without allowing invalid operations.
+- Every command shown in the current mode remains visible, either as a button or in More, and is disabled when unavailable. This makes the available operation set discoverable without allowing invalid operations.
 - Availability must use the same policy and the same source of truth as keyboard shortcuts. The toolbar must not independently infer read-only access, archive immutability, selected-item requirements, transfer destinations, or provider capabilities.
 - Disabled commands should expose their reason through an accessible description or tooltip using existing unavailable-operation translations.
 - Invoking a command uses the existing handlers and preserves existing dialogs, progress reporting, cancellation, errors, selection semantics, and focus-return behavior.
@@ -51,11 +53,12 @@ Add `frontend/src/pages/FileBrowser/fileOperationActions.ts` as a small, UI-agno
 Define stable action IDs and a descriptor that includes:
 
 - translated label and disabled-reason text
-- MUI icon identifier or icon element
-- display priority, used to decide which commands remain visible as icons when space is constrained
+- translated button label
+- display priority, used to decide which commands remain visible as buttons when space is constrained
 - layout visibility, used only to show Copy and Move when two panes are visible
 - enabled state
 - unavailable reason, when disabled
+- keyboard shortcut label, when defined
 - command handler
 
 The descriptor builder receives one action context for the active pane. That context contains the existing pane handlers, page-level copy/move/archive handlers, rendered pane mode, and the availability results calculated by `FileBrowser`.
@@ -90,16 +93,17 @@ Add `frontend/src/components/FileBrowser/FileOperationsToolbar.tsx`.
 The component accepts precomputed action descriptors and renders:
 
 - an anchored, fixed-height `Box` with a top border
-- a single ordered responsive row of icon buttons
-- MUI tooltips on desktop and `aria-label` values everywhere
+- a single ordered responsive row of text `Button` controls
+- visible text labels and native button semantics on every device
+- a tooltip for every command showing its label and existing keyboard shortcut
 - clear disabled states without layout shifts
-- a More `IconButton` and `Menu` containing only commands that do not fit
+- a text `More` button and `Menu` containing only commands that do not fit
 
-Use a small reusable responsive-overflow hook or utility inside the component. It should observe the available toolbar width with `ResizeObserver`, reserve space for More when overflow is required, and recompute when the toolbar size or action set changes. Measure rendered command widths or use shared layout constants; do not use wrapping, horizontal scrolling, or CSS clipping as the overflow mechanism.
+Use a small reusable responsive-overflow hook or utility inside the component. It should observe the available toolbar width with `ResizeObserver`, reserve space for the `More` button when overflow is required, and recompute when the toolbar size, action set, or localized button labels change. Measure rendered button widths; do not use wrapping, horizontal scrolling, or CSS clipping as the overflow mechanism.
 
 Keep the actions shown in the current mode in the ordered descriptor list. The calculation displays the highest-priority prefix that fits and sends the remaining suffix to More, so resizing preserves a predictable command order. Disabled commands retain their normal slot and may overflow, rather than changing the ordering based on availability.
 
-Use existing MUI icon packages already used by the file browser. Reuse `secondaryActionStripSx` colors where appropriate, but add a concise footer-toolbar style in `frontend/src/theme/commonStyles.ts` so the toolbar is visually distinct from the upper connection/view/sort strip and the informational status bar.
+Use the existing MUI `Button` and `Menu` patterns. Reuse `secondaryActionStripSx` colors where appropriate, but add a concise footer-toolbar style in `frontend/src/theme/commonStyles.ts` so the toolbar is visually distinct from the upper connection/view/sort strip and the informational status bar.
 
 The component remains presentational: it receives action labels, availability, handlers, and disabled reasons as props. It does not know about panes, archives, connections, or storage providers.
 
@@ -120,9 +124,9 @@ Do not pass toolbar props into `FileBrowserPane`, and do not move CRUD dialog ow
 
 The same global component must render on compact layouts:
 
-- use touch-friendly 44px-or-larger icon targets
-- preserve icon labels for screen readers and long-press/hover-capable devices
-- render the maximum number of icons that fit at the current viewport width; put only the remaining lower-priority commands in More
+- use touch-friendly 44px-or-larger button heights
+- keep every visible command label readable, without truncating or replacing it
+- render the maximum number of text buttons that fit at the current viewport width; put only the remaining lower-priority commands in `More`
 - keep all compact-layout commands discoverable even when the active connection, selection, or archive state makes them unavailable
 
 The toolbar must not introduce its own screen-size rule for Copy/Move. They appear whenever the existing browser layout renders two panes and are omitted when it renders one pane.
@@ -133,8 +137,9 @@ Review existing `fileBrowser` action and unavailable-shortcut translations befor
 
 Add only missing strings for:
 
-- toolbar accessible labels and tooltips
-- More menu label
+- toolbar button labels
+- `More` menu label
+- shortcut-aware tooltip format, if an existing shortcut label cannot be reused
 - disabled-command descriptions where existing shortcut-focused messages are unsuitable
 
 Use translation keys from action descriptors; do not hard-code display text in the toolbar.
@@ -145,12 +150,12 @@ Use translation keys from action descriptors; do not hard-code display text in t
 
 Add `frontend/src/components/FileBrowser/__tests__/FileOperationsToolbar.test.tsx` to test:
 
-- primary buttons and their accessible labels
-- desktop tooltip wiring
+- visible button labels and native button semantics
+- tooltips that include the same shortcut labels shown in keyboard help
 - enabled and disabled rendering
 - click delegation only for enabled actions
 - More menu visibility, contents, and click delegation
-- responsive overflow at several container widths, including restoring icons when space becomes available
+- responsive overflow at several container widths, including restoring buttons when space becomes available and localized labels change width
 - Copy/Move visibility whenever the rendered layout has two panes
 - stable layout behavior when actions are disabled
 
