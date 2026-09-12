@@ -39,6 +39,10 @@ interface ArchiveExtractDialogProps {
   onCancelExtraction?: () => void;
   onMemberErrorDecision?: (action: "retry" | "ignore") => void;
   onConflictDecision?: (action: ArchiveExtractionConflictAction, memberPath?: string, targetPath?: string) => void;
+  /** Prevent the dialog from returning focus to its trigger. */
+  disableRestoreFocus?: boolean;
+  /** Called after the dialog's close transition completes. */
+  onTransitionExited?: () => void;
 }
 
 function validateDestinationPath(value: string): string | null {
@@ -143,6 +147,8 @@ export function ArchiveExtractDialog({
   onCancelExtraction,
   onMemberErrorDecision,
   onConflictDecision,
+  disableRestoreFocus,
+  onTransitionExited,
 }: ArchiveExtractDialogProps) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -259,8 +265,10 @@ export function ArchiveExtractDialog({
       open={open}
       onClose={onClose}
       disableClose={isExtracting}
+      disableRestoreFocus={disableRestoreFocus}
       onEscape={isExtracting && onCancelExtraction ? onCancelExtraction : undefined}
       onTransitionEntered={focusInitialControl}
+      onTransitionExited={onTransitionExited}
       title={t(memberError ? "fileBrowser.archive.memberErrorTitle" : "fileBrowser.archive.extractTitle")}
       description={extractionDescription}
       maxWidth="sm"

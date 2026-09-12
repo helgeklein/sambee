@@ -2333,6 +2333,73 @@ describe("Browser Component - Interactions", () => {
   });
 
   describe("Delete", () => {
+    it("returns focus to the file list when a toolbar confirmation is dismissed with Escape", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      await user.click(screen.getByRole("button", { name: "Delete" }));
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+
+      await user.keyboard("{Escape}");
+
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+        expect(screen.getByTestId("file-list-container")).toHaveFocus();
+      });
+    });
+
+    it("returns focus to the file list when Escape is pressed on a focused file row", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      const documentsRow = screen.getByTestId("file-list-container").querySelector<HTMLButtonElement>('button[aria-label*="Documents"]');
+      expect(documentsRow).not.toBeNull();
+      documentsRow?.focus();
+      expect(documentsRow).toHaveFocus();
+
+      await user.keyboard("{Escape}");
+
+      expect(screen.getByTestId("file-list-container")).toHaveFocus();
+    });
+
+    it("returns focus to the file list when Escape is pressed after clicking unused toolbar space", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      const deleteButton = screen.getByRole("button", { name: "Delete" });
+      deleteButton.focus();
+      fireEvent.click(screen.getByTestId("file-operations-toolbar"));
+      expect(deleteButton).toHaveFocus();
+
+      await user.keyboard("{Escape}");
+
+      expect(screen.getByTestId("file-list-container")).toHaveFocus();
+    });
+
+    it("returns focus to the file list when Escape is pressed with document focus", async () => {
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      fireEvent.keyDown(document, { key: "Escape" });
+
+      expect(screen.getByTestId("file-list-container")).toHaveFocus();
+    });
+
     it("opens delete dialog when Delete Focused Item is selected from commands mode", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");

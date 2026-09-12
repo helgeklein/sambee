@@ -1,9 +1,7 @@
 ---
 name: review-code-multiple-agents
-description: Guide for reviewing code changes, new implementations, or planning documents. Use this when asked to review.
+description: Guide for reviewing code changes, new implementations, or planning documents.
 ---
-
-When asked to review code, changes, new implementations, or planning documents:
 
 How the code should be, ideally:
 

@@ -341,6 +341,12 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     listContainerEl?.focus({ preventScroll: true });
   }, [listContainerEl]);
 
+  const handleFileOperationDialogExited = React.useCallback(() => {
+    if (!useCompactLayout) {
+      listContainerEl?.focus({ preventScroll: true });
+    }
+  }, [listContainerEl, useCompactLayout]);
+
   /** Navigate to a breadcrumb path segment. */
   const handleBreadcrumbNavigate = React.useCallback(
     (path: string) => {
@@ -506,6 +512,8 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         isDeleting={isDeleting}
         onClose={closeDeleteDialog}
         onConfirm={handleDeleteConfirm}
+        disableRestoreFocus={!useCompactLayout}
+        onTransitionExited={handleFileOperationDialogExited}
       />
 
       {/* Rename Dialog */}
@@ -517,6 +525,8 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         apiError={renameError}
         onClose={closeRenameDialog}
         onConfirm={handleRenameConfirm}
+        disableRestoreFocus={!useCompactLayout}
+        onTransitionExited={handleFileOperationDialogExited}
       />
 
       {/* Create Item Dialog */}
@@ -529,6 +539,8 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         apiError={createError}
         onClose={closeCreateDialog}
         onConfirm={handleCreateConfirm}
+        disableRestoreFocus={!useCompactLayout}
+        onTransitionExited={handleFileOperationDialogExited}
       />
     </Box>
   );

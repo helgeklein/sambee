@@ -150,6 +150,7 @@ const COMPANION_STATUS_QUERY_PARAM = "companion_status";
 const IGNORED_REALTIME_MESSAGE_TYPES = new Set(["subscribed", "unsubscribed", "pong"]);
 const COPY_MOVE_FILE_CONFLICT_ACTIONS: readonly ConflictResolution[] = ["skip", "overwrite", "overwrite-older", "rename"];
 const COPY_MOVE_DIRECTORY_CONFLICT_ACTIONS: readonly ConflictResolution[] = ["skip", "rename"];
+const TEXT_ENTRY_SELECTOR = 'input, textarea, select, [contenteditable="true"]';
 type CopyMoveConflictPolicy = TargetResolutionPolicy;
 type FileListShortcutAction = FileOperationActionId;
 type FileListShortcutUnavailableReason =
@@ -715,10 +716,51 @@ const Browser: React.FC = () => {
   const effectiveActivePaneIdRef = React.useRef(effectiveActivePaneId);
   effectiveActivePaneIdRef.current = effectiveActivePaneId;
   const activePane = effectiveActivePaneId === "left" ? leftPane : rightPane;
+
+  const handleFileOperationDialogExited = useCallback(() => {
+    if (!useCompactLayout) {
+      activePane.listContainerEl?.focus({ preventScroll: true });
+    }
+  }, [activePane.listContainerEl, useCompactLayout]);
   const quickBarPane = quickBarPaneId === "right" && isDualMode ? rightPane : leftPane;
   const quickBarOtherPane = quickBarPaneId === "right" && isDualMode ? leftPane : rightPane;
   const quickBarInputRef = quickBarPane.searchInputRef;
   const viewerOverlayOpen = Boolean(leftPane.viewInfo || rightPane.viewInfo);
+  const browserOverlayOpen =
+    settingsOpen ||
+    mobileSettingsOpen ||
+    drawerOpen ||
+    showHelp ||
+    viewerOverlayOpen ||
+    leftPane.deleteDialogOpen ||
+    leftPane.renameDialogOpen ||
+    leftPane.createDialogOpen ||
+    rightPane.deleteDialogOpen ||
+    rightPane.renameDialogOpen ||
+    rightPane.createDialogOpen ||
+    copyMoveDialogOpen ||
+    conflictDialogOpen ||
+    archiveWorkflowDialogOpen;
+  const handleBrowserEscape = useCallback(() => {
+    activePane.handleClose();
+    activePane.listContainerEl?.focus({ preventScroll: true });
+  }, [activePane]);
+  const handleBrowserKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== "Escape" || event.defaultPrevented || browserOverlayOpen) {
+        return;
+      }
+
+      const target = event.target;
+      if (!(target instanceof Element) || !event.currentTarget.contains(target) || target.closest(TEXT_ENTRY_SELECTOR)) {
+        return;
+      }
+
+      event.preventDefault();
+      handleBrowserEscape();
+    },
+    [browserOverlayOpen, handleBrowserEscape]
+  );
   const isBrowserBrowsing = !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo;
   const activePaneConnection = getConnectionById(allConnections, activePane.connectionId);
   const quickBarPaneConnection = getConnectionById(allConnections, quickBarPane.connectionId);
@@ -2988,8 +3030,8 @@ const Browser: React.FC = () => {
       // Clear selection and search (close action in browser context)
       {
         ...COMMON_SHORTCUTS.CLOSE,
-        handler: activePane.handleClose,
-        enabled: noDialogOrCopyMove,
+        handler: handleBrowserEscape,
+        enabled: !browserOverlayOpen,
       },
       // Refresh (Ctrl+R) — available in both single and dual pane modes
       {
@@ -3147,6 +3189,7 @@ const Browser: React.FC = () => {
     activePane,
     activePaneCanOpenInApp,
     activePaneIsArchive,
+    browserOverlayOpen,
     getFileListShortcutAvailability,
     handleUnavailableShortcut,
     handleOpenSettings,
@@ -3167,6 +3210,7 @@ const Browser: React.FC = () => {
     handleMoveToOtherPane,
     handleCreateArchiveRequest,
     handleArchiveExtractionRequest,
+    handleBrowserEscape,
     archiveExtractionContext,
     t,
   ]);
@@ -3337,7 +3381,7 @@ const Browser: React.FC = () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   return (
-    <Box sx={getMobileViewportShellSx(useCompactLayout)}>
+    <Box sx={getMobileViewportShellSx(useCompactLayout)} onKeyDown={handleBrowserKeyDown}>
       {/* Hamburger Menu - Mobile Only */}
       <HamburgerMenu
         open={drawerOpen}
@@ -3643,6 +3687,8 @@ const Browser: React.FC = () => {
         extraValidate={(name) => (name.toLowerCase().endsWith(".zip") ? null : t("fileBrowser.archive.validationExtension"))}
         autoSelectRange={[0, "archive".length]}
         submittingContent={<ArchiveOperationProgress operation="create" />}
+        disableRestoreFocus={!useCompactLayout}
+        onTransitionExited={handleFileOperationDialogExited}
       />
       <ArchiveExtractDialog
         archiveName={archiveExtractionContext?.archiveName ?? ""}
@@ -3685,6 +3731,8 @@ const Browser: React.FC = () => {
         onCancelExtraction={() => void cancelArchiveExtraction()}
         onMemberErrorDecision={(action) => void handleArchiveExtractionMemberErrorDecision(action)}
         onConflictDecision={(action, memberPath, targetPath) => void handleArchiveExtractionDecision(action, memberPath, targetPath)}
+        disableRestoreFocus={!useCompactLayout}
+        onTransitionExited={handleFileOperationDialogExited}
       />
       {/* Companion app guidance hint */}
       <Snackbar
@@ -3724,6 +3772,8 @@ const Browser: React.FC = () => {
         error={copyMoveError}
         warning={copyMoveWarning}
         isTerminal={!copyMoveProcessing && Boolean(copyMoveError || copyMoveWarning)}
+        disableRestoreFocus={!useCompactLayout}
+        onTransitionExited={handleFileOperationDialogExited}
       />
       {/* Overwrite Conflict Dialog (shown per-file during copy/move) */}
       <OverwriteResolutionDialog

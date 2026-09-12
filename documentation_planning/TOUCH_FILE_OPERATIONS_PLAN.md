@@ -10,7 +10,7 @@ On compact layouts, replace the persistent operations toolbar with contextual to
 - a temporary selection-actions menu for one or more selected items
 - a lower-right create button that exposes New folder and New file
 
-Desktop retains the existing full-width operations toolbar. This plan does not change the existing desktop keyboard, toolbar, dual-pane, or operation workflows.
+Desktop retains the existing full-width operations toolbar. This plan removes the application-owned row context menu; it does not otherwise change desktop keyboard, toolbar, dual-pane, or operation workflows.
 
 ## Decision Record
 
@@ -31,17 +31,19 @@ Result:
 - Render compact contextual controls only when `useCompactLayout` is true.
 - Keep keyboard support working on compact layouts when a keyboard is attached. Do not remove shortcut handlers or keyboard focus behavior.
 
-### Keep desktop context menus; use item actions menus on compact layouts
+### Remove application context menus; use explicit action controls
 
-The existing desktop `FileRow` context menu remains unchanged. Do not add, remove, reorder, or refactor its commands as part of this work.
+Remove the application-owned `FileRow` context menu on all layouts. Do not attach an `onContextMenu` handler, render an application `Menu`, or provide a keyboard-invoked application context-menu path on a file row. This work does not attempt to suppress the browser's own context menu.
 
-On compact layouts, do not show the application's context menu and do not attach its `contextmenu` handler to rows. Instead, render a visible, labelled per-item more actions button with the vertical-ellipsis `MoreVert` icon. It opens the compact item actions menu. Long presses have no effect in the file browser: they do not open an application menu, enter selection mode, select an item, activate an item, or invoke an operation.
+On desktop, the operations toolbar is the application command surface for file-management actions. Removing the row context menu deliberately removes its viewer-choice entries from that surface; normal file activation continues to use the existing default viewer behavior. Do not add viewer choices to the toolbar without a separate product decision.
+
+On compact layouts, render a visible, labelled per-item more actions button with the vertical-ellipsis `MoreVert` icon. It opens the compact item actions menu. Long presses have no effect in the file browser: they do not open an application menu, enter selection mode, select an item, activate an item, or invoke an operation.
 
 ### Terminology
 
 Use these terms consistently in code, tests, documentation, accessible labels, and UI copy:
 
-- **Desktop context menu**: the existing right-click or keyboard-invoked menu on desktop. It is unchanged and remains the only surface called a context menu.
+- **Application context menu**: the legacy right-click or keyboard-invoked `FileRow` menu. It is removed on every layout and must not be replaced with another application context-menu path.
 - **More actions button**: the compact row or selection control using the vertical-ellipsis `MoreVert` icon. A row button has an accessible label such as `More actions for report.pdf`.
 - **Item actions menu**: the compact, item-specific menu opened by a row's more actions button. It is not an overflow menu or a context menu.
 - **Selection actions menu**: the compact menu for bulk actions, opened by the selection surface's more actions button.
@@ -59,7 +61,7 @@ Do not replicate permission, selection, archive, or destination checks in `FileR
 
 Each readable row displays a right-aligned more actions button with the `MoreVert` icon and an accessible label such as `More actions for report.pdf`.
 
-Tapping it opens an anchored item actions menu. The menu operates on the item that opened it, not whatever row is focused later. It is a compact-only menu, separate from and not a replacement for the unchanged desktop context menu.
+Tapping it opens an anchored item actions menu. The menu operates on the item that opened it, not whatever row is focused later. It is a compact-only menu; desktop does not provide an equivalent row menu.
 
 Show commands in this order when applicable:
 
@@ -195,7 +197,7 @@ Refactor the page availability helper to accept a `FileOperationPolicyContext`. 
 
 Reuse existing page-level copy/move/archive handlers, extending their public callback shape only enough to accept a captured policy context. The handlers must snapshot source pane, source handles, destination location, and destination pane before opening a dialog or starting an operation.
 
-The desktop context-menu renderer and its local viewer-action logic do not consume these descriptors and remain unchanged. The descriptor change applies to the desktop toolbar and new compact action surfaces only.
+The removed application context-menu renderer and its local viewer-action logic do not consume these descriptors. The descriptor change applies to the desktop toolbar and new compact action surfaces only.
 
 ## Component and State Changes
 
@@ -216,13 +218,13 @@ Modify `handleFileClick` only through an explicit `selectionMode` branch: toggle
 
 ### 2. `FileRow.tsx`
 
-Leave the desktop context-menu component, state, renderer, and viewer-action callbacks unchanged. Add compact-only props for the separate item actions menu.
+Remove the existing application context-menu state, renderer, `onContextMenu` handler, and context-menu-only viewer-action callbacks from `FileRow`. Add compact-only props for the separate item actions menu. Preserve ordinary file activation and its existing default viewer behavior.
 
 New props should be callbacks/data only:
 
 - `showCompactActions`
 - `onOpenItemActions(file, index, anchorElement)`
-- existing open/viewer callbacks can be migrated into the central item-action descriptors instead of remaining independently rendered menu entries
+- compact item-action callbacks include only the viewer choices intentionally retained for compact layout; do not preserve desktop-only context-menu callbacks
 
 In compact layout, render a trailing `MoreVert` more actions `IconButton` with a fixed 44px by 44px touch target, centred in the existing 56px mobile row, and a row-specific accessible label. Stop propagation so the button does not activate the row. It must be visible for every actionable readable row.
 
@@ -238,7 +240,7 @@ interface CompactItemMenuState {
 
 Capture the trigger's bounding rectangle when the more actions button is pressed and render MUI `Menu` with `anchorReference="anchorPosition"`. This keeps the open menu positioned and correctly targeted if its row is virtualized out of view. On close, restore focus to `triggerElement` only when it is still connected; otherwise focus the file-list container.
 
-Do not change desktop `onContextMenu` handling or its current menu contents. In compact layout, do not attach or use a `contextmenu` interaction path. Open the compact item actions menu only from the visible more actions button. A compact long press must otherwise leave application menu, selection, focus, and file activation state unchanged.
+Do not attach or use an application `contextmenu` interaction path on any layout. In compact layout, open the item actions menu only from the visible more actions button. A compact long press must otherwise leave application menu, selection, focus, and file activation state unchanged.
 
 ### 3. `FileList.tsx`
 
@@ -257,7 +259,7 @@ When the FAB is visible, position it with `right: 16px` and `bottom: max(16px, e
 Add focused presentational components under `frontend/src/components/FileBrowser/`:
 
 - `CompactCreateMenu.tsx`: one anchored `Add` button and New folder/New file menu. Accepts descriptors only.
-- `CompactItemActionsMenu.tsx`: a page/pane-owned, position-anchored item actions menu for one captured row context. Renders compact descriptors and any explicitly shared viewer-specific entries without changing desktop menu rendering.
+- `CompactItemActionsMenu.tsx`: a page/pane-owned, position-anchored item actions menu for one captured row context. Renders compact descriptors and any intentionally retained compact viewer-specific entries.
 - `CompactSelectionActions.tsx`: selected-count surface with Clear selection and a more actions button that opens the selection actions menu for central selection action descriptors.
 
 Use MUI `Fab`, `IconButton`, `Menu`, and `MenuItem`. Use existing icon library symbols for all controls. Tooltips are supplemental; buttons require accessible labels.
@@ -279,6 +281,7 @@ Do not make `FileRow` aware of connections, archive providers, dual-pane state, 
 
 - Render `FileOperationsToolbar` only for non-compact layouts.
 - Preserve the existing desktop status-bar behavior.
+- Remove the application row context menu on desktop and compact layouts. Keep the browser's own context-menu behavior outside application control and out of scope.
 - Derive compact actions from the same descriptor definitions and policy results as the desktop toolbar.
 - Refactor `getFileListShortcutAvailability()` into a context-aware policy function while retaining its current keyboard-facing wrapper. Add parity tests so keyboard and desktop descriptor results cannot diverge.
 - Capture operations at invocation time. An item/selection menu must not read `activePane` or selection again after the user has opened it. Keyboard shortcuts use the active pane's effective selection at the time the shortcut is pressed, matching the current desktop-toolbar contract.
@@ -334,9 +337,9 @@ Extend `FileRow.test.tsx` and `FileList.test.tsx`:
 
 - compact visible more actions button, accessible label, and propagation behavior
 - clicking the more actions button never calls the row activation handler
-- desktop context menu behavior and contents remain unchanged
-- compact rows do not attach the application's context-menu handler
-- dispatching a compact `contextmenu` event does not open an application menu, alter selection/focus, activate a row, or invoke an action
+- neither desktop nor compact rows attach the application's context-menu handler or render the legacy menu
+- dispatching a `contextmenu` event on any row does not open an application menu, alter selection/focus, activate a row, or invoke an action
+- removing legacy context-menu-only viewer actions preserves normal file activation and default viewer behavior
 - row tap opens content normally outside selection mode
 - row tap toggles selection in selection mode
 - row selection uses canonical paths, including refresh reconciliation and renamed-item path replacement
@@ -378,7 +381,7 @@ Validate at compact width with pointer/touch input:
 Validate desktop afterward:
 
 1. Existing toolbar still renders once, with unchanged overflow behavior.
-1. Desktop contextmenu remains available.
+1. Right-clicking a row does not open an application menu, and normal file activation still opens the existing default viewer behavior.
 1. Dual-pane Copy/Move continue to bind operations to their source and destination at invocation.
 
 ## Delivery Phases
@@ -391,9 +394,9 @@ Refactor descriptor data and availability-policy input to support presentation s
 
 Hide the persistent toolbar on compact layout and add the compact create FAB/menu. This is an independent, low-risk deliverable for empty and writable folders.
 
-### Phase 3: Item actions
+### Phase 3: Remove legacy context menu and add compact item actions
 
-Add a visible compact row more actions button and a list/pane-owned item actions menu. Migrate Rename/Delete/Extract archive incrementally while preserving viewer actions.
+Remove the legacy application context menu from `FileRow` on every layout and update desktop tests to assert its absence. Add a visible compact row more actions button and a list/pane-owned item actions menu. Migrate Rename/Delete/Extract archive and only the viewer choices intentionally retained for compact layout.
 
 ### Phase 4: Selection mode and bulk operations
 
@@ -408,7 +411,7 @@ Run focused component/page tests, the full affected frontend test slice, `npx ts
 | Risk | Mitigation |
 | --- | --- |
 | Misidentifying keyboardless devices | Use compact layout only; do not infer hardware capabilities. |
-| Mobile long press invokes file-browser actions | Do not attach the application context-menu handler in compact layout; expose the visible more actions button instead. |
+| Context-menu behavior differs by browser | Remove the application context-menu handler on every layout; use the desktop toolbar and compact visible more actions button as the application command surfaces. |
 | Virtualized row unmount affects an open menu | Capture the item and a static anchor position above `FileRow`; fall back to file-list focus after close. |
 | Operation retargeting after focus change | Snapshot pane, item handles, selection, and destination at invocation. |
 | Divergent desktop/mobile policy | Keep one page-level availability function and descriptor factory; add parity tests. |

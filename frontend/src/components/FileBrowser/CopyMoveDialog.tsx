@@ -66,6 +66,10 @@ export interface CopyMoveDialogProps {
   warning?: string | null;
   /** Whether the dialog is displaying a completed batch summary. */
   isTerminal?: boolean;
+  /** Prevent the dialog from returning focus to its trigger. */
+  disableRestoreFocus?: boolean;
+  /** Called after the dialog's close transition completes. */
+  onTransitionExited?: () => void;
 }
 
 // ============================================================================
@@ -108,6 +112,8 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   error,
   warning,
   isTerminal = false,
+  disableRestoreFocus,
+  onTransitionExited,
 }) => {
   const { t } = useTranslation();
   // Editable file name — only used for single-item operations
@@ -269,8 +275,10 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
       open={open}
       onClose={onCancel}
       disableClose={isProcessing}
+      disableRestoreFocus={disableRestoreFocus}
       onEscape={isProcessing ? onCancel : undefined}
       onKeyDown={handleKeyDown}
+      onTransitionExited={onTransitionExited}
       title={title}
       contextualNotice={
         <DialogNoticeRegion

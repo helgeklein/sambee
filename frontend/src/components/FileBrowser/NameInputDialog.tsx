@@ -74,6 +74,10 @@ interface NameInputDialogProps {
    * If not provided, the entire value is selected.
    */
   autoSelectRange?: [number, number];
+  /** Prevent the dialog from returning focus to its trigger. */
+  disableRestoreFocus?: boolean;
+  /** Called after the dialog's close transition completes. */
+  onTransitionExited?: () => void;
 }
 
 // ============================================================================
@@ -99,6 +103,8 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
   apiError,
   extraValidate,
   autoSelectRange,
+  disableRestoreFocus,
+  onTransitionExited,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const cancelSubmittingRef = useRef<HTMLButtonElement>(null);
@@ -235,7 +241,9 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
       open={open}
       onClose={onClose}
       disableClose={isSubmitting}
+      disableRestoreFocus={disableRestoreFocus}
       onEscape={isSubmitting && onCancelSubmitting ? onCancelSubmitting : undefined}
+      onTransitionExited={onTransitionExited}
       title={title}
       description={description}
       actionNotice={<DialogNotice message={showApiError ? apiError : null} testId="name-input-api-error" />}
