@@ -1,6 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, createEvent, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setLocale, translate } from "../../../i18n";
+import { formatDate, formatFileSize } from "../../../pages/FileBrowser/formatters";
+import { FILE_BROWSER_ROW_HEIGHT } from "../../../theme/constants";
 import { FileType } from "../../../types";
 import { FileRow, shortenTargetPath } from "../FileRow";
 
@@ -41,10 +43,11 @@ function createDefaultFileRowProps() {
 
 describe("FileRow", () => {
   afterEach(async () => {
+    vi.useRealTimers();
     await setLocale("en");
   });
 
-  it("renders translated context menu items and aria labels", async () => {
+  it("does not render an application context menu on desktop", async () => {
     await setLocale("en-XA");
 
     render(<FileRow {...createDefaultFileRowProps()} />);
@@ -56,11 +59,7 @@ describe("FileRow", () => {
 
     fireEvent.contextMenu(rowButton);
 
-    expect(screen.getByText(translate("common.actions.rename"))).toBeInTheDocument();
-    expect(screen.getByText(translate("fileBrowser.row.openInBrowserViewer"))).toBeInTheDocument();
-    expect(screen.getByText(translate("fileBrowser.row.chooseBrowserViewer"))).toBeInTheDocument();
-    expect(screen.getByText(translate("fileBrowser.row.openInNativeApp"))).toBeInTheDocument();
-    expect(screen.getByText(translate("fileBrowser.row.chooseNativeApp"))).toBeInTheDocument();
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
   it("invokes onClick when the row button is pressed", () => {
@@ -119,16 +118,103 @@ describe("FileRow", () => {
     expect(screen.queryByText(translate("fileBrowser.row.openInBrowserViewer"))).not.toBeInTheDocument();
   });
 
-  it("hides browser-viewer actions when the file cannot be opened in Sambee", () => {
+  it("opens compact item actions without activating the row", () => {
     const props = createDefaultFileRowProps();
-    props.canOpenInBrowserViewer = () => false;
+    const onOpenItemActions = vi.fn();
 
-    render(<FileRow {...props} />);
-    fireEvent.contextMenu(screen.getByRole("button", { name: /report\.pdf/i }));
+    render(<FileRow {...props} useCompactLayout showCompactActions onOpenItemActions={onOpenItemActions} />);
+    fireEvent.click(screen.getByRole("button", { name: "More actions for report.pdf" }));
 
-    expect(screen.queryByText(translate("fileBrowser.row.openInBrowserViewer"))).not.toBeInTheDocument();
-    expect(screen.queryByText(translate("fileBrowser.row.chooseBrowserViewer"))).not.toBeInTheDocument();
-    expect(screen.getByText(translate("fileBrowser.row.openInNativeApp"))).toBeInTheDocument();
+    expect(onOpenItemActions).toHaveBeenCalledWith(props.file, props.index, expect.any(HTMLElement));
+    expect(props.onClick).not.toHaveBeenCalled();
+  });
+
+  it("enters compact selection mode after a touch long press without activating the row", () => {
+    vi.useFakeTimers();
+    const props = createDefaultFileRowProps();
+    props.isMultiSelected = false;
+    const onLongPressSelect = vi.fn();
+
+    render(<FileRow {...props} useCompactLayout onLongPressSelect={onLongPressSelect} />);
+
+    const rowButton = screen.getByRole("button", { name: /report\.pdf/i });
+    fireEvent.pointerDown(rowButton, { pointerId: 1, pointerType: "touch", clientX: 10, clientY: 10 });
+    act(() => vi.advanceTimersByTime(450));
+    const contextMenuEvent = createEvent.contextMenu(rowButton);
+    fireEvent(rowButton, contextMenuEvent);
+    fireEvent.pointerUp(rowButton, { pointerId: 1, pointerType: "touch" });
+    fireEvent.click(rowButton);
+
+    expect(onLongPressSelect).toHaveBeenCalledWith(props.file, props.index);
+    expect(props.onClick).not.toHaveBeenCalled();
+    expect(contextMenuEvent.defaultPrevented).toBe(true);
+  });
+
+  it("enters selection mode after a touch long press in desktop layout when touch controls are enabled", () => {
+    vi.useFakeTimers();
+    const props = createDefaultFileRowProps();
+    props.isMultiSelected = false;
+    const onLongPressSelect = vi.fn();
+
+    render(<FileRow {...props} useTouchSelectionControls onLongPressSelect={onLongPressSelect} />);
+
+    const rowButton = screen.getByRole("button", { name: /report\.pdf/i });
+    fireEvent.pointerDown(rowButton, { pointerId: 1, pointerType: "touch", clientX: 10, clientY: 10 });
+    act(() => vi.advanceTimersByTime(450));
+    fireEvent.pointerUp(rowButton, { pointerId: 1, pointerType: "touch" });
+    fireEvent.click(rowButton);
+
+    expect(onLongPressSelect).toHaveBeenCalledWith(props.file, props.index);
+    expect(props.onClick).not.toHaveBeenCalled();
+  });
+
+  it("cancels compact long press when the touch becomes a scroll gesture", () => {
+    vi.useFakeTimers();
+    const props = createDefaultFileRowProps();
+    props.isMultiSelected = false;
+    const onLongPressSelect = vi.fn();
+
+    render(<FileRow {...props} useCompactLayout onLongPressSelect={onLongPressSelect} />);
+
+    const rowButton = screen.getByRole("button", { name: /report\.pdf/i });
+    fireEvent.pointerDown(rowButton, { pointerId: 1, pointerType: "touch", clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(rowButton, { pointerId: 1, pointerType: "touch", clientX: 21, clientY: 10 });
+    act(() => vi.advanceTimersByTime(450));
+    fireEvent.click(rowButton);
+
+    expect(onLongPressSelect).not.toHaveBeenCalled();
+    expect(props.onClick).toHaveBeenCalledWith(props.file, props.index);
+  });
+
+  it("does not apply long-press selection when selection mode is already active", () => {
+    vi.useFakeTimers();
+    const props = createDefaultFileRowProps();
+    const onLongPressSelect = vi.fn();
+
+    render(<FileRow {...props} useCompactLayout selectionMode onLongPressSelect={onLongPressSelect} />);
+
+    const rowButton = screen.getByRole("button", { name: /report\.pdf/i });
+    fireEvent.pointerDown(rowButton, { pointerId: 1, pointerType: "touch", clientX: 10, clientY: 10 });
+    act(() => vi.advanceTimersByTime(450));
+
+    expect(onLongPressSelect).not.toHaveBeenCalled();
+  });
+
+  it("exposes compact selection mode through aria-pressed", () => {
+    const props = createDefaultFileRowProps();
+    render(<FileRow {...props} useCompactLayout selectionMode />);
+
+    expect(screen.getByRole("button", { name: /report\.pdf/i })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("shows an unselected icon for compact rows in selection mode", () => {
+    const props = createDefaultFileRowProps();
+    props.isMultiSelected = false;
+
+    render(<FileRow {...props} useCompactLayout selectionMode />);
+
+    expect(screen.getByTestId("CircleOutlinedIcon")).toHaveStyle({ fontSize: "28px" });
+    expect(screen.queryByTestId("CheckCircleIcon")).not.toBeInTheDocument();
   });
 
   it("renders a shortcut's full target path", () => {
@@ -182,7 +268,76 @@ describe("FileRow", () => {
 
     rerender(<FileRow {...props} useCompactLayout />);
 
-    expect(screen.getByText("report.pdf")).toHaveStyle({ fontSize: "16px" });
+    expect(screen.getByText("report.pdf")).toHaveStyle({ fontSize: "17px" });
+    expect(screen.getByTestId("CheckCircleIcon")).toHaveStyle({ fontSize: "28px" });
+  });
+
+  it("renders compact file metadata in a fixed-height secondary line", () => {
+    const props = createDefaultFileRowProps();
+    const metadata = `${formatFileSize(props.file.size)} \u00b7 ${formatDate(props.file.modified_at)}`;
+    const { container } = render(
+      <FileRow
+        {...props}
+        useCompactLayout
+        showCompactActions
+        virtualSize={FILE_BROWSER_ROW_HEIGHT.MOBILE_PX}
+        onOpenItemActions={() => {}}
+      />
+    );
+
+    expect(container.querySelector("[data-index='0']")).toHaveStyle({ height: "72px" });
+    expect(screen.getByText(metadata)).toHaveStyle({
+      color: "rgba(0, 0, 0, 0.6)",
+      fontSize: "12px",
+      fontVariantNumeric: "tabular-nums",
+      marginTop: "1px",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+    });
+    expect(screen.getByRole("button", { name: "More actions for report.pdf" })).toHaveStyle({ height: "44px", width: "44px" });
+  });
+
+  it("renders only available compact file metadata values without a dangling separator", () => {
+    const props = createDefaultFileRowProps();
+    const { rerender } = render(<FileRow {...props} useCompactLayout file={{ ...props.file, modified_at: undefined }} />);
+
+    expect(screen.getByText(formatFileSize(props.file.size))).toBeInTheDocument();
+    expect(screen.queryByText(/\u00b7/)).not.toBeInTheDocument();
+
+    rerender(<FileRow {...props} useCompactLayout file={{ ...props.file, size: undefined }} />);
+
+    expect(screen.getByText(formatDate(props.file.modified_at))).toBeInTheDocument();
+    expect(screen.queryByText(/\u00b7/)).not.toBeInTheDocument();
+  });
+
+  it("does not render compact metadata for folders or directory shortcuts", () => {
+    const props = createDefaultFileRowProps();
+    const metadata = `${formatFileSize(props.file.size)} \u00b7 ${formatDate(props.file.modified_at)}`;
+    const { rerender } = render(
+      <FileRow {...props} useCompactLayout file={{ ...props.file, name: "Documents", type: FileType.DIRECTORY }} />
+    );
+
+    expect(screen.queryByText(metadata)).not.toBeInTheDocument();
+
+    rerender(
+      <FileRow
+        {...props}
+        useCompactLayout
+        file={{
+          ...props.file,
+          name: "Documents.lnk",
+          link_kind: "windows_shortcut",
+          link_target: {
+            source_path: "Documents.lnk",
+            state: "resolved",
+            target: { name: "Documents", type: FileType.DIRECTORY },
+          },
+        }}
+      />
+    );
+
+    expect(screen.queryByText(metadata)).not.toBeInTheDocument();
   });
 
   it("rerenders when deferred shortcut metadata arrives", () => {
@@ -215,7 +370,7 @@ describe("FileRow", () => {
     expect(screen.getByText("Project Archive")).toBeInTheDocument();
   });
 
-  it("hides file actions for a shortcut resolving to a directory", () => {
+  it("does not attach application context actions to shortcut rows", () => {
     const props = createDefaultFileRowProps();
     props.isMultiSelected = false;
     props.file = {
@@ -230,12 +385,9 @@ describe("FileRow", () => {
     };
 
     render(<FileRow {...props} />);
-    fireEvent.contextMenu(screen.getByRole("button", { name: /shortcut target: Project Archive/i }));
+    const rowButton = screen.getByRole("button", { name: /shortcut target: Project Archive/i });
+    fireEvent.contextMenu(rowButton);
 
-    expect(screen.getByText(translate("common.actions.rename"))).toBeInTheDocument();
-    expect(screen.queryByText(translate("fileBrowser.row.openInBrowserViewer"))).not.toBeInTheDocument();
-    expect(screen.queryByText(translate("fileBrowser.row.chooseBrowserViewer"))).not.toBeInTheDocument();
-    expect(screen.queryByText(translate("fileBrowser.row.openInNativeApp"))).not.toBeInTheDocument();
-    expect(screen.queryByText(translate("fileBrowser.row.chooseNativeApp"))).not.toBeInTheDocument();
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 });

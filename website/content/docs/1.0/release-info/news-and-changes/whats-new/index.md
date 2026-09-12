@@ -68,6 +68,18 @@ Shortcuts (`.lnk` files), symlinks, and junctions on local drives now show the t
 
 Copy and move operations can now overwrite an existing file or replace it only when the source is newer. The same choices work for batches and apply to all supported local and SMB transfers. Directories with the same name are merged safely, preserving destination-only content and resolving only conflicting files.
 
+### Command Toolbar (Desktop) & Per-Row Actions (Mobile)
+
+A new toolbar at the bottom of the file list makes available commands discoverable. On small screens, typical mobile controls are used instead: a "+" icon to create new files or directories, per-row item actions menus to access commands that operate on individual files or folders.
+
+### Item Selection on Small Screens (Mobile)
+
+On phones and other small screen devices, files and folders can be selected either through a long press or via the item action menu. Once one item is selected, Sambee switches to multi-selection mode where additional items can be selected through a single tap. An action bar at the bottom of the sceen provides access to commands.
+
+### File Metadata on Small Screens (Mobile)
+
+On phones and other small screen devices, file size and modification time are now displayed in a two-line layout.
+
 ### Other Changes
 
 - When keyboard shortcuts are ignored Sambee now shows a toast message to make the user unobtrusively aware of the fact.
@@ -86,12 +98,17 @@ The settings gained a new category page:
 
 - New admin settings page: **File Search**
 
+File browser settings:
+
+- **Touch-friendly file selection:** controls how mobile-style file selection is enabled (auto, always on, off).
+
 ## Image Viewer
 
 - Large images: better user feedback while loading
 
 ## Miscellaneous
 
+- Mobile UI: text size increase to match text size in other apps
 - Bugfix: Concurrent OIDC token refreshes would cause SQLite database lock errors.
 
 ## Under the Hood

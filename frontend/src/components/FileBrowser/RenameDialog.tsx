@@ -40,6 +40,10 @@ interface RenameDialogProps {
   onConfirm: (newName: string) => void;
   /** Error message from the API (e.g., "already exists") */
   apiError?: string | null;
+  /** Prevent the dialog from returning focus to its trigger. */
+  disableRestoreFocus?: boolean;
+  /** Called after the dialog's close transition completes. */
+  onTransitionExited?: () => void;
 }
 
 // ============================================================================
@@ -62,7 +66,17 @@ function getNameSelectionRange(name: string, isDirectory: boolean): [number, num
 // Component
 // ============================================================================
 
-const RenameDialog: React.FC<RenameDialogProps> = ({ open, itemName, itemType, isRenaming, onClose, onConfirm, apiError }) => {
+const RenameDialog: React.FC<RenameDialogProps> = ({
+  open,
+  itemName,
+  itemType,
+  isRenaming,
+  onClose,
+  onConfirm,
+  apiError,
+  disableRestoreFocus,
+  onTransitionExited,
+}) => {
   const { t } = useTranslation();
   const isDirectory = itemType === FileType.DIRECTORY;
   const title = isDirectory ? RENAME_DIALOG_STRINGS.TITLE_DIRECTORY : RENAME_DIALOG_STRINGS.TITLE_FILE;
@@ -97,6 +111,8 @@ const RenameDialog: React.FC<RenameDialogProps> = ({ open, itemName, itemType, i
       apiError={apiError}
       extraValidate={extraValidate}
       autoSelectRange={autoSelectRange}
+      disableRestoreFocus={disableRestoreFocus}
+      onTransitionExited={onTransitionExited}
     />
   );
 };

@@ -43,6 +43,10 @@ interface CreateItemDialogProps {
   onConfirm: (name: string) => void;
   /** Error message from the API (e.g., "already exists") */
   apiError?: string | null;
+  /** Prevent the dialog from returning focus to its trigger. */
+  disableRestoreFocus?: boolean;
+  /** Called after the dialog's close transition completes. */
+  onTransitionExited?: () => void;
 }
 
 // ============================================================================
@@ -58,6 +62,8 @@ const CreateItemDialog: React.FC<CreateItemDialogProps> = ({
   onClose,
   onConfirm,
   apiError,
+  disableRestoreFocus,
+  onTransitionExited,
 }) => {
   const { t } = useTranslation();
   const isDirectory = itemType === FileType.DIRECTORY;
@@ -87,6 +93,8 @@ const CreateItemDialog: React.FC<CreateItemDialogProps> = ({
       onClose={onClose}
       onConfirm={onConfirm}
       apiError={apiError}
+      disableRestoreFocus={disableRestoreFocus}
+      onTransitionExited={onTransitionExited}
     />
   );
 };

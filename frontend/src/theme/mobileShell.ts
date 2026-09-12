@@ -1,5 +1,5 @@
 import type { SxProps, Theme } from "@mui/material";
-import { TOOLBAR_HEIGHT } from "./constants";
+import { COMPACT_LAYOUT_SIZE, TOOLBAR_HEIGHT } from "./constants";
 
 export const SAFE_AREA_INSET = {
   TOP: "env(safe-area-inset-top, 0px)",
@@ -65,3 +65,15 @@ export const mobileFullscreenDrawerPaperSx: SxProps<Theme> = {
   maxHeight: MOBILE_VIEWPORT_HEIGHT,
   overflow: "hidden",
 };
+
+/** Compact typography policy for the main navigation drawer. */
+export const mobileNavigationDrawerTypographySx: SxProps<Theme> = (theme) => ({
+  [theme.breakpoints.down("sm")]: {
+    "& .MuiTypography-h6": {
+      fontSize: `${COMPACT_LAYOUT_SIZE.DIALOG_TITLE_PX}px`,
+    },
+    "& .MuiListItemText-primary, & .MuiInputBase-input, & .MuiSelect-select": {
+      fontSize: `${COMPACT_LAYOUT_SIZE.MENU_TEXT_PX}px`,
+    },
+  },
+});

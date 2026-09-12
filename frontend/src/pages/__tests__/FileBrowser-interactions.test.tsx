@@ -107,6 +107,19 @@ describe("Browser Component - Interactions", () => {
   });
 
   describe("Settings", () => {
+    it("disables the Refresh toolbar command while settings is open", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await screen.findAllByText("Documents");
+      expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
+
+      await user.click(screen.getByRole("button", { name: "Open settings" }));
+      await screen.findByRole("dialog");
+
+      expect(screen.getByRole("button", { name: "Refresh", hidden: true })).toBeDisabled();
+    });
+
     it("opens settings when settings button clicked", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");
@@ -799,9 +812,7 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard(" ");
       await user.keyboard("{F5}");
 
-      await waitFor(() => {
-        expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
-      });
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       expect(api.copyItem).not.toHaveBeenCalled();
     });
 
@@ -1225,7 +1236,7 @@ describe("Browser Component - Interactions", () => {
 
       fireEvent.keyDown(document, { key: "F9", altKey: true });
       expect(screen.queryByRole("dialog", { name: "Extract from ZIP Archive" })).not.toBeInTheDocument();
-      expect(await screen.findByText("The selected item is not available for this action.")).toBeInTheDocument();
+      expect(await screen.findByText("Select an archive to extract.")).toBeInTheDocument();
 
       await user.keyboard("{Control>}p{/Control}");
       const commandInput = await screen.findByPlaceholderText("Run a command");
@@ -1245,22 +1256,22 @@ describe("Browser Component - Interactions", () => {
         path: "",
         items: [
           {
-            name: "notes.txt",
-            path: "notes.txt",
-            type: FileType.FILE,
-            size: 1024,
-            modified_at: "2024-01-01T00:00:00Z",
-            mime_type: "text/plain",
-            is_readable: true,
-            is_hidden: false,
-          },
-          {
             name: "temp.zip",
             path: "temp.zip",
             type: FileType.FILE,
             size: 102400,
             modified_at: "2024-01-01T00:00:00Z",
             mime_type: "application/zip",
+            is_readable: true,
+            is_hidden: false,
+          },
+          {
+            name: "notes.txt",
+            path: "notes.txt",
+            type: FileType.FILE,
+            size: 1024,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "text/plain",
             is_readable: true,
             is_hidden: false,
           },
@@ -1277,6 +1288,7 @@ describe("Browser Component - Interactions", () => {
 
       fireEvent.keyDown(document, { key: "ArrowDown" });
       await waitFor(() => expect(screen.getAllByRole("button", { name: /file: temp\.zip/i })[0]).toHaveAttribute("data-selected", "true"));
+      expect(screen.getByRole("button", { name: "Extract archive" })).toBeEnabled();
       fireEvent.keyDown(document, { key: "F9", altKey: true });
 
       const extractDialog = await screen.findByRole("dialog", { name: "Extract from ZIP Archive" });
@@ -1328,7 +1340,7 @@ describe("Browser Component - Interactions", () => {
       expect(api.executeArchiveCreation).not.toHaveBeenCalled();
     });
 
-    it("extracts the selected ZIP member to the other pane with F5", async () => {
+    it("extracts the selected ZIP member to the other pane from the Copy toolbar command", async () => {
       const user = userEvent.setup();
       vi.mocked(api.listArchiveDirectory).mockResolvedValue({
         archive: { path: "archive.zip", size: 1 },
@@ -1350,7 +1362,7 @@ describe("Browser Component - Interactions", () => {
       expect(screen.queryByRole("dialog", { name: "Extract from ZIP Archive" })).not.toBeInTheDocument();
       await user.keyboard(" ");
 
-      fireEvent.keyDown(document, { key: "F5" });
+      await user.click(screen.getByRole("button", { name: "Copy" }));
 
       const extractDialog = await screen.findByRole("dialog", { name: "Extract from ZIP Archive" });
       expect(within(extractDialog).getByLabelText("inside.txt")).toHaveTextContent("inside.txt");
@@ -2322,6 +2334,73 @@ describe("Browser Component - Interactions", () => {
   });
 
   describe("Delete", () => {
+    it("returns focus to the file list when a toolbar confirmation is dismissed with Escape", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      await user.click(screen.getByRole("button", { name: "Delete" }));
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+
+      await user.keyboard("{Escape}");
+
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+        expect(screen.getByTestId("file-list-container")).toHaveFocus();
+      });
+    });
+
+    it("returns focus to the file list when Escape is pressed on a focused file row", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      const documentsRow = screen.getByTestId("file-list-container").querySelector<HTMLButtonElement>('button[aria-label*="Documents"]');
+      expect(documentsRow).not.toBeNull();
+      documentsRow?.focus();
+      expect(documentsRow).toHaveFocus();
+
+      await user.keyboard("{Escape}");
+
+      expect(screen.getByTestId("file-list-container")).toHaveFocus();
+    });
+
+    it("returns focus to the file list when Escape is pressed after clicking unused toolbar space", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      const deleteButton = screen.getByRole("button", { name: "Delete" });
+      deleteButton.focus();
+      fireEvent.click(screen.getByTestId("file-operations-toolbar"));
+      expect(deleteButton).toHaveFocus();
+
+      await user.keyboard("{Escape}");
+
+      expect(screen.getByTestId("file-list-container")).toHaveFocus();
+    });
+
+    it("returns focus to the file list when Escape is pressed with document focus", async () => {
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      fireEvent.keyDown(document, { key: "Escape" });
+
+      expect(screen.getByTestId("file-list-container")).toHaveFocus();
+    });
+
     it("opens delete dialog when Delete Focused Item is selected from commands mode", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");
@@ -2409,6 +2488,11 @@ describe("Browser Component - Interactions", () => {
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /Documents.*selected/i })).toBeInTheDocument();
       });
+      expect(screen.getByRole("button", { name: /Documents.*selected/i })).toHaveAttribute("data-selected", "true");
+      await user.keyboard("{ArrowDown}");
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Folder: Pictures" })).toHaveAttribute("data-selected", "true");
+      });
       await user.keyboard("{Insert}");
       await user.keyboard("{Delete}");
 
@@ -2418,6 +2502,66 @@ describe("Browser Component - Interactions", () => {
       await waitFor(() => {
         expect(api.deleteItem).toHaveBeenCalledTimes(2);
       });
+    });
+
+    it("deletes every item selected through the compact selection menu", async () => {
+      const originalMatchMedia = window.matchMedia;
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: /max-width/.test(query),
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }));
+
+      try {
+        const user = userEvent.setup();
+        renderBrowser("/browse/smb/test-server-1");
+
+        await user.click(await screen.findByRole("button", { name: "More actions for Documents" }));
+        await user.click(screen.getByRole("menuitem", { name: "Select" }));
+        await user.click(screen.getByRole("button", { name: "More actions for Pictures" }));
+        await user.click(screen.getByRole("menuitem", { name: "Select" }));
+        await user.click(screen.getByRole("button", { name: "Selection actions" }));
+        await user.click(screen.getByRole("menuitem", { name: "Delete" }));
+
+        expect(await screen.findByText("The following 2 items will be permanently deleted:")).toBeInTheDocument();
+      } finally {
+        window.matchMedia = originalMatchMedia;
+      }
+    });
+
+    it("keeps the desktop layout while automatic touch selection is enabled for a coarse primary pointer", async () => {
+      const originalMatchMedia = window.matchMedia;
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: query === "(pointer: coarse)",
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }));
+
+      try {
+        const user = userEvent.setup();
+        renderBrowser("/browse/smb/test-server-1");
+
+        expect(await screen.findByRole("button", { name: "Refresh" })).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Open menu" })).not.toBeInTheDocument();
+
+        await user.click(await screen.findByRole("button", { name: "More actions for Documents" }));
+        await user.click(screen.getByRole("menuitem", { name: "Select" }));
+
+        expect(screen.getByRole("button", { name: /Folder: Documents.*selected/i })).toHaveAttribute("aria-pressed", "true");
+        expect(screen.getByRole("button", { name: "Selection actions" })).toBeInTheDocument();
+      } finally {
+        window.matchMedia = originalMatchMedia;
+      }
     });
 
     it("closes dialog when Cancel is clicked", async () => {
@@ -2468,6 +2612,49 @@ describe("Browser Component - Interactions", () => {
   });
 
   describe("Rename", () => {
+    it("opens the rename dialog from the active pane toolbar command", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await screen.findAllByText("Documents");
+      await user.click(screen.getByRole("button", { name: "Rename" }));
+
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    });
+
+    it("targets the newly active pane when Rename is invoked from the toolbar", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.listDirectory).mockImplementation(async (connectionId) => {
+        const name = connectionId === "conn-1" ? "left-item.txt" : "right-item.txt";
+        return {
+          items: [
+            {
+              name,
+              path: name,
+              type: FileType.FILE,
+              size: 1,
+              modified_at: "2024-01-01T00:00:00Z",
+              is_readable: true,
+              is_hidden: false,
+            },
+          ],
+          path: "",
+          total: 1,
+        };
+      });
+
+      const { container } = renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2");
+      await screen.findByRole("button", { name: "File: right-item.txt" });
+
+      const rightPane = container.querySelector('[data-pane-id="right"]');
+      expect(rightPane).toBeInstanceOf(HTMLElement);
+      await user.click(rightPane as HTMLElement);
+      await waitFor(() => expect(screen.getByTestId("router-location")).toHaveTextContent("active=2"));
+
+      await user.click(screen.getByRole("button", { name: "Rename" }));
+      expect(await screen.findByLabelText(/new name/i)).toHaveValue("right-item.txt");
+    });
+
     it("opens rename dialog when Rename Focused Item is selected from commands mode", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");

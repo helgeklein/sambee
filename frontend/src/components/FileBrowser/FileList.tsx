@@ -1,18 +1,27 @@
 import { Box, Typography } from "@mui/material";
 import type { Virtualizer } from "@tanstack/react-virtual";
-import React from "react";
+import React, { type ReactNode, useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ViewMode } from "../../pages/FileBrowser/types";
 import type { FileEntry } from "../../types";
+import { type CompactItemAction, CompactItemActionsMenu } from "./CompactItemActionsMenu";
+import { COMPACT_SELECTION_DOCK_HEIGHT_PX } from "./CompactSelectionActions";
 import { FileRow } from "./FileRow";
+
+type CompactOverlayLayout = "dock" | "floating";
 
 interface FileListProps {
   files: FileEntry[];
   showEmptyState?: boolean;
   useCompactLayout?: boolean;
+  useTouchSelectionControls?: boolean;
+  compactOverlay?: ReactNode;
+  compactOverlayLayout?: CompactOverlayLayout;
   focusedIndex: number;
   selectedFiles: Set<string>;
   onFileClick: (file: FileEntry, index?: number) => void;
+  onToggleItemSelection?: (file: FileEntry, index: number) => void;
+  onSelectItem?: (file: FileEntry, index: number) => void;
   rowVirtualizer: Virtualizer<HTMLDivElement, Element>;
   parentRef: React.RefObject<HTMLDivElement>;
   listContainerRef: (node: HTMLDivElement | null) => void;
@@ -25,13 +34,7 @@ interface FileListProps {
     buttonFocusedMultiSelected: Record<string, unknown>;
   };
   viewMode: ViewMode;
-  onOpenAssociatedViewer?: (file: FileEntry, index: number) => void;
-  onOpenViewerPicker?: (file: FileEntry, index: number) => void;
-  canOpenInBrowserViewer?: (file: FileEntry) => boolean;
-  onOpenAssociatedNativeApp?: (file: FileEntry, index: number) => void;
-  onOpenNativePicker?: (file: FileEntry, index: number) => void;
-  /** Called when "Rename" is chosen from the context menu */
-  onRename?: (file: FileEntry, index: number) => void;
+  getCompactItemActions?: (file: FileEntry, index: number) => readonly CompactItemAction[];
 } //
 // FileList
 //
@@ -40,27 +43,60 @@ export const FileList = React.memo(
     files,
     showEmptyState = true,
     useCompactLayout = false,
+    useTouchSelectionControls = useCompactLayout,
+    compactOverlay,
+    compactOverlayLayout = "floating",
     focusedIndex,
     selectedFiles,
     onFileClick,
+    onToggleItemSelection,
+    onSelectItem,
     rowVirtualizer,
     parentRef,
     listContainerRef,
     fileRowStyles,
     viewMode,
-    onOpenAssociatedViewer,
-    onOpenViewerPicker,
-    canOpenInBrowserViewer,
-    onOpenAssociatedNativeApp,
-    onOpenNativePicker,
-    onRename,
+    getCompactItemActions,
   }: FileListProps) => {
     const { t } = useTranslation();
+    const listElementRef = useRef<HTMLDivElement>(null);
+    const [itemMenu, setItemMenu] = useState<{
+      actions: CompactItemAction[];
+      anchorPosition: { top: number; left: number };
+      triggerElement: HTMLElement;
+    } | null>(null);
     const virtualItemsForRender = rowVirtualizer.getVirtualItems();
+
+    const closeItemMenu = useCallback(() => {
+      const triggerElement = itemMenu?.triggerElement;
+      setItemMenu(null);
+      if (triggerElement?.isConnected) {
+        triggerElement.focus();
+      } else {
+        listElementRef.current?.focus({ preventScroll: true });
+      }
+    }, [itemMenu]);
+
+    const openItemActions = useCallback(
+      (file: FileEntry, index: number, anchorElement: HTMLElement) => {
+        const actions = getCompactItemActions?.(file, index) ?? [];
+
+        const anchorBounds = anchorElement.getBoundingClientRect();
+        setItemMenu({
+          actions,
+          anchorPosition: { top: anchorBounds.bottom, left: anchorBounds.right },
+          triggerElement: anchorElement,
+        });
+      },
+      [getCompactItemActions]
+    );
 
     return (
       <Box
-        ref={listContainerRef}
+        ref={(node) => {
+          listElementRef.current = node;
+          listContainerRef(node);
+        }}
         data-testid="file-list-container"
         tabIndex={0}
         sx={{
@@ -87,6 +123,11 @@ export const FileList = React.memo(
             style={{
               flex: 1,
               overflow: "auto",
+              paddingBottom: compactOverlay
+                ? compactOverlayLayout === "dock"
+                  ? `calc(${COMPACT_SELECTION_DOCK_HEIGHT_PX}px + env(safe-area-inset-bottom))`
+                  : "calc(56px + 16px + env(safe-area-inset-bottom))"
+                : undefined,
               WebkitOverflowScrolling: "touch",
             }}
           >
@@ -105,26 +146,45 @@ export const FileList = React.memo(
                     key={virtualItem.key}
                     file={file}
                     useCompactLayout={useCompactLayout}
+                    useTouchSelectionControls={useTouchSelectionControls}
                     index={virtualItem.index}
                     isSelected={virtualItem.index === focusedIndex}
-                    isMultiSelected={selectedFiles.has(file.name)}
+                    isMultiSelected={selectedFiles.has(file.path)}
+                    selectionMode={useTouchSelectionControls && selectedFiles.size > 0}
                     virtualStart={virtualItem.start}
                     virtualSize={virtualItem.size}
-                    onClick={onFileClick}
+                    onClick={
+                      useTouchSelectionControls && selectedFiles.size > 0 && onToggleItemSelection ? onToggleItemSelection : onFileClick
+                    }
                     fileRowStyles={fileRowStyles}
                     viewMode={viewMode}
-                    onOpenAssociatedViewer={onOpenAssociatedViewer}
-                    onOpenViewerPicker={onOpenViewerPicker}
-                    canOpenInBrowserViewer={canOpenInBrowserViewer}
-                    onOpenAssociatedNativeApp={onOpenAssociatedNativeApp}
-                    onOpenNativePicker={onOpenNativePicker}
-                    onRename={onRename}
+                    showCompactActions={useTouchSelectionControls}
+                    onOpenItemActions={openItemActions}
+                    onLongPressSelect={useTouchSelectionControls ? onSelectItem : undefined}
                   />
                 );
               })}
             </div>
           </div>
         )}
+        {compactOverlay ? (
+          <Box
+            sx={{
+              position: "absolute",
+              ...(compactOverlayLayout === "dock"
+                ? { left: 0, right: 0, bottom: 0 }
+                : { right: 16, bottom: "max(16px, env(safe-area-inset-bottom))" }),
+              pointerEvents: "none",
+            }}
+          >
+            {compactOverlay}
+          </Box>
+        ) : null}
+        <CompactItemActionsMenu
+          actions={itemMenu?.actions ?? []}
+          anchorPosition={itemMenu?.anchorPosition ?? null}
+          onClose={closeItemMenu}
+        />
       </Box>
     );
   }

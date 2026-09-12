@@ -122,6 +122,144 @@ describe("Browser Component - Rendering", () => {
     expect(screen.getByText("readme.txt")).toBeInTheDocument();
   });
 
+  it("renders one toolbar without cross-pane commands in single-pane mode", async () => {
+    renderBrowser("/browse/smb/test-server-1");
+
+    await screen.findAllByText("Documents");
+
+    expect(screen.getAllByTestId("file-operations-toolbar")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "New folder" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Move" })).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("status-bar-focused-file-name")).toHaveLength(1);
+  });
+
+  it("renders one toolbar with transfer commands and an aligned status bar for each dual pane", async () => {
+    renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2");
+
+    await waitFor(() => {
+      expectDirectoryLoad("conn-1", "");
+      expectDirectoryLoad("conn-2", "");
+    });
+
+    expect(screen.getAllByTestId("file-operations-toolbar")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move" })).toBeInTheDocument();
+    expect(screen.getAllByTestId("status-bar-focused-file-name")).toHaveLength(2);
+  });
+
+  it("keeps permitted creation and refresh commands available in an empty directory", async () => {
+    vi.mocked(api.listDirectory).mockResolvedValue({ items: [], path: "", total: 0 });
+
+    renderBrowser("/browse/smb/test-server-1");
+
+    expect(await screen.findByText(/This directory is empty/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New folder" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
+    expect(screen.queryByTestId("status-bar-focused-file-name")).not.toBeInTheDocument();
+  });
+
+  it("keeps the toolbar visible while mutation commands are disabled on a read-only connection", async () => {
+    vi.mocked(api.getConnections).mockResolvedValue([{ ...mockConnections[0], access_mode: "read_only" }]);
+
+    renderBrowser("/browse/smb/test-server-1");
+
+    await screen.findAllByText("Documents");
+    expect(screen.getByRole("button", { name: "New folder" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Rename" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
+  });
+
+  it("hides the toolbar and status bars in compact layout", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: /max-width/.test(query),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+
+    try {
+      renderBrowser("/browse/smb/test-server-1");
+
+      await screen.findAllByText("Documents");
+      expect(screen.queryByTestId("file-operations-toolbar")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("status-bar-focused-file-name")).not.toBeInTheDocument();
+      await screen.findByRole("button", { name: "Create new item" });
+      fireEvent.click(screen.getByRole("button", { name: "Create new item" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "New folder" }));
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it("enters and exits compact selection mode through explicit controls", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: /max-width/.test(query),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+
+    try {
+      renderBrowser("/browse/smb/test-server-1");
+
+      await screen.findByRole("button", { name: "More actions for readme.txt" });
+      fireEvent.click(screen.getByRole("button", { name: "More actions for readme.txt" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Select" }));
+      expect(screen.getAllByText("1 item selected").length).toBeGreaterThan(0);
+
+      fireEvent.click(screen.getByRole("button", { name: /folder: documents/i }));
+      expect(screen.getAllByText("2 items selected").length).toBeGreaterThan(0);
+
+      fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+      expect(await screen.findByRole("button", { name: "Create new item" })).toBeInTheDocument();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it("enables parent navigation at an archive root in compact layout", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: /max-width/.test(query),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+      archive: { path: "archive.zip", size: 1 },
+      path: "",
+      items: [{ name: "inside.txt", path: "inside.txt", type: "file", state: "readable", is_hidden: false }],
+      total: 1,
+      page_size: 100,
+    } as never);
+
+    try {
+      renderBrowser("/browse/smb/test-server-1/archive.zip");
+
+      await screen.findByRole("button", { name: /file: inside\.txt/i });
+      expect(screen.getByText("archive.zip")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Navigate to parent directory" })).toBeEnabled();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
   it("displays loading state while fetching files", async () => {
     // Mock a delayed response
     vi.mocked(api.listDirectory).mockImplementation(() => new Promise<typeof mockDirectoryListing>(() => {}));

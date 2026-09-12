@@ -3,24 +3,29 @@
 //
 
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import EditIcon from "@mui/icons-material/Edit";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import CircleOutlinedIcon from "@mui/icons-material/CircleOutlined";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 import ShortcutIcon from "@mui/icons-material/Shortcut";
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import { Box, ListItemIcon, ListItemText, Menu, MenuItem, Typography } from "@mui/material";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Box, IconButton, Typography } from "@mui/material";
+import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatDate, formatFileSize } from "../../pages/FileBrowser/formatters";
 import type { ViewMode } from "../../pages/FileBrowser/types";
+import { COMPACT_LAYOUT_SIZE } from "../../theme/constants";
 import type { FileEntry } from "../../types";
 import { isShortcutFile } from "../../utils/fileEntries";
 import { getFileIcon } from "../../utils/fileIcons";
 import { abbreviatePath } from "../../utils/pathDisplay";
 import { FileRowButton } from "./FileRowButton";
 
+const LONG_PRESS_DURATION_MS = 450;
+const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
+const LONG_PRESS_SUPPRESSION_DURATION_MS = 1000;
+
 interface FileRowProps {
   file: FileEntry;
   useCompactLayout?: boolean;
+  useTouchSelectionControls?: boolean;
   index: number;
   isSelected: boolean;
   isMultiSelected: boolean;
@@ -36,16 +41,22 @@ interface FileRowProps {
     contentBox: Record<string, unknown>;
   };
   viewMode: ViewMode;
-  onOpenAssociatedViewer?: (file: FileEntry, index: number) => void;
-  onOpenViewerPicker?: (file: FileEntry, index: number) => void;
-  canOpenInBrowserViewer?: (file: FileEntry) => boolean;
-  onOpenAssociatedNativeApp?: (file: FileEntry, index: number) => void;
-  onOpenNativePicker?: (file: FileEntry, index: number) => void;
-  /** Called when "Rename" is chosen from the context menu */
-  onRename?: (file: FileEntry, index: number) => void;
+  showCompactActions?: boolean;
+  selectionMode?: boolean;
+  onOpenItemActions?: (file: FileEntry, index: number, anchorElement: HTMLElement) => void;
+  onLongPressSelect?: (file: FileEntry, index: number) => void;
 }
 
 export const shortenTargetPath = abbreviatePath;
+
+function getCompactFileMetadata(file: FileEntry): string | null {
+  if (file.type === "directory" || file.link_target?.target.type === "directory") {
+    return null;
+  }
+
+  const metadata = [formatFileSize(file.size), formatDate(file.modified_at)].filter(Boolean);
+  return metadata.length > 0 ? metadata.join(" \u00b7 ") : null;
+}
 
 function TargetPathLabel({ path, rowTextSx }: { path: string; rowTextSx?: Record<string, string> }) {
   const labelRef = useRef<HTMLSpanElement>(null);
@@ -111,6 +122,7 @@ export const FileRow = React.memo(
       {
         file,
         useCompactLayout = false,
+        useTouchSelectionControls = useCompactLayout,
         index,
         isSelected,
         isMultiSelected,
@@ -119,31 +131,27 @@ export const FileRow = React.memo(
         onClick,
         fileRowStyles,
         viewMode,
-        onOpenAssociatedViewer,
-        onOpenViewerPicker,
-        canOpenInBrowserViewer,
-        onOpenAssociatedNativeApp,
-        onOpenNativePicker,
-        onRename,
+        showCompactActions = false,
+        selectionMode = false,
+        onOpenItemActions,
+        onLongPressSelect,
       },
       ref
     ) => {
       const { t } = useTranslation();
+      const longPressTimerRef = useRef<number | null>(null);
+      const suppressionTimerRef = useRef<number | null>(null);
+      const longPressStartRef = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
+      const suppressNextClickRef = useRef(false);
+      const suppressContextMenuRef = useRef(false);
       const isListMode = viewMode === "list";
       const linkTarget = file.link_target?.target;
       const isShortcut = isShortcutFile(file);
-      const isFile = file.type !== "directory" && linkTarget?.type !== "directory";
       const isUnavailableArchiveEntry = file.archive_entry_state !== undefined && !file.is_readable;
-      const hasBrowserViewerActions = isFile && (canOpenInBrowserViewer?.(file) ?? true);
-      const rowTextSx = useCompactLayout ? { fontSize: "16px" } : undefined;
-      const hasContextMenu = !!(
-        !isUnavailableArchiveEntry &&
-        (onRename ||
-          (isFile &&
-            ((hasBrowserViewerActions && (onOpenAssociatedViewer || onOpenViewerPicker)) ||
-              onOpenAssociatedNativeApp ||
-              onOpenNativePicker)))
-      );
+      const rowTextSx = useCompactLayout ? { fontSize: `${COMPACT_LAYOUT_SIZE.FILE_ROW_TEXT_PX}px` } : undefined;
+      const fileIconSize = useCompactLayout ? COMPACT_LAYOUT_SIZE.FILE_ROW_ICON_PX : 24;
+      const compactMetadata = useCompactLayout ? getCompactFileMetadata(file) : null;
+      const canOpenItemActions = showCompactActions && !isUnavailableArchiveEntry && onOpenItemActions !== undefined;
       const itemTypeLabel = t(file.type === "directory" ? "fileBrowser.row.itemTypes.folder" : "fileBrowser.row.itemTypes.file");
       const linkTargetName = linkTarget?.name;
       const linkTargetPath = linkTarget?.path ?? linkTargetName;
@@ -165,47 +173,6 @@ export const FileRow = React.memo(
               ? fileRowStyles.buttonSelected
               : fileRowStyles.buttonNotSelected;
 
-      // Context menu state
-      const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
-
-      const handleContextMenu = useCallback(
-        (e: React.MouseEvent) => {
-          if (!hasContextMenu) return;
-          e.preventDefault();
-          setContextMenu({ mouseX: e.clientX, mouseY: e.clientY });
-        },
-        [hasContextMenu]
-      );
-
-      const handleContextMenuClose = useCallback(() => {
-        setContextMenu(null);
-      }, []);
-
-      const handleOpenAssociatedViewerClick = useCallback(() => {
-        setContextMenu(null);
-        onOpenAssociatedViewer?.(file, index);
-      }, [onOpenAssociatedViewer, file, index]);
-
-      const handleOpenViewerPickerClick = useCallback(() => {
-        setContextMenu(null);
-        onOpenViewerPicker?.(file, index);
-      }, [onOpenViewerPicker, file, index]);
-
-      const handleOpenAssociatedNativeAppClick = useCallback(() => {
-        setContextMenu(null);
-        onOpenAssociatedNativeApp?.(file, index);
-      }, [onOpenAssociatedNativeApp, file, index]);
-
-      const handleOpenNativePickerClick = useCallback(() => {
-        setContextMenu(null);
-        onOpenNativePicker?.(file, index);
-      }, [onOpenNativePicker, file, index]);
-
-      const handleRenameClick = useCallback(() => {
-        setContextMenu(null);
-        onRename?.(file, index);
-      }, [onRename, file, index]);
-
       const fileName = (
         <Box sx={{ display: "flex", minWidth: 0, width: "100%" }}>
           <Typography
@@ -220,6 +187,69 @@ export const FileRow = React.memo(
           {linkTargetPath ? <TargetPathLabel path={linkTargetPath} rowTextSx={rowTextSx} /> : null}
         </Box>
       );
+
+      const clearLongPressTimer = React.useCallback(() => {
+        if (longPressTimerRef.current !== null) {
+          window.clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+      }, []);
+
+      const clearSuppressionTimer = React.useCallback(() => {
+        if (suppressionTimerRef.current !== null) {
+          window.clearTimeout(suppressionTimerRef.current);
+          suppressionTimerRef.current = null;
+        }
+      }, []);
+
+      useEffect(
+        () => () => {
+          clearLongPressTimer();
+          clearSuppressionTimer();
+        },
+        [clearLongPressTimer, clearSuppressionTimer]
+      );
+
+      const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+        if (!useTouchSelectionControls || selectionMode || event.pointerType !== "touch" || !onLongPressSelect) return;
+
+        const pointerId = event.pointerId;
+        longPressStartRef.current = { pointerId, clientX: event.clientX, clientY: event.clientY };
+        suppressContextMenuRef.current = true;
+        clearLongPressTimer();
+        longPressTimerRef.current = window.setTimeout(() => {
+          if (longPressStartRef.current?.pointerId !== pointerId) return;
+
+          longPressTimerRef.current = null;
+          suppressNextClickRef.current = true;
+          clearSuppressionTimer();
+          suppressionTimerRef.current = window.setTimeout(() => {
+            suppressNextClickRef.current = false;
+            suppressContextMenuRef.current = false;
+            suppressionTimerRef.current = null;
+          }, LONG_PRESS_SUPPRESSION_DURATION_MS);
+          onLongPressSelect(file, index);
+        }, LONG_PRESS_DURATION_MS);
+      };
+
+      const cancelLongPress = (pointerId: number) => {
+        if (longPressStartRef.current?.pointerId !== pointerId) return;
+
+        longPressStartRef.current = null;
+        clearLongPressTimer();
+        if (!suppressNextClickRef.current) {
+          suppressContextMenuRef.current = false;
+        }
+      };
+
+      const handlePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+        const start = longPressStartRef.current;
+        if (!start || start.pointerId !== event.pointerId) return;
+
+        if (Math.hypot(event.clientX - start.clientX, event.clientY - start.clientY) > LONG_PRESS_MOVE_TOLERANCE_PX) {
+          cancelLongPress(event.pointerId);
+        }
+      };
 
       return (
         <div
@@ -237,32 +267,82 @@ export const FileRow = React.memo(
         >
           <FileRowButton
             tabIndex={-1}
-            onClick={() => onClick(file, index)}
-            onContextMenu={handleContextMenu}
+            onClick={(event) => {
+              if (suppressNextClickRef.current) {
+                suppressNextClickRef.current = false;
+                suppressContextMenuRef.current = false;
+                clearSuppressionTimer();
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+              }
+              onClick(file, index);
+            }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={(event) => cancelLongPress(event.pointerId)}
+            onPointerCancel={(event) => cancelLongPress(event.pointerId)}
+            onContextMenu={(event) => {
+              if (!suppressContextMenuRef.current) return;
+              suppressContextMenuRef.current = false;
+              event.preventDefault();
+              event.stopPropagation();
+            }}
             disabled={isUnavailableArchiveEntry}
-            sx={[rowStyle, isUnavailableArchiveEntry ? { cursor: "not-allowed", opacity: 0.5 } : {}]}
+            sx={[rowStyle, canOpenItemActions ? { pr: 7 } : {}, isUnavailableArchiveEntry ? { cursor: "not-allowed", opacity: 0.5 } : {}]}
             dataSelected={isSelected ? "true" : undefined}
             ariaLabel={ariaLabel}
+            ariaPressed={useTouchSelectionControls && selectionMode ? isMultiSelected : undefined}
           >
-            {/* Icon: show checkmark when multi-selected, file icon otherwise */}
+            {/* Selection mode uses an explicit selected/unselected icon pair. */}
             {(() => {
               const icon = (() => {
                 if (isMultiSelected) {
-                  return <CheckCircleIcon sx={{ fontSize: 24, color: "primary.main" }} />;
+                  return <CheckCircleIcon sx={{ fontSize: fileIconSize, color: "primary.main" }} />;
+                }
+
+                if (useTouchSelectionControls && selectionMode) {
+                  return <CircleOutlinedIcon sx={{ fontSize: fileIconSize, color: "text.secondary" }} />;
                 }
 
                 if (isShortcut) {
-                  return <ShortcutIcon sx={{ fontSize: 24, color: "text.secondary" }} />;
+                  return <ShortcutIcon sx={{ fontSize: fileIconSize, color: "text.secondary" }} />;
                 }
 
                 return getFileIcon({
                   filename: file.name,
                   isDirectory: file.type === "directory",
-                  size: 24,
+                  size: fileIconSize,
                 });
               })();
 
-              return isListMode ? (
+              return useCompactLayout ? (
+                <>
+                  <Box sx={fileRowStyles.iconBox}>{icon}</Box>
+                  <Box sx={{ ...fileRowStyles.contentBox, display: "flex", flexDirection: "column", minWidth: 0 }}>
+                    {fileName}
+                    {compactMetadata ? (
+                      <Typography
+                        variant="body2"
+                        noWrap
+                        sx={{
+                          color: "text.secondary",
+                          fontSize: `${COMPACT_LAYOUT_SIZE.FILE_ROW_METADATA_PX}px`,
+                          fontVariantNumeric: "tabular-nums",
+                          lineHeight: 1.35,
+                          mt: "1px",
+                          minWidth: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          width: "100%",
+                        }}
+                      >
+                        {compactMetadata}
+                      </Typography>
+                    ) : null}
+                  </Box>
+                </>
+              ) : isListMode ? (
                 // List mode: icon + name only
                 <>
                   <Box sx={fileRowStyles.iconBox}>{icon}</Box>
@@ -273,7 +353,7 @@ export const FileRow = React.memo(
                 <Box
                   sx={{
                     display: "grid",
-                    gridTemplateColumns: "24px 1fr auto auto",
+                    gridTemplateColumns: `${fileIconSize}px 1fr auto auto`,
                     columnGap: 1,
                     alignItems: "center",
                     width: "100%",
@@ -295,57 +375,19 @@ export const FileRow = React.memo(
               );
             })()}
           </FileRowButton>
-
-          {/* Context menu */}
-          {hasContextMenu && (
-            <Menu
-              open={contextMenu !== null}
-              onClose={handleContextMenuClose}
-              anchorReference="anchorPosition"
-              anchorPosition={contextMenu ? { top: contextMenu.mouseY, left: contextMenu.mouseX } : undefined}
+          {canOpenItemActions ? (
+            <IconButton
+              aria-label={t("fileBrowser.compactActions.moreActionsFor", { name: file.name })}
+              aria-haspopup="menu"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenItemActions(file, index, event.currentTarget);
+              }}
+              sx={{ position: "absolute", top: "50%", right: 8, width: 44, height: 44, transform: "translateY(-50%)" }}
             >
-              {onRename && (
-                <MenuItem onClick={handleRenameClick}>
-                  <ListItemIcon>
-                    <EditIcon fontSize="small" />
-                  </ListItemIcon>
-                  <ListItemText>{t("common.actions.rename")}</ListItemText>
-                </MenuItem>
-              )}
-              {hasBrowserViewerActions && onOpenAssociatedViewer && (
-                <MenuItem onClick={handleOpenAssociatedViewerClick}>
-                  <ListItemIcon>
-                    <VisibilityIcon fontSize="small" />
-                  </ListItemIcon>
-                  <ListItemText>{t("fileBrowser.row.openInBrowserViewer")}</ListItemText>
-                </MenuItem>
-              )}
-              {hasBrowserViewerActions && onOpenViewerPicker && (
-                <MenuItem onClick={handleOpenViewerPickerClick}>
-                  <ListItemIcon>
-                    <VisibilityIcon fontSize="small" />
-                  </ListItemIcon>
-                  <ListItemText>{t("fileBrowser.row.chooseBrowserViewer")}</ListItemText>
-                </MenuItem>
-              )}
-              {isFile && onOpenAssociatedNativeApp && (
-                <MenuItem onClick={handleOpenAssociatedNativeAppClick}>
-                  <ListItemIcon>
-                    <OpenInNewIcon fontSize="small" />
-                  </ListItemIcon>
-                  <ListItemText>{t("fileBrowser.row.openInNativeApp")}</ListItemText>
-                </MenuItem>
-              )}
-              {isFile && onOpenNativePicker && (
-                <MenuItem onClick={handleOpenNativePickerClick}>
-                  <ListItemIcon>
-                    <OpenInNewIcon fontSize="small" />
-                  </ListItemIcon>
-                  <ListItemText>{t("fileBrowser.row.chooseNativeApp")}</ListItemText>
-                </MenuItem>
-              )}
-            </Menu>
-          )}
+              <MoreVertIcon />
+            </IconButton>
+          ) : null}
         </div>
       );
     }
@@ -354,6 +396,7 @@ export const FileRow = React.memo(
   (prev, next) =>
     prev.index === next.index &&
     prev.useCompactLayout === next.useCompactLayout &&
+    prev.useTouchSelectionControls === next.useTouchSelectionControls &&
     prev.isSelected === next.isSelected &&
     prev.isMultiSelected === next.isMultiSelected &&
     prev.file.name === next.file.name &&
@@ -366,12 +409,10 @@ export const FileRow = React.memo(
     prev.virtualStart === next.virtualStart &&
     prev.virtualSize === next.virtualSize &&
     prev.viewMode === next.viewMode &&
-    prev.onOpenAssociatedViewer === next.onOpenAssociatedViewer &&
-    prev.onOpenViewerPicker === next.onOpenViewerPicker &&
-    prev.canOpenInBrowserViewer === next.canOpenInBrowserViewer &&
-    prev.onOpenAssociatedNativeApp === next.onOpenAssociatedNativeApp &&
-    prev.onOpenNativePicker === next.onOpenNativePicker &&
-    prev.onRename === next.onRename
+    prev.showCompactActions === next.showCompactActions &&
+    prev.selectionMode === next.selectionMode &&
+    prev.onLongPressSelect === next.onLongPressSelect &&
+    prev.onOpenItemActions === next.onOpenItemActions
 );
 
 FileRow.displayName = "FileRow";

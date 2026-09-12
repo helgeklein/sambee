@@ -46,6 +46,12 @@ describe("SettingsLayout", () => {
     expect(screen.queryByText("Local Drives page")).not.toBeInTheDocument();
   });
 
+  it("scopes compact typography to routed mobile settings", () => {
+    renderSettingsLayout(["/settings/appearance"]);
+
+    expect(screen.getByTestId("settings-mobile-typography-scope")).toBeInTheDocument();
+  });
+
   it("returns from a top-level settings page through browser history on mobile", async () => {
     const user = userEvent.setup();
 

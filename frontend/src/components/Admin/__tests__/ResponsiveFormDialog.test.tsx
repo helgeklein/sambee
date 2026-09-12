@@ -80,6 +80,8 @@ describe("ResponsiveFormDialog", () => {
     expect(screen.getByRole("button", { name: /common\.navigation\.goBack/i })).toBeInTheDocument();
     expect(screen.getByText("Update the account details below.")).toBeInTheDocument();
     expect(screen.getByText("Dialog Body")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Edit User" })).toHaveStyle({ fontSize: "20px" });
+    expect(screen.getByText("Dialog Body")).toHaveStyle({ fontSize: "17px" });
     const actions = screen.getByTestId("responsive-form-dialog-mobile-actions");
     const drawerPaper = actions.closest(".MuiDrawer-paper");
 

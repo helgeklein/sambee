@@ -316,7 +316,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // Selection State (multi-select)
   // ──────────────────────────────────────────────────────────────────────────
 
-  /** Set of currently selected file names. */
+  /** Set of currently selected canonical file paths. */
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -535,14 +535,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const searchInputRef = React.useRef<HTMLInputElement>(null);
 
   const [listContainerEl, setListContainerEl] = useState<HTMLDivElement | null>(null);
-  const listContainerRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      if (node !== listContainerEl) {
-        setListContainerEl(node);
-      }
-    },
-    [listContainerEl]
-  );
+  const listContainerRef = useCallback((node: HTMLDivElement | null) => {
+    setListContainerEl((current) => (current === node ? current : node));
+  }, []);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Refs — Performance / Async
@@ -2417,10 +2412,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // Selection (multi-select)
   // ──────────────────────────────────────────────────────────────────────────
 
-  /**
-   * Toggle the focused file's selection and advance focus down (Norton Commander style).
-   * Insert / Space both trigger this.
-   */
+  /** Toggle the focused file's selection. Insert / Space both trigger this. */
   const handleToggleSelection = useCallback(
     (_e?: KeyboardEvent) => {
       if (!listContainerEl) return;
@@ -2435,20 +2427,15 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
       setSelectedFiles((prev) => {
         const next = new Set(prev);
-        if (next.has(currentFile.name)) {
-          next.delete(currentFile.name);
+        if (next.has(currentFile.path)) {
+          next.delete(currentFile.path);
         } else {
-          next.add(currentFile.name);
+          next.add(currentFile.path);
         }
         return next;
       });
-
-      // Move focus down (Norton Commander style)
-      if (focusedIndex < files.length - 1) {
-        updateFocus(focusedIndex + 1);
-      }
     },
-    [focusedIndex, updateFocus, listContainerEl]
+    [focusedIndex, listContainerEl]
   );
 
   /**
@@ -2470,7 +2457,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       // Select the current file
       setSelectedFiles((prev) => {
         const next = new Set(prev);
-        next.add(currentFile.name);
+        next.add(currentFile.path);
         return next;
       });
 
@@ -2501,7 +2488,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       // Select the current file
       setSelectedFiles((prev) => {
         const next = new Set(prev);
-        next.add(currentFile.name);
+        next.add(currentFile.path);
         return next;
       });
 
@@ -2515,14 +2502,49 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
   /** Select all files in the current directory (Ctrl+A). */
   const handleSelectAll = useCallback(() => {
-    const allNames = new Set(filesRef.current.map((f) => f.name));
-    setSelectedFiles(allNames);
+    const allPaths = new Set(filesRef.current.map((file) => file.path));
+    setSelectedFiles(allPaths);
   }, []);
 
   /** Clear all selections. */
   const handleClearSelection = useCallback(() => {
     setSelectedFiles(new Set());
   }, []);
+
+  const removeSelectedPaths = useCallback((paths: readonly string[]) => {
+    if (paths.length === 0) return;
+    const removedPaths = new Set(paths);
+    setSelectedFiles((previous) => {
+      const next = new Set([...previous].filter((path) => !removedPaths.has(path)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, []);
+
+  const selectItem = useCallback(
+    (file: FileEntry, index: number) => {
+      skipNextLayoutScrollRef.current = true;
+      updateFocus(index, { immediate: true });
+      setSelectedFiles((previous) => new Set(previous).add(file.path));
+    },
+    [updateFocus]
+  );
+
+  const toggleItemSelection = useCallback(
+    (file: FileEntry, index: number) => {
+      skipNextLayoutScrollRef.current = true;
+      updateFocus(index, { immediate: true });
+      setSelectedFiles((previous) => {
+        const next = new Set(previous);
+        if (next.has(file.path)) {
+          next.delete(file.path);
+        } else {
+          next.add(file.path);
+        }
+        return next;
+      });
+    },
+    [updateFocus]
+  );
 
   /**
    * Returns the effective selection for operations (copy, move, delete, etc.).
@@ -2531,11 +2553,16 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
    */
   const getEffectiveSelection = useCallback(() => {
     if (selectedFiles.size > 0) {
-      return itemsRef.current.filter((item) => selectedFiles.has(item.entry.name));
+      return itemsRef.current.filter((item) => selectedFiles.has(item.entry.path));
     }
     const focused = itemsRef.current[focusedIndex];
     return focused ? [focused] : [];
   }, [selectedFiles, focusedIndex]);
+
+  const getItemsByPaths = useCallback((paths: readonly string[]) => {
+    const pathSet = new Set(paths);
+    return itemsRef.current.filter((item) => pathSet.has(item.entry.path));
+  }, []);
 
   // Clear selection when the directory or connection changes
   // biome-ignore lint/correctness/useExhaustiveDependencies: connectionId is needed as a trigger
@@ -2548,6 +2575,16 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
     setSelectedFiles(new Set());
   }, [currentPath, connectionId]);
+
+  useEffect(() => {
+    if (loading) return;
+    const currentPaths = new Set(files.map((file) => file.path));
+    setSelectedFiles((previous) => {
+      if (previous.size === 0) return previous;
+      const next = new Set([...previous].filter((path) => currentPaths.has(path)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [files, loading]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Delete
@@ -2569,6 +2606,28 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     [connectionIsReadOnly, contentCapabilities.mutate, getEffectiveSelection, getFocusedFileForAction]
   );
 
+  const handleDeleteItems = useCallback(
+    (items: readonly BrowserItem[]) => {
+      if (!contentCapabilities.mutate || connectionIsReadOnly || items.length === 0) return;
+
+      setDeleteTargets([...items]);
+      setDeleteDialogOpen(true);
+    },
+    [connectionIsReadOnly, contentCapabilities.mutate]
+  );
+
+  const handleDeleteForFile = useCallback(
+    (file: FileEntry, index: number) => {
+      if (!contentCapabilities.mutate || connectionIsReadOnly) return;
+      const item = getItemForEntry(file);
+      if (!item) return;
+      updateFocus(index, { immediate: true });
+      setDeleteTargets([item]);
+      setDeleteDialogOpen(true);
+    },
+    [connectionIsReadOnly, contentCapabilities.mutate, getItemForEntry, updateFocus]
+  );
+
   const handleDeleteConfirm = useCallback(async () => {
     if (deleteTargets.length === 0 || !connectionId) return;
     if (!contentCapabilities.mutate || connectionIsReadOnly) return;
@@ -2584,6 +2643,13 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
       setDeleteDialogOpen(false);
       setDeleteTargets([]);
+      setSelectedFiles((previous) => {
+        const next = new Set(previous);
+        deleteTargets.forEach((target) => {
+          next.delete(target.entry.path);
+        });
+        return next;
+      });
       pendingFocusNameRef.current = null;
 
       void reloadCurrentLocation({ forceRefresh: true });
@@ -2648,6 +2714,15 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         setRenameDialogOpen(false);
         setRenameTarget(null);
         pendingFocusNameRef.current = newName;
+        setSelectedFiles((previous) => {
+          if (!previous.has(renameTarget.entry.path)) return previous;
+          const separatorIndex = Math.max(renameTarget.entry.path.lastIndexOf("/"), renameTarget.entry.path.lastIndexOf("\\"));
+          const renamedPath = `${separatorIndex >= 0 ? renameTarget.entry.path.slice(0, separatorIndex + 1) : ""}${newName}`;
+          const next = new Set(previous);
+          next.delete(renameTarget.entry.path);
+          next.add(renamedPath);
+          return next;
+        });
 
         void reloadCurrentLocation({ forceRefresh: true });
         listContainerEl?.focus();
@@ -2676,15 +2751,16 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   );
 
   const handleRenameForFile = useCallback(
-    (file: FileEntry, _index: number) => {
+    (file: FileEntry, index: number) => {
       if (!contentCapabilities.mutate || connectionIsReadOnly) return;
       const item = getItemForEntry(file);
       if (!item) return;
+      updateFocus(index, { immediate: true });
       setRenameError(null);
       setRenameTarget(item);
       setRenameDialogOpen(true);
     },
-    [connectionIsReadOnly, contentCapabilities.mutate, getItemForEntry]
+    [connectionIsReadOnly, contentCapabilities.mutate, getItemForEntry, updateFocus]
   );
 
   const closeRenameDialog = useCallback(() => {
@@ -3396,6 +3472,10 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     handleSelectUp,
     handleSelectAll,
     handleClearSelection,
+    removeSelectedPaths,
+    selectItem,
+    toggleItemSelection,
+    getItemsByPaths,
     getEffectiveSelection,
 
     // Computed
@@ -3466,8 +3546,10 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
     // CRUD dialogs
     handleDeleteRequest,
+    handleDeleteItems,
     handleDeleteConfirm,
     closeDeleteDialog,
+    handleDeleteForFile,
     handleRenameRequest,
     handleRenameConfirm,
     handleRenameForFile,

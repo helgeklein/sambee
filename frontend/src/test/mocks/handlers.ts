@@ -72,6 +72,8 @@ let currentUserSettingsResponse: CurrentUserSettings = {
   },
   browser: {
     quick_nav_include_dot_directories: false,
+    quick_bar_shortcut_hint_visibility: "auto",
+    touch_friendly_file_selection: "auto",
     file_browser_view_mode: "list",
     pane_mode: "single",
     selected_connection_id: null,

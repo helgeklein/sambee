@@ -1,7 +1,8 @@
 import type { Virtualizer } from "@tanstack/react-virtual";
-import { render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { setLocale, translate } from "../../../i18n";
+import { FILE_BROWSER_ROW_HEIGHT } from "../../../theme/constants";
 import type { FileEntry } from "../../../types";
 import { FileList } from "../FileList";
 
@@ -103,5 +104,178 @@ describe("FileList", () => {
 
     expect(screen.getByText("readme.txt")).toBeInTheDocument();
     expect(measureElement).not.toHaveBeenCalled();
+  });
+
+  it("opens compact item actions from the visible more actions button", () => {
+    const files: FileEntry[] = [
+      {
+        name: "readme.txt",
+        path: "readme.txt",
+        type: "file",
+        size: 123,
+        modified_at: "2026-07-15T00:00:00Z",
+        is_readable: true,
+        is_hidden: false,
+      },
+    ];
+    const rowVirtualizerWithItems = {
+      getVirtualItems: () => [{ index: 0, key: "file-0", start: 0, size: FILE_BROWSER_ROW_HEIGHT.MOBILE_PX }],
+      getTotalSize: () => FILE_BROWSER_ROW_HEIGHT.MOBILE_PX,
+    } as unknown as Virtualizer<HTMLDivElement, Element>;
+    const onFileClick = vi.fn();
+    const onSelectItem = vi.fn();
+
+    render(
+      <FileList
+        files={files}
+        focusedIndex={0}
+        selectedFiles={new Set()}
+        onFileClick={onFileClick}
+        onSelectItem={onSelectItem}
+        getCompactItemActions={(file, index) => [
+          {
+            id: "select",
+            label: "Select",
+            onClick: () => onSelectItem(file, index),
+          },
+        ]}
+        rowVirtualizer={rowVirtualizerWithItems}
+        parentRef={{ current: null }}
+        listContainerRef={() => {}}
+        fileRowStyles={fileRowStylesStub}
+        useCompactLayout
+        viewMode="list"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions for readme.txt" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Select" }));
+
+    expect(onSelectItem).toHaveBeenCalledWith(files[0], 0);
+    expect(onFileClick).not.toHaveBeenCalled();
+    expect(screen.getByText("123 B \u00b7 07/15/2026, 12:00 AM")).toBeInTheDocument();
+  });
+
+  it("enables touch selection controls while retaining the desktop row layout", () => {
+    const files: FileEntry[] = [
+      {
+        name: "readme.txt",
+        path: "readme.txt",
+        type: "file",
+        size: 123,
+        modified_at: "2026-07-15T00:00:00Z",
+        is_readable: true,
+        is_hidden: false,
+      },
+    ];
+    const rowVirtualizerWithItems = {
+      getVirtualItems: () => [{ index: 0, key: "file-0", start: 0, size: FILE_BROWSER_ROW_HEIGHT.TOUCH_PX }],
+      getTotalSize: () => FILE_BROWSER_ROW_HEIGHT.TOUCH_PX,
+    } as unknown as Virtualizer<HTMLDivElement, Element>;
+    const onToggleItemSelection = vi.fn();
+
+    render(
+      <FileList
+        files={files}
+        focusedIndex={0}
+        selectedFiles={new Set([files[0].path])}
+        onFileClick={() => {}}
+        onToggleItemSelection={onToggleItemSelection}
+        onSelectItem={() => {}}
+        getCompactItemActions={() => []}
+        rowVirtualizer={rowVirtualizerWithItems}
+        parentRef={{ current: null }}
+        listContainerRef={() => {}}
+        fileRowStyles={fileRowStylesStub}
+        useTouchSelectionControls
+        viewMode="list"
+      />
+    );
+
+    const row = screen.getByRole("button", { name: /file: readme\.txt/i });
+    fireEvent.click(row);
+
+    expect(row).toHaveAttribute("aria-pressed", "true");
+    expect(row.closest("[data-index='0']")).toHaveStyle({ height: "48px" });
+    expect(screen.getByRole("button", { name: "More actions for readme.txt" })).toBeInTheDocument();
+    expect(onToggleItemSelection).toHaveBeenCalledWith(files[0], 0);
+  });
+
+  it("reserves virtual-list space for the compact selection dock", () => {
+    const files: FileEntry[] = [
+      {
+        name: "readme.txt",
+        path: "readme.txt",
+        type: "file",
+        size: 123,
+        modified_at: "2026-07-15T00:00:00Z",
+        is_readable: true,
+        is_hidden: false,
+      },
+    ];
+
+    render(
+      <FileList
+        files={files}
+        focusedIndex={0}
+        selectedFiles={new Set([files[0].path])}
+        onFileClick={() => {}}
+        compactOverlay={<div data-testid="selection-dock-overlay" />}
+        compactOverlayLayout="dock"
+        rowVirtualizer={rowVirtualizerStub}
+        parentRef={{ current: null }}
+        listContainerRef={() => {}}
+        fileRowStyles={fileRowStylesStub}
+        useCompactLayout
+        viewMode="list"
+      />
+    );
+
+    expect(screen.getByTestId("virtual-list").style.paddingBottom).toBe("calc(64px + env(safe-area-inset-bottom))");
+    expect(screen.getByTestId("selection-dock-overlay").parentElement).toHaveStyle({ left: "0px", right: "0px", bottom: "0px" });
+  });
+
+  it("offers archive extraction only for eligible compact item actions", () => {
+    const files: FileEntry[] = [
+      {
+        name: "backup.zip",
+        path: "backup.zip",
+        type: "file",
+        size: 123,
+        modified_at: "2026-07-15T00:00:00Z",
+        is_readable: true,
+        is_hidden: false,
+      },
+    ];
+    const rowVirtualizerWithItems = {
+      getVirtualItems: () => [{ index: 0, key: "file-0", start: 0, size: FILE_BROWSER_ROW_HEIGHT.MOBILE_PX }],
+      getTotalSize: () => FILE_BROWSER_ROW_HEIGHT.MOBILE_PX,
+    } as unknown as Virtualizer<HTMLDivElement, Element>;
+    const onExtractArchive = vi.fn();
+
+    render(
+      <FileList
+        files={files}
+        focusedIndex={0}
+        selectedFiles={new Set()}
+        onFileClick={() => {}}
+        getCompactItemActions={(file) =>
+          file.name.endsWith(".zip")
+            ? [{ id: "extract-archive", label: "Extract archive", enabled: true, onClick: () => onExtractArchive(file, 0) }]
+            : []
+        }
+        rowVirtualizer={rowVirtualizerWithItems}
+        parentRef={{ current: null }}
+        listContainerRef={() => {}}
+        fileRowStyles={fileRowStylesStub}
+        useCompactLayout
+        viewMode="list"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions for backup.zip" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Extract archive" }));
+
+    expect(onExtractArchive).toHaveBeenCalledWith(files[0], 0);
   });
 });

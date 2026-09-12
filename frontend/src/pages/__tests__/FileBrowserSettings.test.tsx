@@ -20,12 +20,18 @@ const {
   settingStates: {
     includeDotDirectories: { error: null as string | null, pending: false, saved: false },
     shortcutHints: { error: null as string | null, pending: false, saved: false },
+    touchFriendlyFileSelection: { error: null as string | null, pending: false, saved: false },
   },
 }));
 
 vi.mock("../../services/userSettingsStore", () => ({
   useCurrentUserSetting: (field: string) => {
-    const state = field === "browser.quick_nav_include_dot_directories" ? settingStates.includeDotDirectories : settingStates.shortcutHints;
+    const state =
+      field === "browser.quick_nav_include_dot_directories"
+        ? settingStates.includeDotDirectories
+        : field === "browser.touch_friendly_file_selection"
+          ? settingStates.touchFriendlyFileSelection
+          : settingStates.shortcutHints;
     return {
       confirmedValue: field === "browser.quick_nav_include_dot_directories" ? false : "auto",
       ...state,
@@ -88,6 +94,16 @@ describe("FileBrowserSettings", () => {
     await user.click(screen.getByRole("option", { name: "Never show" }));
 
     expect(commitMock).toHaveBeenCalledWith("never");
+  });
+
+  it("updates the touch-friendly file-selection preference", async () => {
+    const user = userEvent.setup();
+    render(<FileBrowserSettings />);
+
+    await user.click(screen.getByRole("combobox", { name: "Touch-friendly file selection" }));
+    await user.click(screen.getByRole("option", { name: "Always on" }));
+
+    expect(commitMock).toHaveBeenCalledWith("always");
   });
 
   it("renders checkbox and select persistence feedback", () => {

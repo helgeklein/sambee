@@ -783,6 +783,8 @@ describe("API Service", () => {
         },
         browser: {
           quick_nav_include_dot_directories: true,
+          quick_bar_shortcut_hint_visibility: "auto",
+          touch_friendly_file_selection: "auto",
           file_browser_view_mode: "details",
           pane_mode: "dual",
           selected_connection_id: "conn-123",

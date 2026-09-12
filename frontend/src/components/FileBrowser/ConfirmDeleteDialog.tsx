@@ -37,6 +37,10 @@ interface ConfirmDeleteDialogProps {
   onClose: () => void;
   /** Called when the user confirms deletion */
   onConfirm: () => void;
+  /** Prevent the dialog from returning focus to its trigger. */
+  disableRestoreFocus?: boolean;
+  /** Called after the dialog's close transition completes. */
+  onTransitionExited?: () => void;
 }
 
 // ============================================================================
@@ -48,7 +52,15 @@ const DELETE_LIST_MAX_VISIBLE_ROWS = 6;
 //
 // ConfirmDeleteDialog
 //
-const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({ open, items, isDeleting, onClose, onConfirm }) => {
+const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({
+  open,
+  items,
+  isDeleting,
+  onClose,
+  onConfirm,
+  disableRestoreFocus,
+  onTransitionExited,
+}) => {
   const { t } = useTranslation();
   const isSingleItem = items.length === 1;
   const item = items[0];
@@ -84,6 +96,8 @@ const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({ open, items, 
       open={open}
       onClose={onClose}
       disableClose={isDeleting}
+      disableRestoreFocus={disableRestoreFocus}
+      onTransitionExited={onTransitionExited}
       onKeyDown={handleKeyDown}
       title={title}
       description={description}

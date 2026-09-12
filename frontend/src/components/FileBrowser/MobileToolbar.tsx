@@ -1,6 +1,7 @@
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import { IconButton, Typography } from "@mui/material";
 import { useTranslation } from "react-i18next";
+import { COMPACT_LAYOUT_SIZE } from "../../theme/constants";
 import { SambeeLogo } from "../SambeeLogo";
 
 interface MobileToolbarProps {
@@ -41,6 +42,7 @@ export function MobileToolbar({ currentDirectoryName, onOpenMenu, onNavigateUp, 
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
           fontWeight: "bold",
+          fontSize: `${COMPACT_LAYOUT_SIZE.MOBILE_TOOLBAR_TITLE_PX}px`,
         }}
       >
         {currentDirectoryName}

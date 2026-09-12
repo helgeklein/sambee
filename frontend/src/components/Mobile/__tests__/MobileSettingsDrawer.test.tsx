@@ -69,6 +69,12 @@ describe("MobileSettingsDrawer", () => {
     expect(screen.queryByText(/customize the application theme and language behavior\./i)).not.toBeInTheDocument();
   });
 
+  it("scopes compact typography to drawer settings content", () => {
+    renderDrawer();
+
+    expect(screen.getByTestId("settings-mobile-typography-scope")).toBeInTheDocument();
+  });
+
   it("renders Account settings when Account is selected", async () => {
     const user = userEvent.setup();
     renderDrawer();

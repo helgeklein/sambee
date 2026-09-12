@@ -3,7 +3,7 @@
  * =====================================================
  *
  * Displays the per-pane UI: breadcrumbs, view/sort controls, file list,
- * status bar, and CRUD dialogs. Used by the parent Browser component
+ * and CRUD dialogs. Used by the parent Browser component
  * both in single-pane and dual-pane layouts.
  *
  * In dual-pane mode, the active pane gets a visual accent border and
@@ -19,29 +19,24 @@ import React, { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { BreadcrumbsNavigation } from "../../components/FileBrowser/BreadcrumbsNavigation";
 import { BrowserViewerPicker } from "../../components/FileBrowser/BrowserViewerPicker";
+import { CompactCreateMenu } from "../../components/FileBrowser/CompactCreateMenu";
+import type { CompactItemAction } from "../../components/FileBrowser/CompactItemActionsMenu";
+import { CompactSelectionActions } from "../../components/FileBrowser/CompactSelectionActions";
 import ConfirmDeleteDialog from "../../components/FileBrowser/ConfirmDeleteDialog";
 import CreateItemDialog from "../../components/FileBrowser/CreateItemDialog";
 import { FileList } from "../../components/FileBrowser/FileList";
 import RenameDialog from "../../components/FileBrowser/RenameDialog";
-import { STATUS_BAR_HEIGHT, StatusBar } from "../../components/FileBrowser/StatusBar";
+import { STATUS_BAR_HEIGHT } from "../../components/FileBrowser/StatusBar";
 import type { SearchProvider } from "../../components/FileBrowser/search";
 import type { UnifiedSearchBarModeOption } from "../../components/FileBrowser/UnifiedSearchBar";
 import { UnifiedSearchBar } from "../../components/FileBrowser/UnifiedSearchBar";
-import { isLocalDrive } from "../../services/backendRouter";
+import { COMPACT_LAYOUT_SIZE } from "../../theme/constants";
 import type { Connection, FileEntry } from "../../types";
 import { FileType } from "../../types";
-import { canOpenFileInApp, isConnectionReadOnly } from "./access";
-import { getVirtualContentProviderIdForFilename } from "./contentProviders";
+import { isConnectionReadOnly } from "./access";
+import type { BrowserItem } from "./contentProviders";
+import type { FileOperationAction, FileOperationPolicyContext } from "./fileOperationActions";
 import type { PaneId, PaneMode, UseFileBrowserPaneReturn } from "./types";
-
-const READ_ONLY_CONTENT_CAPABILITIES = {
-  browse: true,
-  read: true,
-  download: true,
-  extract: false,
-  mutate: false,
-  openInNativeApp: false,
-} as const;
 
 // ============================================================================
 // Props
@@ -65,6 +60,10 @@ export interface FileBrowserPaneProps {
 
   /** Whether the UI is in mobile/compact layout. */
   useCompactLayout: boolean;
+  /** Whether touch-friendly file selection controls are available. */
+  useTouchSelectionControls?: boolean;
+  /** Whether another page-owned surface currently owns interaction. */
+  compactActionsDisabled?: boolean;
 
   /** Whether the user is navigating with keyboard (for focus indicators). */
   isUsingKeyboard: boolean;
@@ -102,6 +101,12 @@ export interface FileBrowserPaneProps {
   modeOptions?: UnifiedSearchBarModeOption[];
   /** Whether keyboard shortcut hints are useful in the active input context. */
   showKeyboardHints?: boolean;
+  /** Builds creation actions for an immutable pane context. */
+  getCompactCreateActions?: (context: FileOperationPolicyContext) => readonly FileOperationAction[];
+  /** Builds row actions for an immutable item context. */
+  getCompactItemActions?: (context: FileOperationPolicyContext) => readonly CompactItemAction[];
+  /** Builds bulk actions for an immutable selection context. */
+  getCompactSelectionActions?: (context: FileOperationPolicyContext) => readonly FileOperationAction[];
 }
 
 // ============================================================================
@@ -115,6 +120,8 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   paneMode,
   connections,
   useCompactLayout,
+  useTouchSelectionControls = useCompactLayout,
+  compactActionsDisabled = false,
   isUsingKeyboard,
   onPaneFocus,
   disableTabFocus,
@@ -128,6 +135,9 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   onSearchArrowDownToFileList,
   showKeyboardHints,
   modeOptions,
+  getCompactCreateActions,
+  getCompactItemActions,
+  getCompactSelectionActions,
 }) => {
   const theme = useTheme();
   const { t } = useTranslation();
@@ -140,13 +150,13 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     connectionId,
     currentPath,
     archiveLocation,
-    contentCapabilities = READ_ONLY_CONTENT_CAPABILITIES,
     error,
     loading,
     viewMode,
     focusedIndex,
     selectedFiles,
     sortedFiles,
+    viewInfo,
     // Dialogs
     browserViewerPickerState,
     deleteDialogOpen,
@@ -169,9 +179,10 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     rowVirtualizer,
     // Handlers
     handleFileClick,
-    handleOpenFileForFile,
-    handleOpenInAppForFile,
-    handleRenameForFile,
+    toggleItemSelection,
+    selectItem,
+    handleClearSelection,
+    getItemsByPaths,
     closeDeleteDialog,
     handleDeleteConfirm,
     closeRenameDialog,
@@ -187,14 +198,60 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   // Connection display name for breadcrumbs
   const connectionName = currentConnection?.name ?? "";
   const connectionIsReadOnly = isConnectionReadOnly(currentConnection);
-  const canRenameItems = contentCapabilities.mutate && !connectionIsReadOnly;
-  const canOpenFocusedFileInApp = contentCapabilities.openInNativeApp && canOpenFileInApp(currentConnection);
-  const canOpenInBrowserViewer = React.useCallback(
-    (file: FileEntry) => !(archiveLocation && file.type === FileType.FILE && getVirtualContentProviderIdForFilename(file.name)),
-    [archiveLocation]
-  );
   const [closingBrowserViewerPickerState, setClosingBrowserViewerPickerState] = React.useState<typeof browserViewerPickerState>(null);
+  const [selectionAnnouncement, setSelectionAnnouncement] = React.useState("");
+  const previousSelectedCountRef = React.useRef(selectedFiles.size);
   const renderedBrowserViewerPickerState = browserViewerPickerState ?? closingBrowserViewerPickerState;
+
+  const handleCompactClearSelection = React.useCallback(() => {
+    handleClearSelection();
+  }, [handleClearSelection]);
+  React.useEffect(() => {
+    if (selectedFiles.size > 0) {
+      setSelectionAnnouncement(t("fileBrowser.compactActions.selectedCount", { count: selectedFiles.size }));
+    } else if (previousSelectedCountRef.current > 0) {
+      setSelectionAnnouncement(t("fileBrowser.compactActions.selectionCleared"));
+    }
+    previousSelectedCountRef.current = selectedFiles.size;
+  }, [selectedFiles.size, t]);
+  const getCompactActionsContext = React.useCallback(
+    (items: readonly BrowserItem[], focusedItem?: BrowserItem): FileOperationPolicyContext => ({ paneId, items, focusedItem }),
+    [paneId]
+  );
+  const compactCreateActions = useMemo(
+    () => getCompactCreateActions?.(getCompactActionsContext([])) ?? [],
+    [getCompactActionsContext, getCompactCreateActions]
+  );
+  const getCompactItemActionsForFile = React.useCallback(
+    (file: FileEntry) => {
+      const item = getItemsByPaths([file.path])[0];
+      return item ? (getCompactItemActions?.(getCompactActionsContext([item], item)) ?? []) : [];
+    },
+    [getCompactActionsContext, getCompactItemActions, getItemsByPaths]
+  );
+  const getCompactSelectionActionsForMenu = React.useCallback(() => {
+    const items = getItemsByPaths([...selectedFiles]);
+    return getCompactSelectionActions?.(getCompactActionsContext(items, items[0])) ?? [];
+  }, [getCompactActionsContext, getCompactSelectionActions, getItemsByPaths, selectedFiles]);
+  const compactOverlay =
+    !compactActionsDisabled &&
+    !viewInfo &&
+    !renderedBrowserViewerPickerState &&
+    !deleteDialogOpen &&
+    !renameDialogOpen &&
+    !createDialogOpen ? (
+      selectedFiles.size > 0 && useTouchSelectionControls ? (
+        <CompactSelectionActions
+          actions={getCompactSelectionActionsForMenu()}
+          getActions={getCompactSelectionActionsForMenu}
+          selectedCount={selectedFiles.size}
+          onClearSelection={handleCompactClearSelection}
+        />
+      ) : useCompactLayout ? (
+        <CompactCreateMenu actions={compactCreateActions} />
+      ) : undefined
+    ) : undefined;
+  const compactOverlayLayout = selectedFiles.size > 0 ? "dock" : "floating";
 
   // ──────────────────────────────────────────────────────────────────────────
   // File Row Styles — depend on isUsingKeyboard (global) and theme
@@ -206,7 +263,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        width: 24,
+        width: useCompactLayout ? COMPACT_LAYOUT_SIZE.FILE_ROW_ICON_PX : 24,
         flexShrink: 0,
       },
       contentBox: {
@@ -258,7 +315,6 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         py: 1.5,
         cursor: "pointer",
         userSelect: "none",
-        borderLeft: `3px solid ${theme.palette.primary.main}`,
         transition: "background-color 80ms ease-out",
         background: alpha(theme.palette.primary.main, 0.16),
         color: theme.palette.primary.main,
@@ -278,7 +334,6 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         py: 1.5,
         cursor: "pointer",
         userSelect: "none",
-        borderLeft: `3px solid ${theme.palette.primary.main}`,
         transition: "background-color 80ms ease-out",
         background:
           isUsingKeyboard && showSelectionHighlight ? alpha(theme.palette.primary.main, 0.26) : alpha(theme.palette.primary.main, 0.16),
@@ -291,7 +346,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         },
       },
     }),
-    [theme, isUsingKeyboard, showSelectionHighlight]
+    [theme, isUsingKeyboard, showSelectionHighlight, useCompactLayout]
   );
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -341,6 +396,12 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     listContainerEl?.focus({ preventScroll: true });
   }, [listContainerEl]);
 
+  const handleFileOperationDialogExited = React.useCallback(() => {
+    if (!useCompactLayout) {
+      listContainerEl?.focus({ preventScroll: true });
+    }
+  }, [listContainerEl, useCompactLayout]);
+
   /** Navigate to a breadcrumb path segment. */
   const handleBreadcrumbNavigate = React.useCallback(
     (path: string) => {
@@ -373,6 +434,13 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
 
   return (
     <Box data-pane-id={paneId} sx={paneContainerSx} onClick={handlePaneClick} onFocusCapture={handlePaneFocus} onKeyDown={undefined}>
+      <Box
+        aria-live="polite"
+        aria-atomic="true"
+        sx={{ position: "absolute", width: "1px", height: "1px", overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }}
+      >
+        {selectionAnnouncement}
+      </Box>
       {/* Breadcrumbs + View/Sort controls (desktop) */}
       {!useCompactLayout && (
         <Box
@@ -458,22 +526,20 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
             files={sortedFiles}
             showEmptyState={error === null}
             useCompactLayout={useCompactLayout}
+            useTouchSelectionControls={useTouchSelectionControls}
+            compactOverlay={compactOverlay}
+            compactOverlayLayout={compactOverlay ? compactOverlayLayout : undefined}
             focusedIndex={focusedIndex}
             selectedFiles={selectedFiles}
             onFileClick={handleFileClick}
+            onToggleItemSelection={toggleItemSelection}
+            onSelectItem={selectItem}
             rowVirtualizer={rowVirtualizer}
             parentRef={parentRef}
             listContainerRef={listContainerRef}
             fileRowStyles={fileRowStyles}
             viewMode={viewMode}
-            onOpenAssociatedViewer={(file, index) => handleOpenFileForFile(file, index, "associated-viewer")}
-            onOpenViewerPicker={(file, index) => handleOpenFileForFile(file, index, "force-viewer-picker")}
-            canOpenInBrowserViewer={canOpenInBrowserViewer}
-            onOpenAssociatedNativeApp={canOpenFocusedFileInApp ? (file, index) => void handleOpenInAppForFile(file, index) : undefined}
-            onOpenNativePicker={
-              canOpenFocusedFileInApp ? (file, index) => void handleOpenInAppForFile(file, index, { forcePicker: true }) : undefined
-            }
-            onRename={canRenameItems ? handleRenameForFile : undefined}
+            getCompactItemActions={getCompactItemActionsForFile}
           />
         </Box>
       )}
@@ -499,15 +565,6 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         />
       ) : null}
 
-      {/* Status Bar */}
-      {!useCompactLayout && !loading && sortedFiles.length > 0 && (
-        <StatusBar
-          files={sortedFiles}
-          focusedIndex={focusedIndex}
-          canResolveShortcutTargets={contentCapabilities.mutate && isLocalDrive(connectionId)}
-        />
-      )}
-
       {/* Delete Confirmation Dialog */}
       <ConfirmDeleteDialog
         open={deleteDialogOpen}
@@ -515,6 +572,8 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         isDeleting={isDeleting}
         onClose={closeDeleteDialog}
         onConfirm={handleDeleteConfirm}
+        disableRestoreFocus={!useCompactLayout}
+        onTransitionExited={handleFileOperationDialogExited}
       />
 
       {/* Rename Dialog */}
@@ -526,6 +585,8 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         apiError={renameError}
         onClose={closeRenameDialog}
         onConfirm={handleRenameConfirm}
+        disableRestoreFocus={!useCompactLayout}
+        onTransitionExited={handleFileOperationDialogExited}
       />
 
       {/* Create Item Dialog */}
@@ -538,6 +599,8 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         apiError={createError}
         onClose={closeCreateDialog}
         onConfirm={handleCreateConfirm}
+        disableRestoreFocus={!useCompactLayout}
+        onTransitionExited={handleFileOperationDialogExited}
       />
     </Box>
   );
