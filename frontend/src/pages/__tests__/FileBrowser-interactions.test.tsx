@@ -1236,7 +1236,7 @@ describe("Browser Component - Interactions", () => {
 
       fireEvent.keyDown(document, { key: "F9", altKey: true });
       expect(screen.queryByRole("dialog", { name: "Extract from ZIP Archive" })).not.toBeInTheDocument();
-      expect(await screen.findByText("The selected item is not available for this action.")).toBeInTheDocument();
+      expect(await screen.findByText("Select an archive to extract.")).toBeInTheDocument();
 
       await user.keyboard("{Control>}p{/Control}");
       const commandInput = await screen.findByPlaceholderText("Run a command");

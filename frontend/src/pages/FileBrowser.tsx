@@ -898,6 +898,8 @@ const Browser: React.FC = () => {
         if (action === "extract-archive") return t("fileBrowser.unavailableShortcuts.selectArchiveToExtract");
         return t(`fileBrowser.unavailableShortcuts.${action === "move" ? "selectItemsToMove" : "selectItemsToCopy"}`);
       }
+      if (action === "extract-archive" && reason === "unsupported-source")
+        return t("fileBrowser.unavailableShortcuts.selectArchiveToExtract");
       if (action === "copy" && (activePaneIsArchive || activePaneIsVirtualArchive))
         return t("fileBrowser.unavailableShortcuts.archiveExtractionUnavailable");
       return t(`fileBrowser.unavailableShortcuts.${reason === "unsupported-destination" ? "destinationUnavailable" : "sourceUnavailable"}`);

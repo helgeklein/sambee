@@ -905,7 +905,7 @@ export const EN_TRANSLATIONS = {
       selectItemsToArchive: "Select items that can be added to an archive.",
       selectItemsToCopy: "Select one or more items to copy.",
       selectItemsToMove: "Select one or more items to move.",
-      sourceUnavailable: "The selected item is not available for this action.",
+      sourceUnavailable: "This action can't be used with the selected item.",
     },
     chrome: {
       breadcrumb: {
