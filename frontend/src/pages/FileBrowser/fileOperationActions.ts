@@ -16,7 +16,9 @@ export interface FileOperationAvailability {
 
 export interface FileOperationAction {
   id: FileOperationActionId;
+  priority: number;
   label: string;
+  shortcut: string;
   tooltip: string;
   enabled: boolean;
   unavailableReason?: string;
@@ -34,19 +36,20 @@ interface FileOperationActionContext {
 
 interface FileOperationDefinition {
   id: FileOperationActionId;
+  priority: number;
   requiresTwoPanes?: boolean;
 }
 
 const FILE_OPERATION_DEFINITIONS: readonly FileOperationDefinition[] = [
-  { id: "new-directory" },
-  { id: "new-file" },
-  { id: "rename" },
-  { id: "delete" },
-  { id: "copy", requiresTwoPanes: true },
-  { id: "move", requiresTwoPanes: true },
-  { id: "create-archive" },
-  { id: "extract-archive" },
-  { id: "refresh" },
+  { id: "new-directory", priority: 1 },
+  { id: "new-file", priority: 2 },
+  { id: "rename", priority: 3 },
+  { id: "delete", priority: 4 },
+  { id: "copy", priority: 5, requiresTwoPanes: true },
+  { id: "move", priority: 6, requiresTwoPanes: true },
+  { id: "create-archive", priority: 7 },
+  { id: "extract-archive", priority: 8 },
+  { id: "refresh", priority: 9 },
 ];
 
 export function createFileOperationActions({
@@ -65,7 +68,9 @@ export function createFileOperationActions({
 
     return {
       id: definition.id,
+      priority: definition.priority,
       label,
+      shortcut,
       tooltip: unavailableReason ? `${label} (${shortcut}): ${unavailableReason}` : `${label} (${shortcut})`,
       enabled: actionAvailability.available,
       unavailableReason,

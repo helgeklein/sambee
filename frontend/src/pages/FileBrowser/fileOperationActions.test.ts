@@ -40,6 +40,8 @@ describe("createFileOperationActions", () => {
       "extract-archive",
       "refresh",
     ]);
+    expect(actions.map((action) => action.priority)).toEqual([1, 2, 3, 4, 7, 8, 9]);
+    expect(actions[0]).toMatchObject({ shortcut: "F1" });
   });
 
   it("includes transfer commands in two-pane mode and appends a disabled reason to the tooltip", () => {

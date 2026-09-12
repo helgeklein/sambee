@@ -54,7 +54,7 @@ export function FileOperationsToolbar({ actions, moreLabel }: FileOperationsTool
       let usedWidth = moreWidth;
       let nextVisibleCount = 0;
       for (const width of actionWidths) {
-        const nextWidth = usedWidth + (nextVisibleCount > 0 ? BUTTON_GAP_PX : BUTTON_GAP_PX) + width;
+        const nextWidth = usedWidth + BUTTON_GAP_PX + width;
         if (nextWidth > availableWidth) break;
         usedWidth = nextWidth;
         nextVisibleCount += 1;

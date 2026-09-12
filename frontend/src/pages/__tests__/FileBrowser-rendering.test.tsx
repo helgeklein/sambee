@@ -148,6 +148,53 @@ describe("Browser Component - Rendering", () => {
     expect(screen.getAllByTestId("status-bar-focused-file-name")).toHaveLength(2);
   });
 
+  it("keeps permitted creation and refresh commands available in an empty directory", async () => {
+    vi.mocked(api.listDirectory).mockResolvedValue({ items: [], path: "", total: 0 });
+
+    renderBrowser("/browse/smb/test-server-1");
+
+    expect(await screen.findByText(/This directory is empty/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New folder" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
+    expect(screen.queryByTestId("status-bar-focused-file-name")).not.toBeInTheDocument();
+  });
+
+  it("keeps the toolbar visible while mutation commands are disabled on a read-only connection", async () => {
+    vi.mocked(api.getConnections).mockResolvedValue([{ ...mockConnections[0], access_mode: "read_only" }]);
+
+    renderBrowser("/browse/smb/test-server-1");
+
+    await screen.findAllByText("Documents");
+    expect(screen.getByRole("button", { name: "New folder" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Rename" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
+  });
+
+  it("keeps the toolbar visible and hides status bars in compact layout", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: /max-width/.test(query),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+
+    try {
+      renderBrowser("/browse/smb/test-server-1");
+
+      await screen.findAllByText("Documents");
+      expect(screen.getAllByTestId("file-operations-toolbar")).toHaveLength(1);
+      expect(screen.getByRole("button", { name: "New folder" })).toBeInTheDocument();
+      expect(screen.queryByTestId("status-bar-focused-file-name")).not.toBeInTheDocument();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
   it("displays loading state while fetching files", async () => {
     // Mock a delayed response
     vi.mocked(api.listDirectory).mockImplementation(() => new Promise<typeof mockDirectoryListing>(() => {}));

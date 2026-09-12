@@ -107,6 +107,19 @@ describe("Browser Component - Interactions", () => {
   });
 
   describe("Settings", () => {
+    it("disables the Refresh toolbar command while settings is open", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await screen.findAllByText("Documents");
+      expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
+
+      await user.click(screen.getByRole("button", { name: "Open settings" }));
+      await screen.findByRole("dialog");
+
+      expect(screen.getByRole("button", { name: "Refresh", hidden: true })).toBeDisabled();
+    });
+
     it("opens settings when settings button clicked", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");
@@ -1326,7 +1339,7 @@ describe("Browser Component - Interactions", () => {
       expect(api.executeArchiveCreation).not.toHaveBeenCalled();
     });
 
-    it("extracts the selected ZIP member to the other pane with F5", async () => {
+    it("extracts the selected ZIP member to the other pane from the Copy toolbar command", async () => {
       const user = userEvent.setup();
       vi.mocked(api.listArchiveDirectory).mockResolvedValue({
         archive: { path: "archive.zip", size: 1 },
@@ -1348,7 +1361,7 @@ describe("Browser Component - Interactions", () => {
       expect(screen.queryByRole("dialog", { name: "Extract from ZIP Archive" })).not.toBeInTheDocument();
       await user.keyboard(" ");
 
-      fireEvent.keyDown(document, { key: "F5" });
+      await user.click(screen.getByRole("button", { name: "Copy" }));
 
       const extractDialog = await screen.findByRole("dialog", { name: "Extract from ZIP Archive" });
       expect(within(extractDialog).getByLabelText("inside.txt")).toHaveTextContent("inside.txt");
@@ -2466,6 +2479,49 @@ describe("Browser Component - Interactions", () => {
   });
 
   describe("Rename", () => {
+    it("opens the rename dialog from the active pane toolbar command", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await screen.findAllByText("Documents");
+      await user.click(screen.getByRole("button", { name: "Rename" }));
+
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    });
+
+    it("targets the newly active pane when Rename is invoked from the toolbar", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.listDirectory).mockImplementation(async (connectionId) => {
+        const name = connectionId === "conn-1" ? "left-item.txt" : "right-item.txt";
+        return {
+          items: [
+            {
+              name,
+              path: name,
+              type: FileType.FILE,
+              size: 1,
+              modified_at: "2024-01-01T00:00:00Z",
+              is_readable: true,
+              is_hidden: false,
+            },
+          ],
+          path: "",
+          total: 1,
+        };
+      });
+
+      const { container } = renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2");
+      await screen.findByRole("button", { name: "File: right-item.txt" });
+
+      const rightPane = container.querySelector('[data-pane-id="right"]');
+      expect(rightPane).toBeInstanceOf(HTMLElement);
+      await user.click(rightPane as HTMLElement);
+      await waitFor(() => expect(screen.getByTestId("router-location")).toHaveTextContent("active=2"));
+
+      await user.click(screen.getByRole("button", { name: "Rename" }));
+      expect(await screen.findByLabelText(/new name/i)).toHaveValue("right-item.txt");
+    });
+
     it("opens rename dialog when Rename Focused Item is selected from commands mode", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");

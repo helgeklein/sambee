@@ -203,7 +203,10 @@ export const toolbarIconButtonSx: SxProps<Theme> = {
 
 export const fileOperationsToolbarSx: SxProps<Theme> = (theme) => ({
   px: 1,
-  py: 0.5,
+  height: 52,
+  boxSizing: "border-box",
+  display: "flex",
+  alignItems: "center",
   borderTop: 1,
   borderColor: theme.palette.divider,
   bgcolor: theme.palette.background.default,

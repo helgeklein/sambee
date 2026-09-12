@@ -8,7 +8,9 @@ import { FileOperationsToolbar } from "../FileOperationsToolbar";
 function createAction(id: FileOperationAction["id"], overrides: Partial<FileOperationAction> = {}): FileOperationAction {
   return {
     id,
+    priority: 1,
     label: id,
+    shortcut: "F1",
     tooltip: `${id} (F1)`,
     enabled: true,
     onClick: vi.fn(),
@@ -59,6 +61,7 @@ describe("FileOperationsToolbar", () => {
   it("moves lower-priority commands into More when the toolbar is narrow", async () => {
     const observers: ResizeObserverCallback[] = [];
     let toolbarWidth = 180;
+    let operationWidth = 100;
     vi.stubGlobal(
       "ResizeObserver",
       class {
@@ -73,7 +76,7 @@ describe("FileOperationsToolbar", () => {
       }
     );
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
-      if (this.dataset.operationId) return { width: 100 } as DOMRect;
+      if (this.dataset.operationId) return { width: operationWidth } as DOMRect;
       if (this.hasAttribute("data-more-button")) return { width: 60 } as DOMRect;
       if (this.dataset.testid === "file-operations-toolbar") return { width: toolbarWidth } as DOMRect;
       return { width: 0 } as DOMRect;
@@ -81,17 +84,62 @@ describe("FileOperationsToolbar", () => {
     const copy = createAction("copy", { label: "Copy" });
     const move = createAction("move", { label: "Move" });
 
-    renderToolbar([copy, move]);
+    const { rerender } = renderToolbar([copy, move]);
 
     await waitFor(() => expect(screen.getByRole("button", { name: "More" })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "More" }));
     expect(screen.getByRole("menuitem", { name: "Move" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move" }));
+    expect(move.onClick).toHaveBeenCalledOnce();
 
     toolbarWidth = 600;
     act(() => observers[0]([], {} as ResizeObserver));
 
     await waitFor(() => expect(screen.queryByRole("button", { name: "More" })).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Move" })).toBeInTheDocument();
+
+    toolbarWidth = 220;
+    operationWidth = 150;
+    rerender(
+      <SambeeThemeProvider>
+        <FileOperationsToolbar actions={[copy, { ...move, label: "Move selected items" }]} moreLabel="More" />
+      </SambeeThemeProvider>
+    );
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "More" })).toBeInTheDocument());
+  });
+
+  it("keeps a disabled command in More without delegating its click", async () => {
+    const observers: ResizeObserverCallback[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          observers.push(callback);
+        }
+        observe(_target: Element) {
+          observers.at(-1)?.([{ contentRect: { width: 180 } } as ResizeObserverEntry], this as unknown as ResizeObserver);
+        }
+        unobserve() {}
+        disconnect() {}
+      }
+    );
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
+      if (this.dataset.operationId) return { width: 100 } as DOMRect;
+      if (this.hasAttribute("data-more-button")) return { width: 60 } as DOMRect;
+      if (this.dataset.testid === "file-operations-toolbar") return { width: 180 } as DOMRect;
+      return { width: 0 } as DOMRect;
+    });
+    const move = createAction("move", { label: "Move", enabled: false });
+
+    renderToolbar([createAction("copy", { label: "Copy" }), move]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "More" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    const moveMenuItem = screen.getByRole("menuitem", { name: "Move" });
+    expect(moveMenuItem).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(moveMenuItem);
+    expect(move.onClick).not.toHaveBeenCalled();
   });
 });
