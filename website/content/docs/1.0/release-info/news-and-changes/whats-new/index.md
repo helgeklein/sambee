@@ -85,6 +85,7 @@ On phones and other small screen devices, file size and modification time are no
 - When keyboard shortcuts are ignored Sambee now shows a toast message to make the user unobtrusively aware of the fact.
 - Keyboard navigation: removed delay after entering a new directory
 - Typeahead buffer: cleared when <kbd>Esc</kbd> is pressed
+- The status bar is now always shown
 
 ## Settings
 
@@ -101,6 +102,10 @@ The settings gained a new category page:
 File browser settings:
 
 - **Touch-friendly file selection:** controls how mobile-style file selection is enabled (auto, always on, off).
+
+### Other Changes
+
+- Localization: Timestamps weren't properly localized in some settings pages (account, user management).
 
 ## Image Viewer
 
