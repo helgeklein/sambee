@@ -126,3 +126,7 @@ Companion's release process has been simplified and aligned to match the Docker 
 
 1. When a new Companion build is created, its GitHub release is published automatically and promoted to the `test` channel.
 1. Interim Companion GitHub releases are deleted automatically when they're no longer needed.
+
+### Other Changes
+
+- Dependency security: The backend's lockfile update process was simplified so that Dependabot can now update lockfiles, too. This removes the need to check out Dependabot PRs locally just to run a lockfile update script.

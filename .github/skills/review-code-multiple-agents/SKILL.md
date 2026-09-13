@@ -13,10 +13,6 @@ How the code should be, ideally:
 - Well-structured
 - Testable
 
-Multiple agents:
-
-- Use one agent to perform the actual review and another agent to challenge the findings of the first agent.
-
 Things to look for:
 
 - Code correctness and logic

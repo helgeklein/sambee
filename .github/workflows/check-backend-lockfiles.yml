@@ -1,8 +1,5 @@
 name: "CI: Check Backend Lockfiles"
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 on:
   push:
     branches: [ main ]
@@ -11,10 +8,7 @@ on:
       - backend/requirements-dev.txt
       - backend/requirements.lock.txt
       - backend/requirements-dev.lock.txt
-      - scripts/refresh-backend-lockfiles
-      - scripts/verify-python-runtime-image.py
-      - Dockerfile
-      - .github/actions/setup-runtime-python/action.yml
+      - scripts/verify-backend-lockfiles.py
   pull_request:
     branches: [ main ]
     paths:
@@ -22,10 +16,7 @@ on:
       - backend/requirements-dev.txt
       - backend/requirements.lock.txt
       - backend/requirements-dev.lock.txt
-      - scripts/refresh-backend-lockfiles
-      - scripts/verify-python-runtime-image.py
-      - Dockerfile
-      - .github/actions/setup-runtime-python/action.yml
+        - scripts/verify-backend-lockfiles.py
   workflow_dispatch:
 
 permissions:
@@ -38,14 +29,5 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up runtime Python
-        uses: ./.github/actions/setup-runtime-python
-        with:
-          cache: 'pip'
-          cache-dependency-path: |
-            backend/requirements.txt
-            backend/requirements-dev.txt
-            scripts/refresh-backend-lockfiles
-
-      - name: Verify backend lockfiles are fresh
-        run: scripts/refresh-backend-lockfiles --check
+      - name: Validate backend lockfiles
+        run: python3 scripts/verify-backend-lockfiles.py
