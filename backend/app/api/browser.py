@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
-from typing import NoReturn, Optional
+from typing import Literal, NoReturn, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel
@@ -1933,7 +1933,7 @@ async def remove_empty_directory(
 
 # Characters forbidden in SMB/NTFS file names
 _INVALID_NAME_CHARS = frozenset('\\/:*?"<>|')
-_UNICODE_NFC_NORMALIZATION_FORM = "NFC"
+_UNICODE_NFC_NORMALIZATION_FORM: Literal["NFC"] = "NFC"
 
 
 def _validate_item_name(raw_name: str) -> str:
