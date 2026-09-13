@@ -111,6 +111,7 @@ File browser settings:
 - Mobile UI: text size increase to improve readability
 - PWA on Chrome on Android: changed the system status bar color from the default blue to gold, matching Sambee's top bar
 - Bugfix: Concurrent OIDC token refreshes would cause SQLite database lock errors.
+- Unicode: file and directory names are normalized to Unicode NFC (single characters) when renamed or created/copied/moved.
 
 ## Under the Hood
 

@@ -197,6 +197,37 @@ def test_cross_provider_stream_destination_stages_before_publishing(
     mock_instance.stage_and_commit_new_file_from_stream.assert_awaited_once()
 
 
+def test_cross_provider_stream_destination_canonicalizes_only_the_target_leaf(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+):
+    """Streaming a new destination must use NFC without changing source semantics."""
+    nfd_name = "Auftragsbesta\u0308tigung.pdf"
+    nfc_name = "Auftragsbestätigung.pdf"
+
+    async def stage_and_commit(path: str, stream, *, before_commit, **_kwargs: object) -> int:
+        assert path == f"incoming/{nfc_name}"
+        assert b"".join([chunk async for chunk in stream]) == b"report"
+        await before_commit()
+        return 6
+
+    with patch("app.api.browser.SMBBackend") as mock_backend:
+        mock_instance = AsyncMock()
+        mock_backend.return_value = mock_instance
+        mock_instance.get_file_info.side_effect = FileNotFoundError("target does not exist")
+        mock_instance.stage_and_commit_new_file_from_stream.side_effect = stage_and_commit
+        response = client.post(
+            f"/api/browse/{test_connection.id}/transfer-stream",
+            params={"path": f"incoming/{nfd_name}", "expected_size": 6},
+            headers=auth_headers_user,
+            content=b"report",
+        )
+
+    assert response.status_code == 200
+    mock_instance.stage_and_commit_new_file_from_stream.assert_awaited_once()
+
+
 @pytest.mark.parametrize(
     "source_modified_at",
     [None, datetime(2025, 1, 1, tzinfo=timezone.utc), datetime(2025, 1, 2, tzinfo=timezone.utc)],
@@ -2100,6 +2131,53 @@ class TestRenameItem:
         mock_instance.rename_item.assert_called_once_with("/document.txt", "renamed.txt")
         mock_instance.disconnect.assert_called_once()
 
+    def test_rename_canonicalizes_target_name_without_changing_source_path(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Rename targets use NFC while existing source paths stay addressable."""
+        mock_class, mock_instance = mock_smb_backend
+        nfd_source_path = "/Auftragsbesta\u0308tigung.pdf"
+        nfc_name = "Auftragsbestätigung.pdf"
+        mock_instance.rename_item.return_value = None
+        mock_instance.get_file_info.return_value = FileInfo(name=nfc_name, path=f"/{nfc_name}", type=FileType.FILE)
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/rename",
+            headers=auth_headers_user,
+            json={"path": nfd_source_path, "new_name": "Auftragsbesta\u0308tigung.pdf"},
+        )
+
+        assert response.status_code == 200
+        mock_instance.rename_item.assert_called_once_with(nfd_source_path, nfc_name)
+        mock_instance.get_file_info.assert_called_once_with(nfc_name)
+
+    def test_rename_nfd_source_to_existing_nfc_target_returns_conflict(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """An NFC destination collision must not modify an existing NFD source."""
+        mock_class, mock_instance = mock_smb_backend
+        nfd_source_path = "/Auftragsbesta\u0308tigung.pdf"
+        nfc_name = "Auftragsbestätigung.pdf"
+        mock_instance.rename_item.side_effect = FileExistsError(f"An item named '{nfc_name}' already exists")
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/rename",
+            headers=auth_headers_user,
+            json={"path": nfd_source_path, "new_name": "Auftragsbesta\u0308tigung.pdf"},
+        )
+
+        assert response.status_code == 409
+        assert "already exists" in response.json()["detail"]
+        mock_instance.rename_item.assert_called_once_with(nfd_source_path, nfc_name)
+
     def test_rename_directory_success(
         self,
         client: TestClient,
@@ -2374,6 +2452,28 @@ class TestCreateItem:
         assert data["size"] == 0
         mock_instance.create_file.assert_called_once_with("notes.txt")
 
+    def test_create_canonicalizes_decomposed_name(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """New items are created with NFC filenames."""
+        mock_class, mock_instance = mock_smb_backend
+        nfc_name = "Auftragsbestätigung"
+        mock_instance.create_directory.return_value = None
+        mock_instance.get_file_info.return_value = FileInfo(name=nfc_name, path=f"/{nfc_name}", type=FileType.DIRECTORY)
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/create",
+            headers=auth_headers_user,
+            json={"parent_path": "/", "name": "Auftragsbesta\u0308tigung", "type": "directory"},
+        )
+
+        assert response.status_code == 200
+        mock_instance.create_directory.assert_called_once_with(nfc_name)
+
     def test_create_in_subdirectory(
         self,
         client: TestClient,
@@ -2647,6 +2747,20 @@ class TestValidateItemName:
         from app.api.browser import _validate_item_name
 
         assert _validate_item_name("readme.md") == "readme.md"
+
+    def test_canonicalizes_decomposed_unicode_to_nfc(self):
+        """New names must use NFC so composed characters are one code point where possible."""
+        from app.api.browser import _validate_item_name
+
+        assert _validate_item_name("Auftragsbesta\u0308tigung.pdf") == "Auftragsbestätigung.pdf"
+
+    def test_copy_move_destination_uses_nfc_and_preserves_source_path(self):
+        """Copy and move share one destination-only canonicalization boundary."""
+        source_path = "source/Auftragsbesta\u0308tigung.pdf"
+        source, destination = browser_api._validate_copy_move_paths(source_path, "target/Auftragsbesta\u0308tigung.pdf")
+
+        assert source == source_path
+        assert destination == "target/Auftragsbestätigung.pdf"
 
     def test_empty_name_raises(self):
         """An empty name raises 400."""

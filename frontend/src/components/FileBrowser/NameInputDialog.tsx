@@ -24,6 +24,7 @@ import { DialogNotice } from "../Dialog/DialogNotice";
 import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
 import { FormGroup, FormRow, FormSurface, formOutlinedControlSx } from "../Form/FormLayout";
 import { FILENAME_FIELD_PROPS, FILENAME_INPUT_PROPS, FILENAME_INPUT_SX } from "./filenameFieldProps";
+import { canonicalizeItemName } from "./itemNameNormalization";
 import { NAME_DIALOG_STRINGS, validateItemName } from "./nameDialogStrings";
 
 // ============================================================================
@@ -174,8 +175,10 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
   // handleSubmit
   //
   const handleSubmit = useCallback(() => {
+    const canonicalName = canonicalizeItemName(value);
+
     // Run base validation
-    const baseError = validateItemName(value);
+    const baseError = validateItemName(canonicalName);
     if (baseError) {
       setValidationError(baseError);
       return;
@@ -183,14 +186,14 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
 
     // Run extra validation (e.g. "name unchanged" for rename)
     if (extraValidate) {
-      const extraError = extraValidate(value);
+      const extraError = extraValidate(canonicalName);
       if (extraError) {
         setValidationError(extraError);
         return;
       }
     }
 
-    onConfirm(value);
+    onConfirm(canonicalName);
   }, [value, extraValidate, onConfirm]);
 
   //

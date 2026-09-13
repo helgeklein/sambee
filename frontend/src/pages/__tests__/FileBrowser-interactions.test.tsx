@@ -2746,6 +2746,26 @@ describe("Browser Component - Interactions", () => {
       });
     });
 
+    it("sends NFC when a decomposed filename is renamed", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      await user.click(screen.getByTestId("virtual-list"));
+      await user.keyboard("{F2}");
+      const input = await screen.findByLabelText(/new name/i);
+      await user.clear(input);
+      await user.type(input, "Auftragsbesta\u0308tigung.pdf");
+      await user.click(await screen.findByRole("button", { name: /^rename$/i }));
+
+      await waitFor(() => {
+        expect(api.renameItem).toHaveBeenCalledWith(expect.any(String), expect.any(String), "Auftragsbestätigung.pdf");
+      });
+    });
+
     it("closes dialog when Cancel is clicked", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");

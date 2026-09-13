@@ -169,6 +169,22 @@ describe("NameInputDialog", () => {
     expect(onConfirm).toHaveBeenCalledWith("my-file.txt");
   });
 
+  it("keeps decomposed Unicode while typing and submits the NFC name", async () => {
+    const onConfirm = vi.fn();
+    const user = userEvent.setup();
+    render(<NameInputDialog {...defaultProps} onConfirm={onConfirm} />);
+
+    const input = screen.getByLabelText("Name");
+    const nfdName = "Auftragsbesta\u0308tigung.pdf";
+    const nfcName = "Auftragsbestätigung.pdf";
+    await user.type(input, nfdName);
+
+    expect(input).toHaveValue(nfdName);
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    expect(onConfirm).toHaveBeenCalledWith(nfcName);
+  });
+
   it("does not submit on Enter when isSubmitting is true", async () => {
     const onConfirm = vi.fn();
     const user = userEvent.setup();

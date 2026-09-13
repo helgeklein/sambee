@@ -18,6 +18,7 @@ import type React from "react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { FileType } from "../../types";
+import { canonicalizeItemName } from "./itemNameNormalization";
 import NameInputDialog from "./NameInputDialog";
 import { RENAME_DIALOG_STRINGS } from "./renameDialogStrings";
 
@@ -79,8 +80,9 @@ const RenameDialog: React.FC<RenameDialogProps> = ({
 }) => {
   const { t } = useTranslation();
   const isDirectory = itemType === FileType.DIRECTORY;
+  const canonicalItemName = canonicalizeItemName(itemName);
   const title = isDirectory ? RENAME_DIALOG_STRINGS.TITLE_DIRECTORY : RENAME_DIALOG_STRINGS.TITLE_FILE;
-  const autoSelectRange = useMemo(() => getNameSelectionRange(itemName, isDirectory), [itemName, isDirectory]);
+  const autoSelectRange = useMemo(() => getNameSelectionRange(canonicalItemName, isDirectory), [canonicalItemName, isDirectory]);
   const description = (
     <Typography variant="body2" sx={{ color: "text.secondary" }}>
       {t("fileBrowser.rename.description")}
@@ -102,7 +104,7 @@ const RenameDialog: React.FC<RenameDialogProps> = ({
       title={title}
       description={description}
       inputLabel={RENAME_DIALOG_STRINGS.INPUT_LABEL}
-      initialValue={itemName}
+      initialValue={canonicalItemName}
       submitLabel={RENAME_DIALOG_STRINGS.BUTTON_RENAME}
       submittingLabel={RENAME_DIALOG_STRINGS.BUTTON_RENAMING}
       isSubmitting={isRenaming}

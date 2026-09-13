@@ -41,6 +41,36 @@ describe("RenameDialog", () => {
     });
   });
 
+  it("displays a decomposed name in NFC and submits it as a migration rename", async () => {
+    const onConfirm = vi.fn();
+    const user = userEvent.setup();
+    const nfdName = "Auftragsbesta\u0308tigung.pdf";
+    const nfcName = "Auftragsbestätigung.pdf";
+    render(<RenameDialog {...defaultProps} itemName={nfdName} onConfirm={onConfirm} />);
+
+    const input = screen.getByLabelText(RENAME_DIALOG_STRINGS.INPUT_LABEL);
+    await waitFor(() => expect(input).toHaveValue(nfcName));
+    await user.click(screen.getByRole("button", { name: RENAME_DIALOG_STRINGS.BUTTON_RENAME }));
+
+    expect(onConfirm).toHaveBeenCalledWith(nfcName);
+  });
+
+  it("deletes a composed umlaut without leaving its base letter", async () => {
+    const user = userEvent.setup();
+    const nfdName = "Auftragsbesta\u0308tigung.pdf";
+    const nfcName = "Auftragsbestätigung.pdf";
+    render(<RenameDialog {...defaultProps} itemName={nfdName} />);
+
+    const input = screen.getByLabelText(RENAME_DIALOG_STRINGS.INPUT_LABEL) as HTMLInputElement;
+    await waitFor(() => expect(input).toHaveValue(nfcName));
+    await waitFor(() => expect(input).toHaveFocus());
+    const umlautIndex = nfcName.indexOf("ä");
+    input.setSelectionRange(umlautIndex, umlautIndex + 1);
+    await user.keyboard("{Backspace}");
+
+    expect(input).toHaveValue("Auftragsbesttigung.pdf");
+  });
+
   it("renders directory title when itemType is DIRECTORY", () => {
     render(<RenameDialog {...defaultProps} itemName="Photos" itemType={FileType.DIRECTORY} />);
 

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import unicodedata
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
@@ -29,7 +30,7 @@ from app.core.security import (
     oauth2_scheme_optional,
 )
 from app.db.database import get_session
-from app.models.archive import ArchiveDirectoryListing
+from app.models.archive import ArchiveDirectoryListing, ArchiveEntryInfo, ArchiveIdentity
 from app.models.connection import Connection
 from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
 from app.models.file import (
@@ -670,19 +671,19 @@ async def list_archive_directory(
         zip_reader = ZipReader(reader, archive_info.size)
         directory_page = await zip_reader.list_directory(virtual_path, cursor, page_size)
         return ArchiveDirectoryListing(
-            archive={"path": archive_path, "size": archive_info.size, "modified_at": archive_info.modified_at},
+            archive=ArchiveIdentity(path=archive_path, size=archive_info.size, modified_at=archive_info.modified_at),
             path=directory_page.path,
             items=[
-                {
-                    "name": entry.path.rsplit("/", 1)[-1],
-                    "path": entry.path,
-                    "type": FileType.DIRECTORY if entry.is_directory else FileType.FILE,
-                    "size": None if entry.is_directory else entry.uncompressed_size,
-                    "compressed_size": None if entry.is_directory else entry.compressed_size,
-                    "compression_method": None if entry.is_directory else entry.compression_method,
-                    "crc32": None if entry.is_directory else entry.crc32,
-                    "modified_at": entry.modified_at,
-                    "state": (
+                ArchiveEntryInfo(
+                    name=entry.path.rsplit("/", 1)[-1],
+                    path=entry.path,
+                    type=FileType.DIRECTORY if entry.is_directory else FileType.FILE,
+                    size=None if entry.is_directory else entry.uncompressed_size,
+                    compressed_size=None if entry.is_directory else entry.compressed_size,
+                    compression_method=None if entry.is_directory else entry.compression_method,
+                    crc32=None if entry.is_directory else entry.crc32,
+                    modified_at=entry.modified_at,
+                    state=(
                         "readable"
                         if entry.is_directory
                         else "blocked"
@@ -691,8 +692,8 @@ async def list_archive_directory(
                         if entry.compression_method in {0, 8, 12}
                         else "unavailable"
                     ),
-                    "is_hidden": entry.path.rsplit("/", 1)[-1].startswith("."),
-                }
+                    is_hidden=entry.path.rsplit("/", 1)[-1].startswith("."),
+                )
                 for entry in directory_page.entries
             ],
             next_cursor=directory_page.next_cursor,
@@ -1293,10 +1294,9 @@ async def stream_transfer_to_new_item(
     relay cannot expose partial output or replace an existing target.
     """
 
-    target_path = path.strip("/")
+    target_path = _canonicalize_destination_path(path)
     if not target_path:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Destination path must not be empty")
-    _validate_item_name(target_path.rsplit("/", 1)[-1])
     set_user(current_user.username)
     connection = _get_connection_or_404(session, current_user, connection_id)
     require_connection_write_access(current_user, connection, action="transfer_destination", path=target_path)
@@ -1933,26 +1933,29 @@ async def remove_empty_directory(
 
 # Characters forbidden in SMB/NTFS file names
 _INVALID_NAME_CHARS = frozenset('\\/:*?"<>|')
+_UNICODE_NFC_NORMALIZATION_FORM = "NFC"
 
 
 def _validate_item_name(raw_name: str) -> str:
-    """Validate and return an item name without changing it, or raise HTTPException.
+    """Canonicalize, validate, and return an SMB item name, or raise HTTPException.
 
     Checks for empty names, reserved names (`.`, `..`), invalid NTFS
-    characters, and terminal whitespace or periods. Leading whitespace is
-    preserved because it is valid in SMB file and directory names.
+    characters, and terminal whitespace or periods. Canonical NFC
+    normalization prevents Sambee from creating decomposed Unicode names.
+    Leading whitespace is preserved because it is valid in SMB file and
+    directory names.
 
     Args:
         raw_name: The raw name string to validate.
 
     Returns:
-        The unchanged, validated name.
+        The NFC-normalized, validated name.
 
     Raises:
         HTTPException: 400 if the name is invalid.
     """
 
-    name = raw_name
+    name = unicodedata.normalize(_UNICODE_NFC_NORMALIZATION_FORM, raw_name)
     if not name:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1974,6 +1977,21 @@ def _validate_item_name(raw_name: str) -> str:
             detail="Name must not end with a space or period",
         )
     return name
+
+
+def _canonicalize_destination_path(raw_path: str) -> str:
+    """Return a stripped destination path with only its leaf name normalized.
+
+    Source paths must preserve their original Unicode representation so
+    existing non-NFC entries on an SMB share remain addressable.
+    """
+
+    path = raw_path.strip("/") if raw_path else ""
+    if not path:
+        return ""
+    parent, separator, raw_name = path.rpartition("/")
+    name = _validate_item_name(raw_name)
+    return f"{parent}{separator}{name}"
 
 
 #
@@ -2186,7 +2204,7 @@ def _validate_copy_move_paths(source_path: str, dest_path: str) -> tuple[str, st
     """
 
     source = source_path.strip("/") if source_path else ""
-    dest = dest_path.strip("/") if dest_path else ""
+    dest = _canonicalize_destination_path(dest_path)
 
     if not source:
         raise HTTPException(
@@ -2198,7 +2216,6 @@ def _validate_copy_move_paths(source_path: str, dest_path: str) -> tuple[str, st
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Destination path must not be empty",
         )
-    _validate_item_name(dest.rsplit("/", 1)[-1])
     if source == dest:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
