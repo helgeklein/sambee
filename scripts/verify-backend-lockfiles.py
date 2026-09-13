@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Validate direct backend dependency pins against hash-locked requirements."""
 
 from __future__ import annotations
@@ -122,8 +121,7 @@ def parse_lockfile(path: Path) -> dict[str, LockEntry]:
     for entry in entries.values():
         if not entry.has_hash:
             raise ValueError(
-                f"{path}:{entry.line_number}: {entry.name}=={entry.version} "
-                "must include a SHA-256 hash"
+                f"{path}:{entry.line_number}: {entry.name}=={entry.version} must include a SHA-256 hash"
             )
 
     return entries
@@ -144,8 +142,7 @@ def verify_pins(
             )
         if lock_entry.version != pin.version:
             raise ValueError(
-                f"{lockfile_path}:{lock_entry.line_number}: {name} is {lock_entry.version}; "
-                f"{pin.source_path} requires {pin.version}"
+                f"{lockfile_path}:{lock_entry.line_number}: {name} is {lock_entry.version}; {pin.source_path} requires {pin.version}"
             )
 
 

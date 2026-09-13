@@ -42,6 +42,7 @@ jobs:
         }
         backend_extras = {
           "Dockerfile",
+          "scripts/verify-backend-lockfiles.py",
           "scripts/verify-python-runtime-image.py",
           ".github/actions/setup-runtime-python/action.yml",
         }
@@ -149,10 +150,10 @@ jobs:
       run: pip install --require-hashes -r backend/requirements-dev.lock.txt
 
     - name: Ruff check
-      run: cd backend && ruff check app
+      run: cd backend && ruff check app tests/test_verify_backend_lockfiles_script.py ../scripts/verify-backend-lockfiles.py
 
     - name: Ruff format check
-      run: cd backend && ruff format --check app
+      run: cd backend && ruff format --check app tests/test_verify_backend_lockfiles_script.py ../scripts/verify-backend-lockfiles.py
 
   # ─────────────────────────────────────────────────────────────────────
   # Frontend: TypeScript/JavaScript (biome check)

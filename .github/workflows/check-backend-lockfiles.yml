@@ -16,7 +16,7 @@ on:
       - backend/requirements-dev.txt
       - backend/requirements.lock.txt
       - backend/requirements-dev.lock.txt
-        - scripts/verify-backend-lockfiles.py
+      - scripts/verify-backend-lockfiles.py
   workflow_dispatch:
 
 permissions:
