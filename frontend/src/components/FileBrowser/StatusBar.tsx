@@ -22,10 +22,6 @@ interface StatusBarProps {
  * Desktop only component
  */
 export function StatusBar({ files, focusedIndex, canResolveShortcutTargets }: StatusBarProps) {
-  if (files.length === 0) {
-    return null;
-  }
-
   const selectedFile = files[focusedIndex];
   const linkTargetStatus = selectedFile?.link_target
     ? STATUS_BAR_STRINGS.linkTargetStatus(selectedFile.link_target)
@@ -51,17 +47,7 @@ export function StatusBar({ files, focusedIndex, canResolveShortcutTargets }: St
       {/* Left side - Selected file info */}
       <Box sx={{ display: "flex", gap: 1, alignItems: "center", minWidth: 0, flex: 1 }}>
         {(() => {
-          if (!selectedFile)
-            return (
-              <Typography
-                variant="caption"
-                sx={{
-                  color: (theme) => theme.palette.statusBar?.textSecondary ?? theme.palette.text.secondary,
-                }}
-              >
-                {STATUS_BAR_STRINGS.NO_SELECTION}
-              </Typography>
-            );
+          if (!selectedFile) return null;
 
           const parts = [];
           parts.push(selectedFile.name);

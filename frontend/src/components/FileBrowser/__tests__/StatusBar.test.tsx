@@ -24,12 +24,19 @@ describe("StatusBar", () => {
     await setLocale("en");
   });
 
-  it("uses translated empty selection and count strings", async () => {
+  it("remains visible for an empty directory", () => {
+    renderWithProvider(<StatusBar files={[]} focusedIndex={-1} canResolveShortcutTargets={false} />);
+
+    expect(screen.queryByText("No selection")).not.toBeInTheDocument();
+    expect(screen.getByText("0 items")).toBeInTheDocument();
+  });
+
+  it("uses the translated item count without a selected file", async () => {
     await setLocale("en-XA");
 
     renderWithProvider(<StatusBar files={[baseFile]} focusedIndex={5} canResolveShortcutTargets={false} />);
 
-    expect(screen.getByText("[Ńó šéĺéćťíóń]")).toBeInTheDocument();
+    expect(screen.queryByText("[Ńó šéĺéćťíóń]")).not.toBeInTheDocument();
     expect(screen.getByText("[1 íťéḿ]")).toBeInTheDocument();
   });
 
