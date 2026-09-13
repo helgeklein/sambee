@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,6 +17,7 @@ function createWrapper() {
 
 describe("ThemeContext", () => {
   beforeEach(() => {
+    document.head.innerHTML = '<meta name="theme-color" content="#F4C430" />';
     useCurrentUserSettingMock.mockImplementation(() => ({
       confirmedValue: undefined,
       pending: false,
@@ -30,6 +32,14 @@ describe("ThemeContext", () => {
 
     expect(result.current.currentTheme.id).toBe("sambee-light");
     expect(result.current.availableThemes.map((theme) => theme.id)).toEqual(["sambee-light", "sambee-dark"]);
+  });
+
+  it("uses the default theme color for PWA and document metadata", () => {
+    const documentHtml = readFileSync("index.html", "utf8");
+    const manifest = JSON.parse(readFileSync("public/manifest.json", "utf8")) as { theme_color: string };
+
+    expect(documentHtml).toContain('<meta name="theme-color" content="#F4C430" />');
+    expect(manifest.theme_color).toBe("#F4C430");
   });
 
   it("projects the confirmed selected and custom themes", () => {
@@ -53,6 +63,7 @@ describe("ThemeContext", () => {
     expect(result.current.currentTheme).toMatchObject(customTheme);
     expect(result.current.muiTheme.palette.mode).toBe("dark");
     expect(result.current.availableThemes).toContainEqual(customTheme);
+    expect(document.querySelector('meta[name="theme-color"]')).toHaveAttribute("content", "#123456");
   });
 
   it("falls back safely when a confirmed theme ID is absent from the registry", () => {

@@ -108,7 +108,8 @@ File browser settings:
 
 ## Miscellaneous
 
-- Mobile UI: text size increase to match text size in other apps
+- Mobile UI: text size increase to improve readability
+- PWA on Chrome on Android: changed the system status bar color from the default blue to gold, matching Sambee's top bar
 - Bugfix: Concurrent OIDC token refreshes would cause SQLite database lock errors.
 
 ## Under the Hood
