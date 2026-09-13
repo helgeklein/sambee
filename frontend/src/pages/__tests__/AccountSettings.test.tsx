@@ -1,9 +1,11 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setRegionalLocalePreference } from "../../i18n";
 import { SambeeThemeProvider } from "../../theme";
 import type { CurrentAccount } from "../../types";
+import { formatLocalizedDateTime } from "../../utils/localeFormatting";
 import { AccountSettings } from "../AccountSettings";
 
 vi.mock("../../services/api", () => ({
@@ -62,6 +64,10 @@ function renderAccount() {
 }
 
 describe("AccountSettings", () => {
+  afterEach(async () => {
+    await setRegionalLocalePreference("browser");
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(api.getCurrentAccount).mockResolvedValue(PASSWORD_ACCOUNT);
@@ -87,6 +93,22 @@ describe("AccountSettings", () => {
     expect(screen.getByText("Password sign-in")).toBeInTheDocument();
     expect(screen.getByText("Sign-in time unavailable.")).toBeInTheDocument();
     expect(api.getOidcBrowserSessions).not.toHaveBeenCalled();
+  });
+
+  it("formats session timestamps with the selected regional locale", async () => {
+    const startedAt = "2026-01-02T03:04:05Z";
+    await setRegionalLocalePreference("de-DE");
+    vi.mocked(api.getCurrentAccount).mockResolvedValue({
+      ...PASSWORD_ACCOUNT,
+      current_session: {
+        ...PASSWORD_ACCOUNT.current_session,
+        started_at: startedAt,
+      },
+    });
+
+    renderAccount();
+
+    expect(await screen.findByText(`Started ${formatLocalizedDateTime(startedAt, {})}.`)).toBeInTheDocument();
   });
 
   it("loads OIDC sessions only when the account supports them without adding a duplicate section divider", async () => {

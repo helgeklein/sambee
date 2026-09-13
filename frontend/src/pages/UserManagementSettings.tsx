@@ -101,6 +101,7 @@ import type {
 } from "../types";
 import { getApiErrorMessage } from "../utils/apiErrors";
 import { dialogEnterKeyHandler } from "../utils/keyboardUtils";
+import { formatLocalizedDateTime } from "../utils/localeFormatting";
 
 interface UserFormState {
   username: string;
@@ -215,7 +216,7 @@ const LOCAL_TIMESTAMP_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
 };
 
 function formatLocalTimestamp(value: string): string {
-  return new Intl.DateTimeFormat(undefined, LOCAL_TIMESTAMP_FORMAT_OPTIONS).format(new Date(value));
+  return formatLocalizedDateTime(value, LOCAL_TIMESTAMP_FORMAT_OPTIONS);
 }
 
 interface DirectoryQueryState {

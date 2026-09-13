@@ -30,13 +30,14 @@ import api from "../services/api";
 import type { AccountSessionKind, CurrentAccount, CurrentAccountSession, OidcBrowserSession } from "../types";
 import { getApiErrorMessage } from "../utils/apiErrors";
 import { dialogEnterKeyHandler } from "../utils/keyboardUtils";
+import { formatLocalizedDateTime } from "../utils/localeFormatting";
 
 const PASSWORD_CHANGED_MARKER = "sambee_password_changed";
 const PASSWORD_CONFIRMATION_MISMATCH_MESSAGE = "The new password and confirmation do not match.";
 const PASSWORD_FIELDS_REQUIRED_MESSAGE = "Complete all password fields.";
 
 function formatTimestamp(value: string | null): string {
-  return value ? new Date(value).toLocaleString() : "Never";
+  return value ? formatLocalizedDateTime(value, {}) : "Never";
 }
 
 function formatIdentitySource(value: CurrentAccount["identity_source"]): string {
