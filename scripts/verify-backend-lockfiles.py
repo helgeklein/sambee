@@ -47,9 +47,7 @@ def parse_source_requirements(path: Path) -> dict[str, RequirementPin]:
     """Parse the restricted exact-pin format used by backend requirement sources."""
 
     pins: dict[str, RequirementPin] = {}
-    for line_number, raw_line in enumerate(
-        path.read_text(encoding="utf-8").splitlines(), start=1
-    ):
+    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
@@ -63,12 +61,8 @@ def parse_source_requirements(path: Path) -> dict[str, RequirementPin]:
 
         name = canonicalize_name(match["name"])
         if name in pins:
-            raise ValueError(
-                f"{path}:{line_number}: duplicate direct requirement {name!r}"
-            )
-        pins[name] = RequirementPin(
-            name=name, version=match["version"], source_path=path
-        )
+            raise ValueError(f"{path}:{line_number}: duplicate direct requirement {name!r}")
+        pins[name] = RequirementPin(name=name, version=match["version"], source_path=path)
 
     return pins
 
@@ -79,18 +73,14 @@ def parse_lockfile(path: Path) -> dict[str, LockEntry]:
     entries: dict[str, LockEntry] = {}
     current_entry: LockEntry | None = None
 
-    for line_number, raw_line in enumerate(
-        path.read_text(encoding="utf-8").splitlines(), start=1
-    ):
+    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
 
         if raw_line[0].isspace():
             if current_entry is None:
-                raise ValueError(
-                    f"{path}:{line_number}: unexpected lockfile continuation"
-                )
+                raise ValueError(f"{path}:{line_number}: unexpected lockfile continuation")
             if HASH_PATTERN.search(line):
                 current_entry.has_hash = True
             continue
@@ -101,9 +91,7 @@ def parse_lockfile(path: Path) -> dict[str, LockEntry]:
 
         match = LOCK_REQUIREMENT_PATTERN.fullmatch(line)
         if match is None:
-            raise ValueError(
-                f"{path}:{line_number}: unsupported lockfile entry {line!r}"
-            )
+            raise ValueError(f"{path}:{line_number}: unsupported lockfile entry {line!r}")
 
         name = canonicalize_name(match["name"])
         if name in entries:
@@ -120,9 +108,7 @@ def parse_lockfile(path: Path) -> dict[str, LockEntry]:
 
     for entry in entries.values():
         if not entry.has_hash:
-            raise ValueError(
-                f"{path}:{entry.line_number}: {entry.name}=={entry.version} must include a SHA-256 hash"
-            )
+            raise ValueError(f"{path}:{entry.line_number}: {entry.name}=={entry.version} must include a SHA-256 hash")
 
     return entries
 
@@ -137,9 +123,7 @@ def verify_pins(
     for name, pin in source_pins.items():
         lock_entry = lock_entries.get(name)
         if lock_entry is None:
-            raise ValueError(
-                f"{lockfile_path}: missing {name}=={pin.version} required by {pin.source_path}"
-            )
+            raise ValueError(f"{lockfile_path}: missing {name}=={pin.version} required by {pin.source_path}")
         if lock_entry.version != pin.version:
             raise ValueError(
                 f"{lockfile_path}:{lock_entry.line_number}: {name} is {lock_entry.version}; {pin.source_path} requires {pin.version}"
@@ -172,9 +156,7 @@ def main() -> int:
     except (OSError, ValueError) as error:
         print(f"Backend lockfile validation failed: {error}", file=sys.stderr)
         return 1
-    print(
-        "Backend lockfiles match the direct dependency pins and include SHA-256 hashes."
-    )
+    print("Backend lockfiles match the direct dependency pins and include SHA-256 hashes.")
     return 0
 
 

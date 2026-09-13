@@ -19,7 +19,7 @@ echo -e "${YELLOW}=== Backend: Ruff ===${NC}"
 cd "$REPO_ROOT/backend" || exit 1
 
 echo "Checking Python code with Ruff..."
-if ruff check app; then
+if ruff check app tests/test_verify_backend_lockfiles_script.py ../scripts/verify-backend-lockfiles.py; then
     echo -e "${GREEN}✓ Ruff check passed${NC}\n"
 else
     echo -e "${RED}✗ Ruff check failed${NC}\n"
@@ -27,7 +27,7 @@ else
 fi
 
 echo "Checking Python formatting with Ruff..."
-if ruff format --check app; then
+if ruff format --check app tests/test_verify_backend_lockfiles_script.py ../scripts/verify-backend-lockfiles.py; then
     echo -e "${GREEN}✓ Ruff format check passed${NC}\n"
 else
     echo -e "${RED}✗ Ruff format check failed${NC}\n"
