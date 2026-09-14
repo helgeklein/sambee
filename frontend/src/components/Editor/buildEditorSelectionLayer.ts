@@ -1,5 +1,5 @@
 import { EditorSelection, type Extension, type Text } from "@codemirror/state";
-import { EditorView, layer, RectangleMarker } from "@codemirror/view";
+import { Decoration, EditorView, layer, RectangleMarker } from "@codemirror/view";
 import { getCodeMirrorHorizontalInset } from "./getCodeMirrorHorizontalInset";
 
 export const EDITOR_SELECTION_RANGE_CLASS = "sambee-editor-selection-range";
@@ -143,6 +143,23 @@ export function buildSelectionLayerExtension({
     EditorView.editorAttributes.compute(["selection"], (state) => ({
       class: state.selection.ranges.some((range) => !range.empty) ? EDITOR_HAS_SELECTION_CLASS : "",
     })),
+    EditorView.decorations.compute(["selection"], (state) => {
+      const decorations = [];
+
+      for (const range of state.selection.ranges) {
+        if (range.empty) {
+          continue;
+        }
+
+        for (const segment of getSelectionLineSegments(state.doc, range)) {
+          if (!segment.emptyLine) {
+            decorations.push(Decoration.mark({ class: rangeClass }).range(segment.from, segment.to));
+          }
+        }
+      }
+
+      return Decoration.set(decorations, true);
+    }),
     layer({
       above: false,
       class: layerClass,
@@ -179,19 +196,25 @@ export function buildSelectionLayerExtension({
 export function buildSelectionLayerTheme({
   rangeClass = EDITOR_SELECTION_RANGE_CLASS,
   selectionBackground,
+  surfaceBackground,
 }: {
   rangeClass?: string;
   selectionBackground: string;
+  surfaceBackground: string;
 }): Extension {
   return EditorView.theme({
     "& > .cm-scroller > .cm-content ::selection": {
-      backgroundColor: selectionBackground,
+      backgroundColor: "transparent",
     },
     "& > .cm-scroller > .cm-content > .cm-line::selection, & > .cm-scroller > .cm-content > .cm-line ::selection": {
-      backgroundColor: selectionBackground,
+      backgroundColor: "transparent",
     },
     [`.${rangeClass}`]: {
-      backgroundColor: selectionBackground,
+      backgroundColor: surfaceBackground,
+      backgroundImage: `linear-gradient(${selectionBackground}, ${selectionBackground})`,
+      boxDecorationBreak: "clone",
+      WebkitBoxDecorationBreak: "clone",
+      paddingBlock: "calc((1lh - 1em) / 2)",
     },
   });
 }

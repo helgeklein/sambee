@@ -266,7 +266,7 @@ describe("SourceTextEditor", () => {
     });
   });
 
-  it("uses native browser selection for Markdown", async () => {
+  it("uses inline selection decorations for Markdown", async () => {
     const user = userEvent.setup();
     const editorRef = createRef<SourceTextEditorHandle>();
 
@@ -296,7 +296,7 @@ describe("SourceTextEditor", () => {
 
       expect(editorRoot?.querySelector(".cm-selectionLayer")).toBeNull();
       expect(editorRoot?.querySelector(".sambee-editor-selection-layer")).not.toBeNull();
-      expect(editorRoot?.querySelector(".sambee-editor-selection-range")).toBeNull();
+      expect(editorRoot?.querySelector(".sambee-editor-selection-range")).not.toBeNull();
       expect(editorRoot).toHaveClass("sambee-editor-has-selection");
     });
   });
@@ -347,7 +347,7 @@ describe("SourceTextEditor", () => {
     ]);
   });
 
-  it("uses native browser selection for plain text editors", async () => {
+  it("uses inline selection decorations for plain text editors", async () => {
     const user = userEvent.setup();
     const editorRef = createRef<SourceTextEditorHandle>();
 
@@ -377,7 +377,7 @@ describe("SourceTextEditor", () => {
 
       expect(editorRoot?.querySelector(".cm-selectionLayer")).toBeNull();
       expect(editorRoot?.querySelector(".sambee-editor-selection-layer")).not.toBeNull();
-      expect(editorRoot?.querySelector(".sambee-editor-selection-range")).toBeNull();
+      expect(editorRoot?.querySelector(".sambee-editor-selection-range")).not.toBeNull();
       expect(editorRoot).toHaveClass("sambee-editor-has-selection");
     });
   });

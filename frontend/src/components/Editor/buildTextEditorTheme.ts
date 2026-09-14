@@ -12,7 +12,10 @@ export interface TextEditorThemeOptions extends CodeMirrorSurfaceThemeOptions {
 export function buildTextEditorTheme({ accentColor, ...surfaceOptions }: TextEditorThemeOptions): Extension[] {
   return [
     ...buildCodeMirrorSurfaceTheme(surfaceOptions),
-    buildSelectionLayerTheme({ selectionBackground: surfaceOptions.selectionBackground }),
+    buildSelectionLayerTheme({
+      selectionBackground: surfaceOptions.selectionBackground,
+      surfaceBackground: surfaceOptions.surfaceBackground,
+    }),
     syntaxHighlighting(
       HighlightStyle.define([
         { tag: [tags.keyword, tags.controlKeyword, tags.operatorKeyword], color: accentColor },

@@ -461,6 +461,7 @@ test.describe("markdown editor selection", () => {
     await enterMarkdownEditMode(page);
 
     const editor = page.getByRole("textbox", { name: "Markdown editor" });
+    const editorRoot = page.locator(".sambee-markdown-editor .cm-editor");
 
     await expect.poll(() =>
       editor.evaluate((content) => {
@@ -496,7 +497,11 @@ test.describe("markdown editor selection", () => {
     await expect(editor.evaluate((content) => {
       const line = content.querySelector(".cm-line");
       return line ? getComputedStyle(line, "::selection").backgroundColor : null;
-    })).resolves.toBe("rgba(194, 68, 0, 0.18)");
+    })).resolves.toBe("rgba(0, 0, 0, 0)");
+    await expect(editorRoot.locator(".cm-layer .sambee-editor-selection-range").first()).toHaveCSS(
+      "background-color",
+      "rgb(251, 249, 244)"
+    );
     await expect(editor.evaluate((content) => {
       const editorRoot = content.closest(".cm-editor");
       const emptyLine = Array.from(content.querySelectorAll(".cm-line")).find((line) => line.textContent === "");
@@ -514,7 +519,7 @@ test.describe("markdown editor selection", () => {
     })).resolves.toBe(true);
   });
 
-  test("renders a wrapped native browser selection", async ({ page }) => {
+  test("renders a character-tight wrapped selection", async ({ page }) => {
     await mockMarkdownViewerApi(page, { initialMarkdown: WRAPPED_SELECTION_MARKDOWN });
 
     await openMarkdownViewer(page);
@@ -527,17 +532,27 @@ test.describe("markdown editor selection", () => {
 
     await expect(page.locator(".cm-selectionLayer")).toHaveCount(0);
     await expect(page.locator(".sambee-editor-selection-layer")).toHaveCount(1);
-    await expect(editorRoot.locator(".sambee-editor-selection-range")).toHaveCount(0);
+    await expect(editorRoot.locator(".cm-content .sambee-editor-selection-range").first()).toBeVisible();
     await expect(editorRoot.locator(".cm-activeLine")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await expect(editor.evaluate((content) => {
       const line = content.querySelector(".cm-line");
       return line ? getComputedStyle(line, "::selection").backgroundColor : null;
-    })).resolves.toBe("rgba(194, 68, 0, 0.18)");
+    })).resolves.toBe("rgba(0, 0, 0, 0)");
+    await expect(editorRoot.evaluate((root) => {
+      const marker = root.querySelector(".cm-content .sambee-editor-selection-range");
+
+      if (!(marker instanceof HTMLElement)) {
+        return false;
+      }
+
+      const fragments = Array.from(marker.getClientRects());
+      return fragments.length > 1 && fragments.slice(1).every((fragment, index) => fragment.top <= fragments[index].bottom);
+    })).resolves.toBe(true);
     await expect(editor).toHaveScreenshot("wrapped-selection.png");
 
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("Control+Shift+ArrowLeft");
-    await expect(editorRoot.locator(".sambee-editor-selection-range")).toHaveCount(0);
+    await expect(editorRoot.locator(".cm-content .sambee-editor-selection-range").first()).toBeVisible();
     await expect(editor).toHaveScreenshot("single-line-selection.png");
 
     await page.keyboard.press("ArrowRight");
@@ -561,23 +576,22 @@ test.describe("markdown editor selection", () => {
     await page.keyboard.press("Control+Shift+ArrowLeft");
 
     const selectionInsideViewport = await editorRoot.evaluate((root) => {
-      const selection = root.ownerDocument.getSelection();
+      const selection = root.querySelector(".cm-content .sambee-editor-selection-range");
       const scrollContainer = root.querySelector(".cm-scroller");
 
-      if (!selection || selection.rangeCount === 0 || !(scrollContainer instanceof HTMLElement)) {
+      if (!(selection instanceof HTMLElement) || !(scrollContainer instanceof HTMLElement)) {
         return false;
       }
 
       const scrollerRect = scrollContainer.getBoundingClientRect();
-      return Array.from(selection.getRangeAt(0).getClientRects()).some(
-        (selectionRect) => selectionRect.top >= scrollerRect.top && selectionRect.bottom <= scrollerRect.bottom
-      );
+      const selectionRect = selection.getBoundingClientRect();
+      return selectionRect.top >= scrollerRect.top && selectionRect.bottom <= scrollerRect.bottom;
     });
 
     expect(selectionInsideViewport).toBe(true);
   });
 
-  test("keeps a document-spanning native selection visible at the scroll viewport", async ({ page }) => {
+  test("keeps a document-spanning selection visible at the scroll viewport", async ({ page }) => {
     await mockMarkdownViewerApi(page, { initialMarkdown: SCROLLED_SELECTION_MARKDOWN });
 
     await openMarkdownViewer(page);
@@ -598,21 +612,22 @@ test.describe("markdown editor selection", () => {
 
     await expect.poll(() =>
       editorRoot.evaluate((root) => {
-        const selection = root.ownerDocument.getSelection();
+        const selection = root.querySelector(".cm-content .sambee-editor-selection-range");
         const activeLine = root.querySelector(".cm-activeLine");
         const scrollContainer = root.querySelector(".cm-scroller");
 
-        if (!selection || selection.rangeCount === 0 || !(activeLine instanceof HTMLElement) || !(scrollContainer instanceof HTMLElement)) {
+        if (!(selection instanceof HTMLElement) || !(activeLine instanceof HTMLElement) || !(scrollContainer instanceof HTMLElement)) {
           return null;
         }
 
         const scrollRect = scrollContainer.getBoundingClientRect();
         const viewportCenterY = scrollRect.top + scrollRect.height / 2;
-        const selectionRect = Array.from(selection.getRangeAt(0).getClientRects()).find((rect) => {
-          return rect.top <= viewportCenterY && rect.bottom >= viewportCenterY;
+        const selectionRect = Array.from(root.querySelectorAll(".cm-content .sambee-editor-selection-range")).find((marker) => {
+          const markerRect = marker.getBoundingClientRect();
+          return markerRect.top <= viewportCenterY && markerRect.bottom >= viewportCenterY;
         });
 
-        if (!selectionRect) {
+        if (!(selectionRect instanceof HTMLElement)) {
           return null;
         }
 

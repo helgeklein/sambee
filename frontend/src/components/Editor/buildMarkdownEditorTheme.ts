@@ -42,7 +42,7 @@ export function buildMarkdownEditorTheme({
       surfaceBackground,
       textColor,
     }),
-    buildSelectionLayerTheme({ selectionBackground }),
+    buildSelectionLayerTheme({ selectionBackground, surfaceBackground }),
     syntaxHighlighting(HighlightStyle.define([{ tag: [tags.labelName, tags.link, tags.string, tags.url], color: linkColor }])),
   ];
 }
