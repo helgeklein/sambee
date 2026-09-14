@@ -1100,9 +1100,9 @@ pygments==2.21.0 \
     #   ipython-pygments-lexers
     #   pytest
     #   rich
-pypdf==6.16.2 \
-    --hash=sha256:595647f6191de6f402cfde1d0c455d6cbccbd509aac32b34783009c032de5d6e \
-    --hash=sha256:c8b09a59399062fb45a1b8156c18a787a10a3dae03ac9674397a226712c94604
+pypdf==6.18.0 \
+    --hash=sha256:05b762b77bcb9dcb4a7c91fcf5dded585b25bee7269ab3d3001d7c55fa1b324b \
+    --hash=sha256:ae58b7d93c22c169ffb02c3b06321c45c4f223b4916536568adb57d789d95d01
     # via -r requirements.txt
 pyspnego==0.12.2 \
     --hash=sha256:04e7c9260ced15197b3f42b891ffa30fa98c37bb09372c5c2bf927bcdfe30b53 \
@@ -1496,9 +1496,9 @@ truststore==0.10.4 \
     # via
     #   httpcore2
     #   httpx2
-types-authlib==1.7.2.20260901 \
-    --hash=sha256:2884d46c6f45f3a9831451b5549b7723d1712a4427f7357eb5089ac2e8028496 \
-    --hash=sha256:31de04aa6b7b43781dd28cc23634bf5c908a7fbb7b56e1ceaf0431d202956a92
+types-authlib==1.8.0.20260910 \
+    --hash=sha256:2cb8c7f89b97276763659aefacc5479923d49cfb87703429f4fbeee9afbfbcf2 \
+    --hash=sha256:fce4d7c5bdcfc9838128a24fb93bdde44568b0cd9a069cec9dff01acb52bd971
     # via -r requirements-dev.txt
 typing-extensions==4.16.0 \
     --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8 \
