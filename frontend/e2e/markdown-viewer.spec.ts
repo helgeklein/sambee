@@ -525,6 +525,7 @@ test.describe("markdown editor selection", () => {
     await expect(page.locator(".sambee-editor-selection-layer")).toHaveCount(1);
     await expect(editorRoot.locator(".sambee-editor-selection-range").first()).toBeVisible();
     await expect(editorRoot.locator(".sambee-editor-selection-range").first()).toHaveCSS("background-color", "rgba(194, 68, 0, 0.18)");
+    await expect(editorRoot.locator(".cm-activeLine")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 
     await expect(editorRoot.evaluate((root) => {
       const markers = Array.from(root.querySelectorAll(".sambee-editor-selection-range"))
@@ -580,25 +581,6 @@ test.describe("markdown editor selection", () => {
       const selectionBottom = Math.max(...markerRects.map((marker) => marker.bottom));
 
       return Math.abs(selectionTop - lineRect.top) < 0.1 && Math.abs(selectionBottom - lineRect.bottom) < 0.1;
-    })).resolves.toBe(true);
-    await expect(editorRoot.evaluate((root) => {
-      const selection = root.ownerDocument.getSelection();
-
-      if (!selection || selection.rangeCount === 0) {
-        return false;
-      }
-
-      const markerRects = Array.from(root.querySelectorAll(".sambee-editor-selection-range"))
-        .map((marker) => marker.getBoundingClientRect())
-        .sort((left, right) => left.top - right.top);
-      const nativeRects = Array.from(selection.getRangeAt(0).getClientRects())
-        .filter((rect) => rect.width > 0)
-        .sort((left, right) => left.top - right.top);
-
-      return (
-        markerRects.length === nativeRects.length &&
-        markerRects.every((marker, index) => Math.abs(marker.left - nativeRects[index].left) < 1 && Math.abs(marker.right - nativeRects[index].right) < 1)
-      );
     })).resolves.toBe(true);
     await expect(editor).toHaveScreenshot("wrapped-selection.png");
 

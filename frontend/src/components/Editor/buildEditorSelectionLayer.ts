@@ -92,57 +92,22 @@ function getLineBlockMarkerBounds(view: EditorView, position: number): { top: nu
   return { top: blockTop, bottom: blockTop + block.height * view.scaleY };
 }
 
-function getCodeMirrorContentRight(view: EditorView, horizontalInset: number): number {
-  const contentRect = view.contentDOM.getBoundingClientRect();
-  const scrollRect = view.scrollDOM.getBoundingClientRect();
-
-  return contentRect.right - scrollRect.left - horizontalInset;
-}
-
-function getVisualRowTextRight(view: EditorView, marker: RectangleMarker, contentRight: number): number | null {
-  const scrollRect = view.scrollDOM.getBoundingClientRect();
-  const position = view.posAtCoords({
-    x: scrollRect.left + contentRight,
-    y: scrollRect.top + marker.top + marker.height / 2,
-  });
-  const coordinates = position === null ? null : view.coordsAtPos(position, -1);
-
-  if (!coordinates) {
-    return null;
-  }
-
-  return coordinates.right - (scrollRect.left - view.scrollDOM.scrollLeft * view.scaleX);
-}
-
 function alignSelectionRectanglesWithContentInset(
   view: EditorView,
   markers: readonly RectangleMarker[],
   rangeClass: string
 ): RectangleMarker[] {
   const horizontalInset = getCodeMirrorHorizontalInset(view);
-  const contentRight = getCodeMirrorContentRight(view, horizontalInset);
 
-  return markers.flatMap((marker) => {
-    if (marker.width === null || marker.width === 0) {
-      return marker.width === 0 ? [] : [marker];
-    }
-
-    const right = Math.min(marker.left + marker.width, contentRight);
-
-    if (right <= marker.left) {
-      return [];
-    }
-
-    const visualRowTextRight = Math.abs(right - contentRight) < 0.5 ? getVisualRowTextRight(view, marker, contentRight) : null;
-    const clampedRight = visualRowTextRight && visualRowTextRight > marker.left && visualRowTextRight < right ? visualRowTextRight : right;
-
-    if (marker.left >= horizontalInset && clampedRight === marker.left + marker.width) {
+  return markers.map((marker) => {
+    if (marker.left >= horizontalInset || marker.width === null) {
       return marker;
     }
 
-    const left = Math.min(horizontalInset, clampedRight);
+    const right = marker.left + marker.width;
+    const left = Math.min(horizontalInset, right);
 
-    return [new RectangleMarker(rangeClass, left, marker.top, clampedRight - left, marker.height)];
+    return new RectangleMarker(rangeClass, left, marker.top, right - left, marker.height);
   });
 }
 
