@@ -13,4 +13,4 @@ pydantic-settings==2.15.0
 python-magic==0.4.27
 aiofiles==25.1.0
 pyvips==3.2.0
-pypdf==6.16.2
+pypdf==6.18.0
