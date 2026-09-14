@@ -21,16 +21,10 @@ const sourceTextEditorBaseTheme = EditorView.theme({
   ".cm-content": {
     minHeight: "100%",
     boxSizing: "border-box",
-    padding: `16px 0 16px var(${CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE}, 16px)`,
+    padding: `16px var(${CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE}, 16px) 16px var(${CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE}, 16px)`,
   },
   ".cm-line": {
     padding: 0,
-  },
-  ".cm-line:not(:has(> br:only-child))::after": {
-    content: '""',
-    display: "inline-block",
-    pointerEvents: "none",
-    width: `var(${CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE}, 16px)`,
   },
 });
 

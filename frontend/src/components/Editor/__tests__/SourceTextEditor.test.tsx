@@ -297,6 +297,42 @@ describe("SourceTextEditor", () => {
     });
   });
 
+  it("hides the active-line highlight while text is selected", async () => {
+    const user = userEvent.setup();
+    const editorRef = createRef<SourceTextEditorHandle>();
+
+    render(
+      <SourceTextEditor
+        ref={editorRef}
+        value="Selected text"
+        extensions={buildMarkdownEditorExtensions(TEST_MARKDOWN_THEME)}
+        ariaLabel="Selection active-line editor"
+        onChange={() => {}}
+      />
+    );
+
+    const editor = await screen.findByLabelText("Selection active-line editor");
+    await user.click(editor);
+
+    const view = editorRef.current?.getView();
+
+    if (!view) {
+      throw new Error("Expected editor view to be available");
+    }
+
+    view.dispatch({ selection: EditorSelection.range(0, view.state.doc.length) });
+
+    await waitFor(() => {
+      const activeLine = editor.closest(".cm-editor")?.querySelector(".cm-activeLine");
+
+      if (!(activeLine instanceof HTMLElement)) {
+        throw new Error("Expected active line to be rendered");
+      }
+
+      expect(window.getComputedStyle(activeLine).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    });
+  });
+
   it("includes empty lines in markdown selection segments", () => {
     const state = EditorState.create({ doc: ["alpha", "", "beta"].join("\n") });
 

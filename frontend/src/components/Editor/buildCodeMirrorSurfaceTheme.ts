@@ -1,6 +1,7 @@
 import type { Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { PASSIVE_SEARCH_MATCH_CLASS, PASSIVE_SELECTED_SEARCH_MATCH_CLASS } from "./buildCodeMirrorSearchHighlights";
+import { EDITOR_HAS_SELECTION_CLASS } from "./buildEditorSelectionLayer";
 
 export interface CodeMirrorSurfaceThemeOptions {
   activeLineBackground: string;
@@ -59,6 +60,9 @@ export function buildCodeMirrorSurfaceTheme({
         },
         "&.cm-focused .cm-activeLine": {
           backgroundColor: activeLineBackground,
+        },
+        [`&.cm-focused.${EDITOR_HAS_SELECTION_CLASS} .cm-activeLine`]: {
+          backgroundColor: "transparent",
         },
         ".cm-matchingBracket, .cm-nonmatchingBracket": {
           outline: `1px solid ${borderColor}`,

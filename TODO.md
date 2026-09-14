@@ -1,6 +1,8 @@
 # TODO
 
-## Bugs
+## Text/Markdown viewers and editors
+
+- I cannot scroll beneath the last line to move that further up the screen. That means that longer texts end exactly on the last visible line of the viewport. It would be nice to move the up a bit.
 
 ## Misc. commands
 
@@ -10,6 +12,13 @@
 
 - Settings > File browser: add a setting to control whether dot directories are shown in the list
 - Dual-pane mode: Ctrl+left/right to change the location (connection+path) of the left pane to that of the right pane and vice-versa
+
+## Companion
+
+- Auto-update service on Windows that doesn't require user interaction (UAC prompts)
+   - Does Tauri already have infrastructure for this?
+   - It would have to be a system service (preferred) or scheduled task that runs with elevated rights
+   - It should install new updates silently and restart Companion automatically
 
 ## Theme
 
