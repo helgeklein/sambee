@@ -52,7 +52,11 @@ export function buildCodeMirrorSurfaceTheme({
         [`.${PASSIVE_SELECTED_SEARCH_MATCH_CLASS}`]: {
           backgroundColor: currentSearchMatchBackground,
         },
-        ".cm-cursor, .cm-dropCursor": {
+        ".cm-cursor": {
+          borderLeft: `2px solid ${textColor}`,
+          marginLeft: 0,
+        },
+        ".cm-dropCursor": {
           borderLeftColor: textColor,
         },
         ".cm-activeLine": {
