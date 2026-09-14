@@ -3,26 +3,23 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirro
 import { bracketMatching, defaultHighlightStyle, indentOnInput, syntaxHighlighting } from "@codemirror/language";
 import { highlightSelectionMatches, search } from "@codemirror/search";
 import { EditorState, type Extension } from "@codemirror/state";
-import { drawSelection, EditorView, highlightActiveLine, keymap } from "@codemirror/view";
+import { EditorView, highlightActiveLine, keymap } from "@codemirror/view";
 import { buildSelectionLayerExtension } from "./buildEditorSelectionLayer";
 
 interface CommonEditorExtensionsOptions {
   defaultSyntaxHighlighting?: boolean;
-  drawSelection?: boolean;
   highlightSelectionMatches?: boolean;
   lineWrapping?: boolean;
 }
 
 export function buildCommonEditorExtensions({
   defaultSyntaxHighlighting = true,
-  drawSelection: includeDrawSelection = true,
   highlightSelectionMatches: includeSelectionMatches = true,
   lineWrapping = false,
 }: CommonEditorExtensionsOptions = {}): Extension[] {
   return [
     history(),
-    ...(includeDrawSelection ? [drawSelection()] : []),
-    ...(includeDrawSelection ? [buildSelectionLayerExtension()] : []),
+    buildSelectionLayerExtension(),
     EditorState.allowMultipleSelections.of(true),
     closeBrackets(),
     indentOnInput(),

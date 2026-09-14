@@ -266,7 +266,7 @@ describe("SourceTextEditor", () => {
     });
   });
 
-  it("uses CodeMirror's selection layer for Markdown", async () => {
+  it("uses native browser selection for Markdown", async () => {
     const user = userEvent.setup();
     const editorRef = createRef<SourceTextEditorHandle>();
 
@@ -292,8 +292,12 @@ describe("SourceTextEditor", () => {
     view.dispatch({ selection: EditorSelection.range(0, 14) });
 
     await waitFor(() => {
-      expect(editor.closest(".cm-editor")?.querySelector(".cm-selectionLayer")).not.toBeNull();
-      expect(editor.closest(".cm-editor")?.querySelector(".sambee-editor-selection-layer")).not.toBeNull();
+      const editorRoot = editor.closest(".cm-editor");
+
+      expect(editorRoot?.querySelector(".cm-selectionLayer")).toBeNull();
+      expect(editorRoot?.querySelector(".sambee-editor-selection-layer")).not.toBeNull();
+      expect(editorRoot?.querySelector(".sambee-editor-selection-range")).toBeNull();
+      expect(editorRoot).toHaveClass("sambee-editor-has-selection");
     });
   });
 
@@ -343,7 +347,7 @@ describe("SourceTextEditor", () => {
     ]);
   });
 
-  it("uses CodeMirror's selection layer for plain text editors", async () => {
+  it("uses native browser selection for plain text editors", async () => {
     const user = userEvent.setup();
     const editorRef = createRef<SourceTextEditorHandle>();
 
@@ -351,7 +355,7 @@ describe("SourceTextEditor", () => {
       <SourceTextEditor
         ref={editorRef}
         value={["Line 1", "2", "", "5", "", "7"].join("\n")}
-        extensions={[...buildCommonEditorExtensions({ drawSelection: true }), ...buildTextEditorTheme(TEST_TEXT_THEME)]}
+        extensions={[...buildCommonEditorExtensions(), ...buildTextEditorTheme(TEST_TEXT_THEME)]}
         ariaLabel="Plain text selection editor"
         onChange={() => {}}
       />
@@ -369,22 +373,26 @@ describe("SourceTextEditor", () => {
     view.dispatch({ selection: EditorSelection.range(0, 11) });
 
     await waitFor(() => {
-      expect(editor.closest(".cm-editor")?.querySelector(".cm-selectionLayer")).not.toBeNull();
-      expect(editor.closest(".cm-editor")?.querySelector(".sambee-editor-selection-layer")).not.toBeNull();
+      const editorRoot = editor.closest(".cm-editor");
+
+      expect(editorRoot?.querySelector(".cm-selectionLayer")).toBeNull();
+      expect(editorRoot?.querySelector(".sambee-editor-selection-layer")).not.toBeNull();
+      expect(editorRoot?.querySelector(".sambee-editor-selection-range")).toBeNull();
+      expect(editorRoot).toHaveClass("sambee-editor-has-selection");
     });
   });
 
   it.each([
     ["Markdown", buildMarkdownEditorExtensions(TEST_MARKDOWN_THEME)],
-    ["plain text", [...buildCommonEditorExtensions({ drawSelection: true }), ...buildTextEditorTheme(TEST_TEXT_THEME)]],
-  ])("does not clip the per-line selection layer for %s", async (_editorType, extensions) => {
+    ["plain text", [...buildCommonEditorExtensions(), ...buildTextEditorTheme(TEST_TEXT_THEME)]],
+  ])("does not clip the empty-line selection overlay for %s", async (_editorType, extensions) => {
     const user = userEvent.setup();
     const editorRef = createRef<SourceTextEditorHandle>();
 
     render(
       <SourceTextEditor
         ref={editorRef}
-        value="First line\nSecond line"
+        value="First line\n\nSecond line"
         extensions={extensions}
         ariaLabel="Selection clipping editor"
         onChange={() => {}}
@@ -406,7 +414,7 @@ describe("SourceTextEditor", () => {
       const selectionLayer = editor.closest(".cm-editor")?.querySelector(".sambee-editor-selection-layer");
 
       if (!(selectionLayer instanceof HTMLElement)) {
-        throw new Error("Expected per-line selection layer to be rendered");
+        throw new Error("Expected empty-line selection layer to be rendered");
       }
 
       expect(window.getComputedStyle(selectionLayer).clipPath).toBe("none");

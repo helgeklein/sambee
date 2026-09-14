@@ -34,7 +34,6 @@ export function buildMarkdownEditorExtensions(theme: MarkdownEditorThemeOptions,
   return [
     ...buildCommonEditorExtensions({
       defaultSyntaxHighlighting: false,
-      drawSelection: true,
       highlightSelectionMatches: false,
       lineWrapping,
     }),

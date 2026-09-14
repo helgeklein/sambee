@@ -158,21 +158,15 @@ export function buildSelectionLayerExtension({
           }
 
           for (const segment of getSelectionLineSegments(view.state.doc, range)) {
-            const line = view.state.doc.lineAt(segment.from);
-            const lineBlockBounds =
-              segment.emptyLine || segment.from !== line.from || segment.to !== line.to
-                ? undefined
-                : getLineBlockMarkerBounds(view, segment.from);
-            const segmentMarkers = segment.emptyLine
-              ? buildEmptyLineSelectionMarkers(view, segment.from, rangeClass)
-              : expandSelectionRectangles(
+            if (segment.emptyLine) {
+              markers.push(
+                ...alignSelectionRectanglesWithContentInset(
                   view,
-                  RectangleMarker.forRange(view, rangeClass, EditorSelection.range(segment.from, segment.to)),
-                  rangeClass,
-                  lineBlockBounds
-                );
-
-            markers.push(...alignSelectionRectanglesWithContentInset(view, segmentMarkers, rangeClass));
+                  buildEmptyLineSelectionMarkers(view, segment.from, rangeClass),
+                  rangeClass
+                )
+              );
+            }
           }
         }
 
@@ -191,10 +185,10 @@ export function buildSelectionLayerTheme({
 }): Extension {
   return EditorView.theme({
     "& > .cm-scroller > .cm-content ::selection": {
-      backgroundColor: "transparent",
+      backgroundColor: selectionBackground,
     },
     "& > .cm-scroller > .cm-content > .cm-line::selection, & > .cm-scroller > .cm-content > .cm-line ::selection": {
-      backgroundColor: "transparent",
+      backgroundColor: selectionBackground,
     },
     [`.${rangeClass}`]: {
       backgroundColor: selectionBackground,

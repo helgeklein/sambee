@@ -96,7 +96,7 @@ export const TextCodeEditor = forwardRef<TextCodeEditorHandle, TextCodeEditorPro
     } | null>(null);
     const extensions = useMemo(
       () => [
-        ...buildCommonEditorExtensions({ drawSelection: true, highlightSelectionMatches: false, lineWrapping }),
+        ...buildCommonEditorExtensions({ highlightSelectionMatches: false, lineWrapping }),
         ...buildTextEditorTheme(theme),
         buildPassiveSearchHighlightExtension(),
         ...languageExtensions,
