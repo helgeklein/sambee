@@ -500,7 +500,7 @@ test.describe("markdown editor selection", () => {
     })).resolves.toBe("rgba(0, 0, 0, 0)");
     await expect(editorRoot.locator(".cm-layer .sambee-editor-selection-range").first()).toHaveCSS(
       "background-color",
-      "rgb(251, 249, 244)"
+      "rgb(241, 216, 200)"
     );
     await expect(editor.evaluate((content) => {
       const editorRoot = content.closest(".cm-editor");
@@ -530,9 +530,11 @@ test.describe("markdown editor selection", () => {
     await editor.click();
     await page.keyboard.press("Control+A");
 
-    await expect(page.locator(".cm-selectionLayer")).toHaveCount(0);
+    await expect(page.locator(".cm-selectionLayer")).toHaveCount(1);
     await expect(page.locator(".sambee-editor-selection-layer")).toHaveCount(1);
     await expect(editorRoot.locator(".cm-content .sambee-editor-selection-range").first()).toBeVisible();
+    await expect(editorRoot.locator(".cm-cursor-primary")).toBeVisible();
+    await expect(editorRoot.locator(".cm-selectionBackground").first()).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await expect(editorRoot.locator(".cm-activeLine")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await expect(editor.evaluate((content) => {
       const line = content.querySelector(".cm-line");

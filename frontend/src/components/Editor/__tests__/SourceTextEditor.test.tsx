@@ -9,7 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { buildCommonEditorExtensions } from "../buildCommonEditorExtensions";
-import { getSelectionLineSegments } from "../buildEditorSelectionLayer";
+import { getSelectionLineSegments, resolveOpaqueSelectionBackground } from "../buildEditorSelectionLayer";
 import {
   buildMarkdownAutocompleteUi,
   createMarkdownSnippetAutocompleter,
@@ -294,7 +294,7 @@ describe("SourceTextEditor", () => {
     await waitFor(() => {
       const editorRoot = editor.closest(".cm-editor");
 
-      expect(editorRoot?.querySelector(".cm-selectionLayer")).toBeNull();
+      expect(editorRoot?.querySelector(".cm-selectionLayer")).not.toBeNull();
       expect(editorRoot?.querySelector(".sambee-editor-selection-layer")).not.toBeNull();
       expect(editorRoot?.querySelector(".sambee-editor-selection-range")).not.toBeNull();
       expect(editorRoot).toHaveClass("sambee-editor-has-selection");
@@ -347,6 +347,15 @@ describe("SourceTextEditor", () => {
     ]);
   });
 
+  it("resolves translucent selection colors against the editor surface", () => {
+    expect(resolveOpaqueSelectionBackground("rgb(251, 249, 244)", "rgba(194, 68, 0, 0.18)")).toBe("rgb(241, 216, 200)");
+    expect(resolveOpaqueSelectionBackground("rgb(251, 249, 244)", "rgb(194, 68, 0)")).toBe("rgb(194, 68, 0)");
+  });
+
+  it("preserves unparseable CSS selection colors", () => {
+    expect(resolveOpaqueSelectionBackground("rgb(251, 249, 244)", "var(--selection-background)")).toBe("var(--selection-background)");
+  });
+
   it("uses inline selection decorations for plain text editors", async () => {
     const user = userEvent.setup();
     const editorRef = createRef<SourceTextEditorHandle>();
@@ -375,7 +384,7 @@ describe("SourceTextEditor", () => {
     await waitFor(() => {
       const editorRoot = editor.closest(".cm-editor");
 
-      expect(editorRoot?.querySelector(".cm-selectionLayer")).toBeNull();
+      expect(editorRoot?.querySelector(".cm-selectionLayer")).not.toBeNull();
       expect(editorRoot?.querySelector(".sambee-editor-selection-layer")).not.toBeNull();
       expect(editorRoot?.querySelector(".sambee-editor-selection-range")).not.toBeNull();
       expect(editorRoot).toHaveClass("sambee-editor-has-selection");

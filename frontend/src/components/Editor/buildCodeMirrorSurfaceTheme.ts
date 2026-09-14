@@ -34,6 +34,12 @@ export function buildCodeMirrorSurfaceTheme({
           backgroundColor: "transparent",
           caretColor: textColor,
         },
+        "& > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
+          backgroundColor: "transparent",
+        },
+        "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
+          backgroundColor: "transparent",
+        },
         ".cm-searchMatch": {
           backgroundColor: otherSearchMatchBackground,
         },

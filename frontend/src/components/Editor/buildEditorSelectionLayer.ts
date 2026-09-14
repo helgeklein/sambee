@@ -1,5 +1,6 @@
 import { EditorSelection, type Extension, type Text } from "@codemirror/state";
 import { Decoration, EditorView, layer, RectangleMarker } from "@codemirror/view";
+import { blend, decomposeColor } from "@mui/system/colorManipulator";
 import { getCodeMirrorHorizontalInset } from "./getCodeMirrorHorizontalInset";
 
 export const EDITOR_SELECTION_RANGE_CLASS = "sambee-editor-selection-range";
@@ -202,6 +203,8 @@ export function buildSelectionLayerTheme({
   selectionBackground: string;
   surfaceBackground: string;
 }): Extension {
+  const opaqueSelectionBackground = resolveOpaqueSelectionBackground(surfaceBackground, selectionBackground);
+
   return EditorView.theme({
     "& > .cm-scroller > .cm-content ::selection": {
       backgroundColor: "transparent",
@@ -210,11 +213,23 @@ export function buildSelectionLayerTheme({
       backgroundColor: "transparent",
     },
     [`.${rangeClass}`]: {
-      backgroundColor: surfaceBackground,
-      backgroundImage: `linear-gradient(${selectionBackground}, ${selectionBackground})`,
+      backgroundColor: opaqueSelectionBackground,
       boxDecorationBreak: "clone",
       WebkitBoxDecorationBreak: "clone",
       paddingBlock: "calc((1lh - 1em) / 2)",
     },
   });
+}
+
+export function resolveOpaqueSelectionBackground(surfaceBackground: string, selectionBackground: string): string {
+  try {
+    const { type, values } = decomposeColor(selectionBackground);
+    const opacity = type === "rgba" || type === "hsla" || type === "color" ? Number(values[3] ?? 1) : 1;
+
+    return blend(surfaceBackground, selectionBackground, Math.max(0, Math.min(opacity, 1)));
+  } catch {
+    // CSS variables and newer color syntax cannot always be parsed by MUI.
+    // Preserve them instead of risking a second parsing error.
+    return selectionBackground;
+  }
 }
