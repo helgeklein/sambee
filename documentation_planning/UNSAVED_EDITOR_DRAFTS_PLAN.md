@@ -61,14 +61,17 @@ marks itself pristine. The unsaved indicator only appears after another edit.
 
 ### Recovery Entry Point
 
-When a valid recovered draft differs from the currently loaded saved file:
+When this tab has a parseable, unexpired local draft whose content differs
+from its stored baseline:
 
 - After loading the saved SMB file and validating the draft, render the normal
   viewer with the saved content, then show a modal recovery dialog over it.
-- State that a newer local draft is available; the viewer behind the dialog
-  continues to show the saved SMB version.
+- State that an unsaved local draft is available; the viewer behind the dialog
+  continues to show the saved SMB version. Call the draft newer only when its
+  update timestamp is later than the saved file's last-modified timestamp.
 - Compare both versions in the dialog:
-  - `Saved file`: its size and last-modified timestamp.
+  - `Saved file`: its size and last-modified timestamp, or `Unknown` when the
+    corresponding SMB metadata is unavailable.
   - `Local draft`: its UTF-8 size and draft-updated timestamp.
 - The dialog offers exactly two actions:
   - `Resume editing`: acquire the normal edit lock, then open the editor in
@@ -78,7 +81,14 @@ When a valid recovered draft differs from the currently loaded saved file:
 
 The dialog must not imply that the recovered draft has been saved to SMB. Use
 this same dialog for every valid local draft; do not introduce a separate
-baseline-mismatch recovery flow.
+baseline-mismatch recovery flow. It is not dismissible by Escape, backdrop
+click, or a close button; `Resume editing` and `Discard draft` are its only
+exits.
+
+Keep the dialog open while Resume acquires the lock and disable both actions
+while the request is pending. If acquisition fails, retain the draft and saved
+viewer, show the existing actionable lock/access error in the dialog, and let
+the user retry Resume or choose Discard.
 
 ### File Browser Marker
 
@@ -100,9 +110,11 @@ On resuming a recovered draft, the editor must immediately show its normal
 unsaved indicator because the active content differs from the saved-file
 baseline.
 
-Use content equality as the source of truth. The session's "user edited"
-tracking may continue to protect editor initialization, but it must not hide
-an already recovered difference.
+Use content equality as the source of truth: while editing,
+`hasUnsavedChanges` is true exactly when the current canonical editor content
+differs from the current saved-file baseline. The session's "user edited"
+tracking may continue to protect editor initialization, but it must not affect
+the dirty indication.
 
 Expected behavior:
 
@@ -138,22 +150,24 @@ and identifies each kind of change with a symbol as well as color:
 | Deleted content | `-` | Content deleted before this line |
 
 A deletion attaches to the nearest following surviving line. For a deletion at
-the end of a document, attach it to the final line. Color may reinforce the
-marker, but it must never be the only difference.
+the end of a non-empty document, attach it to the final line. When all content
+is deleted, attach it to CodeMirror's remaining empty first line. Color may
+reinforce the marker, but it must never be the only difference.
 
 Show a compact, non-interactive status strip directly below the viewer toolbar
 and any open editor search controls, and directly above the editor surface. It
 uses the text `Changes: +3 added, ~2 modified, -1 deleted`.
-The strip has `role="status"` and the same full text as its accessible name;
-symbols reinforce the counts but are not their only meaning. It remains
-visible while changes exist and disappears when the editor matches the
-saved-file baseline.
+The strip is ordinary labelled text, not a live `role="status"` region, so
+typing does not generate repetitive screen-reader announcements. Reference it
+from the editor with `aria-describedby`. Symbols reinforce the counts but are
+not their only meaning. It remains visible while changes exist and disappears
+when the editor matches the saved-file baseline.
 
 Below the `sm` breakpoint, do not render a line gutter: it would take needed
 space from source content. The status strip is the only visual change summary
-there. At `sm` and wider, retain both the status strip and the gutter. Use the
-editor's decoration accessibility support so a marked desktop/tablet line
-announces its label during keyboard navigation.
+there. At `sm` and wider, retain both the status strip and the gutter. The
+status strip is the authoritative assistive-technology description; do not
+assume CodeMirror gutter decorations are announced during line navigation.
 
 ### Draft Expiry Cleanup
 
@@ -163,12 +177,17 @@ that removes malformed and expired entries for the current user. Run it:
 - once after authenticated application initialization;
 - when the browser tab becomes visible or regains focus;
 - periodically while the tab remains open, at a modest interval such as 15
-  minutes; and
-- when the user logs out.
+  minutes.
 
 Continue removing the individual draft immediately after an explicit discard
 or a successful file save. Because the storage is `sessionStorage`, closing
-the tab already removes all drafts for that tab.
+the tab already removes all drafts for that tab; reloading the same tab retains
+them. Logout already clears current-user drafts through
+`clearCurrentBrowserSession()` and must remain the sole logout cleanup path.
+
+An already-open recovery dialog retains its in-memory snapshot until the user
+chooses an action. Cleanup only affects storage entries that will be read by a
+future recovery attempt.
 
 ## Implementation Plan
 
@@ -196,8 +215,7 @@ lifecycle boundary:
 
 - call the purge routine after the current user becomes available;
 - register `visibilitychange` and `focus` handlers;
-- register one interval and clean it up on unmount; and
-- clear current-user drafts during logout.
+- register one interval and clean it up on unmount.
 
 Do not add a server cleanup job: the state is tab-local by design.
 
@@ -211,7 +229,11 @@ In both `MarkdownViewer` and `TextViewer`:
   viewer;
 - pass the saved file's size and last-modified timestamp from the opened
   `FileEntry`, and calculate the draft's UTF-8 size from its stored content;
-- acquire the existing edit lock only when entering editing through Resume; and
+- make the recovery dialog non-dismissible and keep it open until an action
+  completes;
+- acquire the existing edit lock only when entering editing through Resume;
+- on a lock/access failure, show the error in the recovery dialog and retain
+  both the dialog and draft for retry or discard; and
 - adapt the existing close/cancel unsaved-changes dialog so its discard action
   discards all local content for a resumed draft, deletes that draft, then
   restores the saved-file view or completes the requested close.
@@ -234,11 +256,14 @@ Add a small frontend utility that accepts baseline and current text and returns
 line-level additions, modifications, deletions, and summary counts. Keep it
 pure and independently tested.
 
-Use a standard line-diff implementation if the project already has one; if it
-does not, add a small, well-maintained dependency rather than hand-rolling a
-complex diff algorithm. The dependency decision should be made only when the
-implementation is ready, following the repository's dependency-update
-workflow if lockfiles or pins would change.
+Use the maintained `diff` package's line-diff API rather than hand-rolling a
+diff algorithm. Add it only when implementing this work, following the
+repository's dependency-update workflow before changing its pin or lockfile.
+
+For Markdown, canonicalize both the saved baseline and draft with the existing
+Markdown table-line-break normalization before equality checks and diffing. For
+plain text, compare the unmodified source strings. The resulting shared model
+must handle an empty current document by anchoring deletions to line one.
 
 Calculate markers:
 
@@ -247,9 +272,10 @@ Calculate markers:
   250 ms); and
 - on explicit source-mode changes.
 
-Avoid recomputing on unrelated viewer renders. For unusually large files,
-reuse the editor's existing file-size safeguards and skip marker calculation
-with an accessible status message rather than degrading editing performance.
+Avoid recomputing on unrelated viewer renders. Calculate markers only when
+both texts are within the existing editor size limit. Otherwise omit the
+gutter and show `Changes from saved file are unavailable for this file size`
+in the labelled status strip.
 
 ### 6. Render Per-Editor Gutter Decorations
 
@@ -260,9 +286,10 @@ CodeMirror gutter/decorations at `sm` and wider viewports:
 - plain-text adapter.
 
 Below `sm`, render the shared change summary above the editor instead of the
-gutter. The adapters own only document-position mapping, accessible decoration
-labels, and this responsive presentation. They do not own draft state,
-equality checks, or diffing behavior.
+gutter. The adapters own only document-position mapping, symbol tooltips, and
+this responsive presentation. They do not own draft state, equality checks, or
+diffing behavior. The shared status strip, rather than individual gutter DOM,
+provides the screen-reader description.
 
 ## Test Plan
 
@@ -273,14 +300,21 @@ equality checks, or diffing behavior.
 - Purging removes expired/malformed current-user drafts and retains valid
   drafts.
 - Save, clear, and purge emit indicator-refresh events without draft content.
+- Reloading the same tab retains a valid draft; logging out clears drafts via
+  the existing `clearCurrentBrowserSession()` path.
 
 ### Viewer and Editor Recovery
 
 - A matching recovered Markdown draft opens the saved viewer content and shows
   the local-draft dialog over it, including both versions' sizes and
   timestamps.
+- The dialog labels a draft newer only when its timestamp is later than the
+  saved file's timestamp; missing SMB metadata is shown as `Unknown`.
+- Escape, backdrop clicks, and the dialog close control cannot dismiss it.
 - Resume opens the recovered content in the editor and immediately shows the
   unsaved indicator.
+- A failed lock acquisition keeps the dialog and saved viewer visible, reports
+  the failure, and preserves both recovery actions for retry or discard.
 - Discard removes the draft, notice, browser marker, and recovery state.
 - The equivalent text-viewer flow works.
 - A draft whose baseline differs from the loaded file uses the same dialog.
@@ -288,6 +322,8 @@ equality checks, or diffing behavior.
 ### Dirty-State Regression
 
 - Resuming a recovered draft starts dirty.
+- Dirty state uses canonical content equality and does not depend on a
+  session-level "user edited" flag.
 - Typing then undoing restores the recovered draft: the newly added line marker
   disappears while the original recovered markers and dirty state remain.
 - Undo and redo after resume do not remove recovered-draft changes.
@@ -300,9 +336,12 @@ equality checks, or diffing behavior.
 ### Accessibility and Browser UI
 
 - Each marker has its `+`, `~`, or `-` semantic symbol and matching accessible
-  label.
-- Summary status reports change counts.
+  tooltip.
+- The summary is referenced from the editor with `aria-describedby` and does
+  not announce every keystroke as a live region.
 - Markers remain distinguishable without color styling.
+- An entirely deleted document anchors its deletion marker to the empty first
+  line.
 - At widths below `sm`, the gutter is absent and the compact status row remains
   readable without horizontal overflow.
 - The file-row marker has the required accessible name and is absent when the
