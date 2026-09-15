@@ -134,6 +134,7 @@ export function saveDraft(
     return { saved: false, reason: "no-user" };
   }
   const current = loadDraft(connectionId, path, editorType);
+  const hadUnsavedDraft = current !== null && current.content !== current.baseline;
   const snapshot: DraftSnapshot = {
     baseline,
     baselineHash: hashBaseline(baseline),
@@ -143,7 +144,9 @@ export function saveDraft(
   };
   try {
     sessionStorage.setItem(storageKey, JSON.stringify(snapshot));
-    notifyDraftRecoveryChanged();
+    if (!hadUnsavedDraft) {
+      notifyDraftRecoveryChanged();
+    }
     return { saved: true };
   } catch {
     return { saved: false, reason: "storage-unavailable" };
@@ -181,8 +184,11 @@ export function clearDraft(connectionId: string, path: string, editorType: Draft
   const storageKey = key(connectionId, path, editorType);
   if (storageKey) {
     try {
+      const hadDraft = sessionStorage.getItem(storageKey) !== null;
       sessionStorage.removeItem(storageKey);
-      notifyDraftRecoveryChanged();
+      if (hadDraft) {
+        notifyDraftRecoveryChanged();
+      }
     } catch {
       // Storage can be unavailable in privacy-restricted browser sessions.
     }

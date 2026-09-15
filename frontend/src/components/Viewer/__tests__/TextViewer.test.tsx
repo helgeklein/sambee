@@ -241,6 +241,37 @@ describe("TextViewer", () => {
     });
   });
 
+  it("clears the local draft when text returns to its saved baseline", async () => {
+    vi.spyOn(authSession, "getUserId").mockReturnValue("test-user");
+    renderViewer();
+
+    const editor = await enterEditMode();
+    const draftKey = `sambee_oidc_draft:test-user:conn1:text:${encodeURIComponent("/docs/readme.txt")}`;
+    fireEvent.change(editor, { target: { value: "updated text" } });
+
+    await waitFor(() => expect(sessionStorage.getItem(draftKey)).not.toBeNull());
+
+    fireEvent.change(editor, { target: { value: "hello world" } });
+
+    await waitFor(() => expect(sessionStorage.getItem(draftKey)).toBeNull());
+  });
+
+  it("clears a draft storage warning after a later snapshot succeeds", async () => {
+    vi.spyOn(authSession, "getUserId").mockReturnValue("test-user");
+    renderViewer();
+
+    const editor = await enterEditMode();
+    fireEvent.change(editor, { target: { value: "x".repeat(2 * 1024 * 1024 + 1) } });
+
+    expect(await screen.findByText("Draft recovery is unavailable because this edit is too large.")).toBeInTheDocument();
+
+    fireEvent.change(editor, { target: { value: "updated text" } });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Draft recovery is unavailable because this edit is too large.")).not.toBeInTheDocument();
+    });
+  });
+
   it("shows a saved-file viewer behind an explicit recovered draft decision", async () => {
     const userIdSpy = vi.spyOn(authSession, "getUserId").mockReturnValue("test-user");
     sessionStorage.setItem(

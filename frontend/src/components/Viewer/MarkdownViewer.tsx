@@ -175,6 +175,8 @@ type PendingUnsavedChangesAction = "cancel-edit" | "close-viewer" | "stay-edit";
 type MarkdownSearchCloseReason = "escape" | "toggle";
 type EditorModuleLoadState = "idle" | "loading" | "loaded" | "failed";
 
+const DRAFT_SNAPSHOT_DEBOUNCE_MS = 250;
+
 function preserveMarkdownEditorSelection(editorRef: React.RefObject<MarkdownRichEditorHandle | null>): void {
   editorRef.current?.preserveSelection();
 }
@@ -486,22 +488,40 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
   }, [connectionId, contentProviders, fetchWithRetry, isReadOnly, path, setEditBaselineContent, virtualSource]);
 
   useEffect(() => {
-    if (!isEditing || draftContent === editBaselineContentRef.current) {
+    if (!isEditing) {
       return;
     }
-    const result = saveDraft(connectionId, path, "markdown", editBaselineContentRef.current, draftContent);
-    if (!result.saved && result.reason !== "no-user") {
-      setDraftStorageWarning(
-        result.reason === "too-large"
-          ? "Draft recovery is unavailable because this edit is too large."
-          : "Draft recovery is unavailable in this browser session."
-      );
+
+    if (draftContent === editBaselineContentRef.current) {
+      clearDraft(connectionId, path, "markdown");
+      setDraftStorageWarning(null);
+      return;
     }
-  }, [connectionId, draftContent, isEditing, path]);
+
+    const timeoutId = window.setTimeout(() => {
+      const result = saveDraft(connectionId, path, "markdown", editBaselineContentRef.current, draftContent);
+      if (result.saved || result.reason === "no-user") {
+        setDraftStorageWarning(null);
+        return;
+      }
+
+      setDraftStorageWarning(
+        result.reason === "too-large" ? t("viewer.edit.recovery.tooLargeWarning") : t("viewer.edit.recovery.storageUnavailableWarning")
+      );
+    }, DRAFT_SNAPSHOT_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [connectionId, draftContent, isEditing, path, t]);
 
   useEffect(() => {
     const snapshot = () => {
-      if (isEditingRef.current && draftContent !== editBaselineContentRef.current) {
+      if (!isEditingRef.current) {
+        return;
+      }
+
+      if (draftContent === editBaselineContentRef.current) {
+        clearDraft(connectionId, path, "markdown");
+      } else {
         saveDraft(connectionId, path, "markdown", editBaselineContentRef.current, draftContent);
       }
     };

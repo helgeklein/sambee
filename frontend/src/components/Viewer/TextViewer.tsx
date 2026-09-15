@@ -44,6 +44,8 @@ import { createEditToolbarAction, createSaveToolbarAction } from "./viewerToolba
 type PendingUnsavedChangesAction = "cancel-edit" | "close-viewer" | "stay-edit";
 type TextSearchCloseReason = "escape" | "toggle";
 
+const DRAFT_SNAPSHOT_DEBOUNCE_MS = 250;
+
 function withOpacity(color: string, opacity: number): string {
   const normalizedOpacity = Math.max(0, Math.min(1, opacity));
   const hex = color.trim().replace(/^#/, "");
@@ -316,22 +318,40 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
   }, [connectionId, contentProviders, fetchWithRetry, isReadOnly, path, setEditBaselineContent, virtualSource]);
 
   useEffect(() => {
-    if (!isEditing || draftContent === editBaselineContentRef.current) {
+    if (!isEditing) {
       return;
     }
-    const result = saveDraft(connectionId, path, "text", editBaselineContentRef.current, draftContent);
-    if (!result.saved && result.reason !== "no-user") {
-      setDraftStorageWarning(
-        result.reason === "too-large"
-          ? "Draft recovery is unavailable because this edit is too large."
-          : "Draft recovery is unavailable in this browser session."
-      );
+
+    if (draftContent === editBaselineContentRef.current) {
+      clearDraft(connectionId, path, "text");
+      setDraftStorageWarning(null);
+      return;
     }
-  }, [connectionId, draftContent, isEditing, path]);
+
+    const timeoutId = window.setTimeout(() => {
+      const result = saveDraft(connectionId, path, "text", editBaselineContentRef.current, draftContent);
+      if (result.saved || result.reason === "no-user") {
+        setDraftStorageWarning(null);
+        return;
+      }
+
+      setDraftStorageWarning(
+        result.reason === "too-large" ? t("viewer.edit.recovery.tooLargeWarning") : t("viewer.edit.recovery.storageUnavailableWarning")
+      );
+    }, DRAFT_SNAPSHOT_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [connectionId, draftContent, isEditing, path, t]);
 
   useEffect(() => {
     const snapshot = () => {
-      if (isEditingRef.current && draftContent !== editBaselineContentRef.current) {
+      if (!isEditingRef.current) {
+        return;
+      }
+
+      if (draftContent === editBaselineContentRef.current) {
+        clearDraft(connectionId, path, "text");
+      } else {
         saveDraft(connectionId, path, "text", editBaselineContentRef.current, draftContent);
       }
     };

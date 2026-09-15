@@ -43,6 +43,8 @@ describe("draft recovery", () => {
     window.addEventListener(DRAFT_RECOVERY_CHANGED_EVENT, changed);
 
     saveDraft(CONNECTION_ID, "notes/a.md", "markdown", "saved", "local draft");
+    saveDraft(CONNECTION_ID, "notes/a.md", "markdown", "saved", "updated local draft");
+    clearDraft(CONNECTION_ID, "notes/a.md", "markdown");
     clearDraft(CONNECTION_ID, "notes/a.md", "markdown");
 
     expect(changed).toHaveBeenCalledTimes(2);

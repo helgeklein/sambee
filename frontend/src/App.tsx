@@ -6,6 +6,7 @@ import AppUpdatePrompt from "./components/AppUpdatePrompt";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { SettingsLayout } from "./components/Settings/SettingsLayout";
 import { useBackendRecoveryMonitor } from "./hooks/useBackendRecoveryMonitor";
+import { useDraftRecoveryCleanup } from "./hooks/useDraftRecoveryCleanup";
 import { useFocusTrap } from "./hooks/useFocusTrap";
 import { translate } from "./i18n";
 import { CompanionLocalizationSync } from "./i18n/CompanionLocalizationSync";
@@ -44,6 +45,7 @@ function AppContent() {
   const [authBootstrapComplete, setAuthBootstrapComplete] = useState(authSession.isBootstrapComplete());
   const backendAvailability = useBackendAvailability();
   useFocusTrap(appRef);
+  useDraftRecoveryCleanup();
 
   useEffect(() => {
     void authSession.bootstrap().finally(() => setAuthBootstrapComplete(true));

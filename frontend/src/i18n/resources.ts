@@ -1260,6 +1260,8 @@ export const EN_TRANSLATIONS = {
         unknown: "Unknown",
         discard: "Discard draft",
         resume: "Resume editing",
+        tooLargeWarning: "Draft recovery is unavailable because this edit is too large.",
+        storageUnavailableWarning: "Draft recovery is unavailable in this browser session.",
       },
       searchUnavailable: "Search from the shared viewer toolbar is only available in rich-text edit mode.",
       caseSensitive: "Match case",

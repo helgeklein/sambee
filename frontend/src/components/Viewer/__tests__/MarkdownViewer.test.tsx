@@ -596,6 +596,23 @@ describe("MarkdownViewer", () => {
     expect(getFileContentSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("clears the local draft when Markdown returns to its saved baseline", async () => {
+    vi.spyOn(authSession, "getUserId").mockReturnValue("test-user");
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    renderViewer();
+
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Edit" }));
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    const draftKey = `sambee_oidc_draft:test-user:conn1:markdown:${encodeURIComponent("/docs/readme.md")}`;
+    fireEvent.change(editor, { target: { value: "# Updated\n" } });
+
+    await waitFor(() => expect(sessionStorage.getItem(draftKey)).not.toBeNull());
+
+    fireEvent.change(editor, { target: { value: "# Readme\n" } });
+
+    await waitFor(() => expect(sessionStorage.getItem(draftKey)).toBeNull());
+  });
+
   it("shows a saved markdown viewer behind a recovered draft decision and resumes with an immediate summary", async () => {
     vi.spyOn(authSession, "getUserId").mockReturnValue("test-user");
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
