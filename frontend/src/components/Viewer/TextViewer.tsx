@@ -28,7 +28,6 @@ import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
 import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
-import { formatEditorChangeSummary, getEditorChangeSummary } from "../Editor/editorChangeTracking";
 import { HelpMenu } from "../FileBrowser/HelpMenu";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { CodeMirrorFindReplacePopover } from "./CodeMirrorFindReplacePopover";
@@ -36,6 +35,7 @@ import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
 import { RecoveredDraftDialog } from "./RecoveredDraftDialog";
 import { TextCodeEditor, type TextCodeEditorHandle, type TextCodeEditorSearchState } from "./TextCodeEditor";
+import { useEditorChangeSummary } from "./useEditorChangeSummary";
 import { useMarkdownEditSession } from "./useMarkdownEditSession";
 import { VIEWER_SEARCH_INPUT_ATTRIBUTE, ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
 import { downloadViewerBlob } from "./viewerContent";
@@ -122,6 +122,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
   const [recoveryDraft, setRecoveryDraft] = useState<DraftSnapshot | null>(null);
   const [isResumingRecoveryDraft, setIsResumingRecoveryDraft] = useState(false);
   const [resumedRecoveryDraft, setResumedRecoveryDraft] = useState(false);
+  const [immediateChangeSummaryToken, setImmediateChangeSummaryToken] = useState(0);
   const [showViewerHelp, setShowViewerHelp] = useState(false);
   const [showEditorHelp, setShowEditorHelp] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -234,10 +235,12 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
   const unsavedChangesDialogOpen = pendingUnsavedChangesAction !== null;
   const hasUnsavedChanges = isEditing && draftContent !== editBaselineContentRef.current;
   const editorShouldBeReadOnly = !isEditing || Boolean(isSaving && pendingUnsavedChangesAction);
-  const editorChangeSummary = useMemo(
-    () => (hasUnsavedChanges ? getEditorChangeSummary(content, draftContent) : null),
-    [content, draftContent, hasUnsavedChanges]
-  );
+  const editorChangeSummary = useEditorChangeSummary({
+    baseline: content,
+    current: draftContent,
+    enabled: hasUnsavedChanges,
+    immediateUpdateToken: immediateChangeSummaryToken,
+  });
   const editorChangeSummaryId = "text-editor-change-summary";
 
   const {
@@ -539,6 +542,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
         if (enteredEditMode) {
           setRecoveryDraft(null);
           setResumedRecoveryDraft(true);
+          setImmediateChangeSummaryToken((previousToken) => previousToken + 1);
         }
       })
       .finally(() => setIsResumingRecoveryDraft(false));
@@ -1175,11 +1179,8 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
             ) : (
               <>
                 {isEditing && editorChangeSummary ? (
-                  <Box
-                    id={editorChangeSummaryId}
-                    sx={{ display: { xs: "block", sm: "none" }, px: 2, py: 0.75, color: "text.secondary", fontSize: "0.875rem" }}
-                  >
-                    {formatEditorChangeSummary(editorChangeSummary)}
+                  <Box id={editorChangeSummaryId} sx={{ px: 2, py: 0.75, color: "text.secondary", fontSize: "0.875rem" }}>
+                    {t("viewer.edit.changeSummary", editorChangeSummary)}
                   </Box>
                 ) : null}
                 <Box

@@ -22,14 +22,11 @@ const CHANGE_SYMBOLS: Record<EditorChangeKind, string> = {
   deleted: "-",
 };
 
-const CHANGE_LABELS: Record<EditorChangeKind, string> = {
-  added: "Added line",
-  modified: "Modified line",
-  deleted: "Deleted line",
-};
-
 class EditorChangeGutterMarker extends GutterMarker {
-  constructor(private readonly kinds: EditorChangeKind[]) {
+  constructor(
+    private readonly kinds: EditorChangeKind[],
+    private readonly labels: EditorChangeTrackingLabels
+  ) {
     super();
   }
 
@@ -37,7 +34,7 @@ class EditorChangeGutterMarker extends GutterMarker {
     const marker = document.createElement("span");
     marker.className = `sambee-editor-change-marker sambee-editor-change-marker--${this.kinds.join("-")}`;
     marker.textContent = this.kinds.map((kind) => CHANGE_SYMBOLS[kind]).join("");
-    marker.title = this.kinds.map((kind) => CHANGE_LABELS[kind]).join(", ");
+    marker.title = this.kinds.map((kind) => this.labels[kind]).join(", ");
     marker.setAttribute("aria-hidden", "true");
     return marker;
   }
@@ -121,18 +118,20 @@ export function getEditorChangeSummary(baseline: string, current: string): Edito
   };
 }
 
-export function formatEditorChangeSummary({ added, modified, deleted }: EditorChangeSummary): string {
-  return `Changes: +${added} added, ~${modified} modified, -${deleted} deleted`;
+export interface EditorChangeTrackingLabels {
+  added: string;
+  deleted: string;
+  modified: string;
 }
 
-export function buildEditorChangeTrackingExtension(summary: EditorChangeSummary): Extension {
+export function buildEditorChangeTrackingExtension(summary: EditorChangeSummary, labels: EditorChangeTrackingLabels): Extension {
   const markers = new Map(summary.markers.map((marker) => [marker.lineNumber, marker]));
   return [
     gutter({
       class: "sambee-editor-change-gutter",
       lineMarker: (_view, line) => {
         const marker = markers.get(line.number);
-        return marker ? new EditorChangeGutterMarker(marker.kinds) : null;
+        return marker ? new EditorChangeGutterMarker(marker.kinds, labels) : null;
       },
     }),
     EditorView.baseTheme({

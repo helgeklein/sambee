@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatEditorChangeSummary, getEditorChangeSummary } from "../editorChangeTracking";
+import { getEditorChangeSummary } from "../editorChangeTracking";
 
 describe("getEditorChangeSummary", () => {
   it("reports additions, modifications, and deletions", () => {
@@ -11,7 +11,6 @@ describe("getEditorChangeSummary", () => {
       { lineNumber: 5, kinds: ["added"] },
       { lineNumber: 7, kinds: ["deleted"] },
     ]);
-    expect(formatEditorChangeSummary(summary)).toBe("Changes: +1 added, ~1 modified, -1 deleted");
   });
 
   it("anchors a trailing deletion to the final remaining line", () => {

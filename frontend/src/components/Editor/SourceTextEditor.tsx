@@ -71,6 +71,7 @@ export const SourceTextEditor = forwardRef<SourceTextEditorHandle, SourceTextEdi
     {
       value,
       extensions = [],
+      changeTrackingExtension,
       readOnly = false,
       autoFocus = false,
       ariaLabel,
@@ -87,10 +88,13 @@ export const SourceTextEditor = forwardRef<SourceTextEditorHandle, SourceTextEdi
     const preservedSelectionRef = useRef<PreservedSelectionSnapshot | null>(null);
     const readOnlyCompartmentRef = useRef(new Compartment());
     const extensionsCompartmentRef = useRef(new Compartment());
+    const changeTrackingCompartmentRef = useRef(new Compartment());
     const contentAttributesCompartmentRef = useRef(new Compartment());
     const initialValueRef = useRef(value);
     const initialExtensionsRef = useRef(extensions);
     const appliedExtensionsRef = useRef(extensions);
+    const initialChangeTrackingExtensionRef = useRef(changeTrackingExtension);
+    const appliedChangeTrackingExtensionRef = useRef(changeTrackingExtension);
     const initialReadOnlyRef = useRef(readOnly);
     const initialAutoFocusRef = useRef(autoFocus);
     const initialAriaLabelRef = useRef(ariaLabel);
@@ -137,6 +141,7 @@ export const SourceTextEditor = forwardRef<SourceTextEditorHandle, SourceTextEdi
           updateListener,
           readOnlyCompartmentRef.current.of(createReadOnlyExtension(initialReadOnlyRef.current)),
           extensionsCompartmentRef.current.of(initialExtensionsRef.current),
+          changeTrackingCompartmentRef.current.of(initialChangeTrackingExtensionRef.current ?? []),
           contentAttributesCompartmentRef.current.of(
             createContentAttributesExtension(initialAriaLabelRef.current, initialContentAttributesRef.current)
           ),
@@ -201,6 +206,17 @@ export const SourceTextEditor = forwardRef<SourceTextEditorHandle, SourceTextEdi
         scrollIntoView: true,
       });
     }, [extensions]);
+
+    useEffect(() => {
+      const view = viewRef.current;
+
+      if (!view || appliedChangeTrackingExtensionRef.current === changeTrackingExtension) {
+        return;
+      }
+
+      appliedChangeTrackingExtensionRef.current = changeTrackingExtension;
+      view.dispatch({ effects: changeTrackingCompartmentRef.current.reconfigure(changeTrackingExtension ?? []) });
+    }, [changeTrackingExtension]);
 
     useEffect(() => {
       const view = viewRef.current;

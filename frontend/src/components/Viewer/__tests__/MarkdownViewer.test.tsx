@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import apiService from "../../../services/api";
+import { authSession } from "../../../services/authSession";
 import { SambeeThemeProvider } from "../../../theme";
 import MarkdownViewer from "../MarkdownViewer";
 import { normalizeMarkdownTableCellLineBreaks } from "../markdownTableCellLineBreaks";
@@ -91,6 +92,7 @@ const MockMarkdownRichEditor = forwardRef<
     markdown: string;
     onChange: (markdown: string) => void;
     onUserEdit?: (viewUpdate?: ViewUpdate) => void;
+    describedById?: string;
     ariaLabel: string;
     autoFocus?: boolean;
     readOnly?: boolean;
@@ -119,6 +121,7 @@ const MockMarkdownRichEditor = forwardRef<
       onChange,
       onUserEdit,
       ariaLabel,
+      describedById,
       readOnly = false,
       className,
       searchText = "",
@@ -385,6 +388,7 @@ const MockMarkdownRichEditor = forwardRef<
         <textarea
           ref={textareaRef}
           aria-label={ariaLabel}
+          aria-describedby={describedById}
           value={markdown}
           readOnly={readOnly}
           onChange={(event) => {
@@ -442,6 +446,7 @@ describe("MarkdownViewer", () => {
 
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     localStorage.setItem("access_token", "mock-token");
     vi.restoreAllMocks();
     vi.spyOn(apiService, "writeTextWithEditLock").mockImplementation(async (connectionId, path, content, _lockInfo, options) => {
@@ -589,6 +594,65 @@ describe("MarkdownViewer", () => {
     });
     expect(acquireLockSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md");
     expect(getFileContentSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a saved markdown viewer behind a recovered draft decision and resumes with an immediate summary", async () => {
+    vi.spyOn(authSession, "getUserId").mockReturnValue("test-user");
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    sessionStorage.setItem(
+      `sambee_oidc_draft:test-user:conn1:markdown:${encodeURIComponent("/docs/readme.md")}`,
+      JSON.stringify({ baseline: "# Readme\n", content: "# Local draft\n", createdAt: Date.now(), updatedAt: Date.now() })
+    );
+
+    renderViewer();
+
+    expect(await screen.findByText("Readme")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Unsaved local draft available" })).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Unsaved local draft available" }), { key: "Escape" });
+    expect(screen.getByRole("heading", { name: "Unsaved local draft available" })).toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Resume editing" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    expect(editor).toHaveValue("# Local draft\n");
+    expect(screen.getByRole("status", { name: /unsaved changes/i })).toBeInTheDocument();
+    const changeSummary = screen.getByText("Changes: +0 added, ~1 modified, -0 deleted");
+    expect(changeSummary).toBeVisible();
+    expect(changeSummary).not.toHaveAttribute("role", "status");
+    expect(editor).toHaveAttribute("aria-describedby", "markdown-editor-change-summary");
+  });
+
+  it("offers recovery when the draft baseline differs from the saved markdown", async () => {
+    vi.spyOn(authSession, "getUserId").mockReturnValue("test-user");
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Current saved file\n");
+    sessionStorage.setItem(
+      `sambee_oidc_draft:test-user:conn1:markdown:${encodeURIComponent("/docs/readme.md")}`,
+      JSON.stringify({ baseline: "# Earlier saved file\n", content: "# Local draft\n", createdAt: Date.now(), updatedAt: Date.now() })
+    );
+
+    renderViewer();
+
+    expect(await screen.findByText("Current saved file")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Unsaved local draft available" })).toBeInTheDocument();
+  });
+
+  it("keeps the Markdown recovery dialog open after an edit lock failure", async () => {
+    vi.spyOn(authSession, "getUserId").mockReturnValue("test-user");
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "acquireEditLock").mockRejectedValueOnce(new Error("locked"));
+    sessionStorage.setItem(
+      `sambee_oidc_draft:test-user:conn1:markdown:${encodeURIComponent("/docs/readme.md")}`,
+      JSON.stringify({ baseline: "# Readme\n", content: "# Local draft\n", createdAt: Date.now(), updatedAt: Date.now() })
+    );
+
+    renderViewer();
+
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Resume editing" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "Unsaved local draft available" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resume editing" })).toBeEnabled();
   });
 
   it("runs bold and italic shortcuts while Markdown editing has focus", async () => {

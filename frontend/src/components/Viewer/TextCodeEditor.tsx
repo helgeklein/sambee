@@ -3,6 +3,7 @@ import { languages } from "@codemirror/language-data";
 import { findNext, findPrevious, replaceAll, replaceNext } from "@codemirror/search";
 import type { Extension } from "@codemirror/state";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { buildPassiveSearchHighlightExtension } from "../Editor/buildCodeMirrorSearchHighlights";
 import { buildCommonEditorExtensions } from "../Editor/buildCommonEditorExtensions";
 import { buildTextEditorTheme, type TextEditorThemeOptions } from "../Editor/buildTextEditorTheme";
@@ -92,6 +93,7 @@ export const TextCodeEditor = forwardRef<TextCodeEditorHandle, TextCodeEditorPro
     },
     ref
   ) => {
+    const { t } = useTranslation();
     const editorRef = useRef<SourceTextEditorHandle | null>(null);
     const [languageExtensions, setLanguageExtensions] = useState<Extension[]>(EMPTY_EXTENSIONS);
     const previousSearchRequestRef = useRef<{
@@ -106,10 +108,20 @@ export const TextCodeEditor = forwardRef<TextCodeEditorHandle, TextCodeEditorPro
         ...buildCommonEditorExtensions({ highlightSelectionMatches: false, lineWrapping }),
         ...buildTextEditorTheme(theme),
         buildPassiveSearchHighlightExtension(),
-        ...(changeSummary && showChangeGutter ? [buildEditorChangeTrackingExtension(changeSummary)] : []),
         ...languageExtensions,
       ],
-      [changeSummary, languageExtensions, lineWrapping, showChangeGutter, theme]
+      [languageExtensions, lineWrapping, theme]
+    );
+    const changeTrackingExtension = useMemo(
+      () =>
+        changeSummary && showChangeGutter
+          ? buildEditorChangeTrackingExtension(changeSummary, {
+              added: t("viewer.edit.changeGutterAdded"),
+              deleted: t("viewer.edit.changeGutterDeleted"),
+              modified: t("viewer.edit.changeGutterModified"),
+            })
+          : undefined,
+      [changeSummary, showChangeGutter, t]
     );
 
     useEffect(() => {
@@ -248,6 +260,7 @@ export const TextCodeEditor = forwardRef<TextCodeEditorHandle, TextCodeEditorPro
         className={className}
         value={text}
         extensions={extensions}
+        changeTrackingExtension={changeTrackingExtension}
         readOnly={readOnly}
         autoFocus={autoFocus}
         ariaLabel={ariaLabel}

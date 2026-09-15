@@ -164,7 +164,7 @@ export const FileRow = React.memo(
           : isShortcut
             ? t("fileBrowser.row.shortcutSuffix")
             : ""
-      }${hasUnsavedLocalDraft ? ": unsaved local draft available" : ""}${isMultiSelected ? t("fileBrowser.row.selectedSuffix") : ""}`;
+      }${hasUnsavedLocalDraft ? t("fileBrowser.row.unsavedLocalDraftSuffix") : ""}${isMultiSelected ? t("fileBrowser.row.selectedSuffix") : ""}`;
 
       // Compute the correct row style based on focused + multi-selected state
       const rowStyle =
@@ -188,11 +188,11 @@ export const FileRow = React.memo(
             {file.name}
           </Typography>
           {hasUnsavedLocalDraft ? (
-            <Tooltip title="Unsaved local draft available">
+            <Tooltip title={t("fileBrowser.row.unsavedLocalDraft")}>
               <Box
                 component="span"
                 role="img"
-                aria-label="Unsaved local draft available"
+                aria-label={t("fileBrowser.row.unsavedLocalDraft")}
                 sx={{ display: "inline-flex", flex: "0 0 20px", ml: 0.5 }}
               >
                 <EditNoteIcon sx={{ fontSize: 18 }} />

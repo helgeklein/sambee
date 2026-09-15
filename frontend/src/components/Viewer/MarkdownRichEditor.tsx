@@ -3,6 +3,7 @@ import { EditorSelection } from "@codemirror/state";
 import type { ViewUpdate } from "@codemirror/view";
 import { insertEmptyMarkdownTable } from "codemirror-markdown-tables";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { buildMarkdownEditorExtensions } from "../Editor/buildMarkdownEditorExtensions";
 import type { MarkdownEditorThemeOptions } from "../Editor/buildMarkdownEditorTheme";
 import { buildEditorChangeTrackingExtension, type EditorChangeSummary } from "../Editor/editorChangeTracking";
@@ -271,6 +272,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
     },
     ref
   ) => {
+    const { t } = useTranslation();
     const editorRef = useRef<SourceTextEditorHandle | null>(null);
     const previousSearchRequestRef = useRef<{
       caseSensitive: boolean;
@@ -286,12 +288,17 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       pendingPromise: null,
       resolvePending: null,
     });
-    const extensions = useMemo(
-      () => [
-        ...buildMarkdownEditorExtensions(theme, lineWrapping),
-        ...(changeSummary && showChangeGutter ? [buildEditorChangeTrackingExtension(changeSummary)] : []),
-      ],
-      [changeSummary, lineWrapping, showChangeGutter, theme]
+    const extensions = useMemo(() => buildMarkdownEditorExtensions(theme, lineWrapping), [lineWrapping, theme]);
+    const changeTrackingExtension = useMemo(
+      () =>
+        changeSummary && showChangeGutter
+          ? buildEditorChangeTrackingExtension(changeSummary, {
+              added: t("viewer.edit.changeGutterAdded"),
+              deleted: t("viewer.edit.changeGutterDeleted"),
+              modified: t("viewer.edit.changeGutterModified"),
+            })
+          : undefined,
+      [changeSummary, showChangeGutter, t]
     );
     const [editorMarkdown, setEditorMarkdown] = useState(() => prepareMarkdownTableCellLineBreaksForEditor(markdown));
 
@@ -532,6 +539,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         className={className}
         value={editorMarkdown}
         extensions={extensions}
+        changeTrackingExtension={changeTrackingExtension}
         readOnly={readOnly}
         autoFocus={autoFocus}
         ariaLabel={ariaLabel}

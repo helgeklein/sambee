@@ -72,11 +72,17 @@ describe("FileRow", () => {
     expect(props.onClick).toHaveBeenCalledWith(props.file, props.index);
   });
 
-  it("shows an accessible marker for an unsaved local draft", () => {
+  it("shows an accessible marker for an unsaved local draft", async () => {
+    await setLocale("en-XA");
     render(<FileRow {...createDefaultFileRowProps()} hasUnsavedLocalDraft />);
 
-    expect(screen.getByRole("img", { name: "Unsaved local draft available" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /unsaved local draft available/i })).toBeInTheDocument();
+    const markerLabel = translate("fileBrowser.row.unsavedLocalDraft");
+    expect(screen.getByRole("img", { name: markerLabel })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: `${translate("fileBrowser.row.itemTypes.file")}: report.pdf${translate("fileBrowser.row.unsavedLocalDraftSuffix")}${translate("fileBrowser.row.selectedSuffix")}`,
+      })
+    ).toBeInTheDocument();
   });
 
   it("rerenders a selected row when its styles change", () => {
