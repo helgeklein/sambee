@@ -72,6 +72,13 @@ describe("FileRow", () => {
     expect(props.onClick).toHaveBeenCalledWith(props.file, props.index);
   });
 
+  it("shows an accessible marker for an unsaved local draft", () => {
+    render(<FileRow {...createDefaultFileRowProps()} hasUnsavedLocalDraft />);
+
+    expect(screen.getByRole("img", { name: "Unsaved local draft available" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /unsaved local draft available/i })).toBeInTheDocument();
+  });
+
   it("rerenders a selected row when its styles change", () => {
     const props = createDefaultFileRowProps();
     props.isMultiSelected = false;

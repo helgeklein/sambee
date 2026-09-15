@@ -6,6 +6,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { buildPassiveSearchHighlightExtension } from "../Editor/buildCodeMirrorSearchHighlights";
 import { buildCommonEditorExtensions } from "../Editor/buildCommonEditorExtensions";
 import { buildTextEditorTheme, type TextEditorThemeOptions } from "../Editor/buildTextEditorTheme";
+import { buildEditorChangeTrackingExtension, type EditorChangeSummary } from "../Editor/editorChangeTracking";
 import { SourceTextEditor } from "../Editor/SourceTextEditor";
 import type { SourceTextEditorHandle } from "../Editor/sourceTextEditorTypes";
 import {
@@ -56,6 +57,9 @@ export interface TextCodeEditorProps {
   searchRegexp?: boolean;
   searchReplaceText?: string;
   searchWholeWord?: boolean;
+  changeSummary?: EditorChangeSummary;
+  showChangeGutter?: boolean;
+  describedById?: string;
   onSearchStateChange?: (state: TextCodeEditorSearchState) => void;
 }
 
@@ -81,6 +85,9 @@ export const TextCodeEditor = forwardRef<TextCodeEditorHandle, TextCodeEditorPro
       searchRegexp = false,
       searchReplaceText = "",
       searchWholeWord = false,
+      changeSummary,
+      showChangeGutter = false,
+      describedById,
       onSearchStateChange,
     },
     ref
@@ -99,9 +106,10 @@ export const TextCodeEditor = forwardRef<TextCodeEditorHandle, TextCodeEditorPro
         ...buildCommonEditorExtensions({ highlightSelectionMatches: false, lineWrapping }),
         ...buildTextEditorTheme(theme),
         buildPassiveSearchHighlightExtension(),
+        ...(changeSummary && showChangeGutter ? [buildEditorChangeTrackingExtension(changeSummary)] : []),
         ...languageExtensions,
       ],
-      [languageExtensions, lineWrapping, theme]
+      [changeSummary, languageExtensions, lineWrapping, showChangeGutter, theme]
     );
 
     useEffect(() => {
@@ -243,6 +251,7 @@ export const TextCodeEditor = forwardRef<TextCodeEditorHandle, TextCodeEditorPro
         readOnly={readOnly}
         autoFocus={autoFocus}
         ariaLabel={ariaLabel}
+        contentAttributes={describedById ? { "aria-describedby": describedById } : undefined}
         onChange={onChange}
         onUserEdit={onUserEdit}
         onUpdate={() => {

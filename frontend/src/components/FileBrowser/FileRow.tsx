@@ -4,9 +4,10 @@
 
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CircleOutlinedIcon from "@mui/icons-material/CircleOutlined";
+import EditNoteIcon from "@mui/icons-material/EditNote";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import ShortcutIcon from "@mui/icons-material/Shortcut";
-import { Box, IconButton, Typography } from "@mui/material";
+import { Box, IconButton, Tooltip, Typography } from "@mui/material";
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatDate, formatFileSize } from "../../pages/FileBrowser/formatters";
@@ -42,6 +43,7 @@ interface FileRowProps {
   };
   viewMode: ViewMode;
   showCompactActions?: boolean;
+  hasUnsavedLocalDraft?: boolean;
   selectionMode?: boolean;
   onOpenItemActions?: (file: FileEntry, index: number, anchorElement: HTMLElement) => void;
   onLongPressSelect?: (file: FileEntry, index: number) => void;
@@ -132,6 +134,7 @@ export const FileRow = React.memo(
         fileRowStyles,
         viewMode,
         showCompactActions = false,
+        hasUnsavedLocalDraft = false,
         selectionMode = false,
         onOpenItemActions,
         onLongPressSelect,
@@ -161,7 +164,7 @@ export const FileRow = React.memo(
           : isShortcut
             ? t("fileBrowser.row.shortcutSuffix")
             : ""
-      }${isMultiSelected ? t("fileBrowser.row.selectedSuffix") : ""}`;
+      }${hasUnsavedLocalDraft ? ": unsaved local draft available" : ""}${isMultiSelected ? t("fileBrowser.row.selectedSuffix") : ""}`;
 
       // Compute the correct row style based on focused + multi-selected state
       const rowStyle =
@@ -184,6 +187,18 @@ export const FileRow = React.memo(
           >
             {file.name}
           </Typography>
+          {hasUnsavedLocalDraft ? (
+            <Tooltip title="Unsaved local draft available">
+              <Box
+                component="span"
+                role="img"
+                aria-label="Unsaved local draft available"
+                sx={{ display: "inline-flex", flex: "0 0 20px", ml: 0.5 }}
+              >
+                <EditNoteIcon sx={{ fontSize: 18 }} />
+              </Box>
+            </Tooltip>
+          ) : null}
           {linkTargetPath ? <TargetPathLabel path={linkTargetPath} rowTextSx={rowTextSx} /> : null}
         </Box>
       );
@@ -411,6 +426,7 @@ export const FileRow = React.memo(
     prev.virtualSize === next.virtualSize &&
     prev.viewMode === next.viewMode &&
     prev.showCompactActions === next.showCompactActions &&
+    prev.hasUnsavedLocalDraft === next.hasUnsavedLocalDraft &&
     prev.selectionMode === next.selectionMode &&
     prev.onLongPressSelect === next.onLongPressSelect &&
     prev.onOpenItemActions === next.onOpenItemActions

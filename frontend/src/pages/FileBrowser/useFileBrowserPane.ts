@@ -1712,6 +1712,8 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         setViewInfo({
           connectionId: targetConnectionId,
           path: filePath,
+          fileSize: file.size,
+          fileModifiedAt: file.modified_at,
           mimeType,
           viewerId,
           virtualSource,
@@ -1727,7 +1729,16 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       if (!virtualSource) {
         recordRecentFileAttempt(targetConnectionId, filePath);
       }
-      setViewInfo({ connectionId: targetConnectionId, path: filePath, mimeType, viewerId, virtualSource, sessionId: viewerSessionId });
+      setViewInfo({
+        connectionId: targetConnectionId,
+        path: filePath,
+        fileSize: file.size,
+        fileModifiedAt: file.modified_at,
+        mimeType,
+        viewerId,
+        virtualSource,
+        sessionId: viewerSessionId,
+      });
     },
     [imageFiles, recordRecentFileAttempt, sortedItems]
   );

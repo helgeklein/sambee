@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../../../i18n";
 import apiService from "../../../services/api";
+import { authSession } from "../../../services/authSession";
 import { SambeeThemeProvider } from "../../../theme";
 import { CODEMIRROR_FIND_HISTORY_STORAGE_KEY, CODEMIRROR_REPLACE_HISTORY_STORAGE_KEY } from "../codeMirrorFindReplaceConstants";
 
@@ -126,6 +127,11 @@ async function enterEditMode(): Promise<HTMLElement> {
 }
 
 describe("TextViewer", () => {
+  afterEach(() => {
+    sessionStorage.clear();
+    vi.restoreAllMocks();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     useTextEditorMaxFileSizeBytesPreferenceMock.mockReturnValue([52_428_800, vi.fn()]);
@@ -231,6 +237,41 @@ describe("TextViewer", () => {
         { mimeType: undefined }
       );
     });
+  });
+
+  it("shows a saved-file viewer behind an explicit recovered draft decision", async () => {
+    const userIdSpy = vi.spyOn(authSession, "getUserId").mockReturnValue("test-user");
+    sessionStorage.setItem(
+      `sambee_oidc_draft:test-user:conn1:text:${encodeURIComponent("/docs/readme.txt")}`,
+      JSON.stringify({ baseline: "hello world", content: "local draft", createdAt: Date.now(), updatedAt: Date.now() })
+    );
+    renderViewer();
+
+    expect(await screen.findByRole("heading", { name: "Unsaved local draft available" })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("hello world")).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Unsaved local draft available" }), { key: "Escape" });
+    expect(screen.getByRole("heading", { name: "Unsaved local draft available" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Resume editing" }));
+    await waitFor(() => expect(apiService.acquireEditLock).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Text editor" })).toHaveValue("local draft"));
+    expect(screen.getByRole("status", { name: /unsaved changes/i })).toBeInTheDocument();
+    userIdSpy.mockRestore();
+  });
+
+  it("retains the recovery dialog when the edit lock cannot be acquired", async () => {
+    vi.spyOn(authSession, "getUserId").mockReturnValue("test-user");
+    vi.spyOn(apiService, "acquireEditLock").mockRejectedValueOnce(new Error("locked"));
+    sessionStorage.setItem(
+      `sambee_oidc_draft:test-user:conn1:text:${encodeURIComponent("/docs/readme.txt")}`,
+      JSON.stringify({ baseline: "hello world", content: "local draft", createdAt: Date.now(), updatedAt: Date.now() })
+    );
+    renderViewer();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Resume editing" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "Unsaved local draft available" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resume editing" })).toBeEnabled();
   });
 
   it("shows only Text editor shortcuts from the edit toolbar Help menu", async () => {

@@ -18,6 +18,8 @@ interface DynamicViewerProps {
   isReadOnly?: boolean;
   viewInfo: {
     path: string;
+    fileSize?: number;
+    fileModifiedAt?: string;
     mimeType: string;
     viewerId?: "image" | "markdown" | "pdf" | "text";
     virtualSource?: VirtualItemHandle;
@@ -226,6 +228,8 @@ export const DynamicViewer = memo(function DynamicViewer({
       <ViewerComponent
         connectionId={connectionId}
         path={viewInfo.path}
+        fileSize={viewInfo.fileSize}
+        fileModifiedAt={viewInfo.fileModifiedAt}
         onClose={onClose}
         isReadOnly={isReadOnly}
         virtualSource={viewInfo.virtualSource}

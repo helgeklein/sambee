@@ -34,6 +34,7 @@ interface FileListProps {
     buttonFocusedMultiSelected: Record<string, unknown>;
   };
   viewMode: ViewMode;
+  unsavedDraftPaths?: Set<string>;
   getCompactItemActions?: (file: FileEntry, index: number) => readonly CompactItemAction[];
 } //
 // FileList
@@ -56,6 +57,7 @@ export const FileList = React.memo(
     listContainerRef,
     fileRowStyles,
     viewMode,
+    unsavedDraftPaths = new Set(),
     getCompactItemActions,
   }: FileListProps) => {
     const { t } = useTranslation();
@@ -151,6 +153,7 @@ export const FileList = React.memo(
                     isSelected={virtualItem.index === focusedIndex}
                     isMultiSelected={selectedFiles.has(file.path)}
                     selectionMode={useTouchSelectionControls && selectedFiles.size > 0}
+                    hasUnsavedLocalDraft={unsavedDraftPaths.has(file.path.startsWith("/") ? file.path : `/${file.path}`)}
                     virtualStart={virtualItem.start}
                     virtualSize={virtualItem.size}
                     onClick={

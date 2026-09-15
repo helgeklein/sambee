@@ -28,11 +28,13 @@ import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
 import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
+import { formatEditorChangeSummary, getEditorChangeSummary } from "../Editor/editorChangeTracking";
 import { HelpMenu } from "../FileBrowser/HelpMenu";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { CodeMirrorFindReplacePopover } from "./CodeMirrorFindReplacePopover";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
+import { RecoveredDraftDialog } from "./RecoveredDraftDialog";
 import { TextCodeEditor, type TextCodeEditorHandle, type TextCodeEditorSearchState } from "./TextCodeEditor";
 import { useMarkdownEditSession } from "./useMarkdownEditSession";
 import { VIEWER_SEARCH_INPUT_ATTRIBUTE, ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
@@ -101,6 +103,8 @@ function areTextEditorSearchStatesEqual(left: TextCodeEditorSearchState, right: 
 export const TextViewer: React.FC<ViewerComponentProps> = ({
   connectionId,
   path,
+  fileSize,
+  fileModifiedAt,
   onClose,
   isReadOnly: connectionIsReadOnly = false,
   virtualSource,
@@ -116,6 +120,8 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
   const [shareError, setShareError] = useState<string | null>(null);
   const [draftStorageWarning, setDraftStorageWarning] = useState<string | null>(null);
   const [recoveryDraft, setRecoveryDraft] = useState<DraftSnapshot | null>(null);
+  const [isResumingRecoveryDraft, setIsResumingRecoveryDraft] = useState(false);
+  const [resumedRecoveryDraft, setResumedRecoveryDraft] = useState(false);
   const [showViewerHelp, setShowViewerHelp] = useState(false);
   const [showEditorHelp, setShowEditorHelp] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -228,6 +234,11 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
   const unsavedChangesDialogOpen = pendingUnsavedChangesAction !== null;
   const hasUnsavedChanges = isEditing && draftContent !== editBaselineContentRef.current;
   const editorShouldBeReadOnly = !isEditing || Boolean(isSaving && pendingUnsavedChangesAction);
+  const editorChangeSummary = useMemo(
+    () => (hasUnsavedChanges ? getEditorChangeSummary(content, draftContent) : null),
+    [content, draftContent, hasUnsavedChanges]
+  );
+  const editorChangeSummaryId = "text-editor-change-summary";
 
   const {
     beginBaselineSyncWindow,
@@ -272,14 +283,10 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
         setContent(data);
         if (!isEditingRef.current && !isReadOnly) {
           const recoveredDraft = loadDraft(connectionId, path, "text");
-          const nextDraft = recoveredDraft?.baseline === data ? recoveredDraft.content : data;
-          setDraftContent(nextDraft);
+          setDraftContent(data);
           setEditBaselineContent(data);
-          if (recoveredDraft?.baseline === data && recoveredDraft.content !== data) {
-            setIsEditing(true);
-          } else if (recoveredDraft && recoveredDraft.content !== recoveredDraft.baseline) {
-            setRecoveryDraft(recoveredDraft);
-          }
+          setResumedRecoveryDraft(false);
+          setRecoveryDraft(recoveredDraft && recoveredDraft.content !== recoveredDraft.baseline ? recoveredDraft : null);
         }
       } catch (err) {
         if (abortController.signal.aborted) {
@@ -474,46 +481,76 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
     onClose();
   }, [clearBaselineSyncWindow, clearPendingBaselineSync, onClose, releaseEditSession]);
 
-  const handleEnterEditMode = useCallback(async () => {
-    if (isReadOnly || loading || error || exceedsEditorLimit) {
+  const handleEnterEditMode = useCallback(
+    async (initialDraft = content): Promise<boolean> => {
+      if (isReadOnly || loading || error || exceedsEditorLimit) {
+        return false;
+      }
+
+      setEditError(null);
+
+      try {
+        const editResult = await beginViewerTextEdit(connectionId, path, contentProviders);
+        if (editResult.kind !== "acquired") throw new Error(`Editing is ${editResult.kind}`);
+        setEditSession(editResult.session);
+
+        setDraftContent(initialDraft);
+        setEditBaselineContent(content);
+        clearPendingBaselineSync();
+        beginBaselineSyncWindow();
+        markEditSessionPristine();
+        setSearchAutoNavigate(true);
+        setEditorBoundaryKey((previousKey) => previousKey + 1);
+        setIsEditing(true);
+        return true;
+      } catch (err) {
+        const message = getApiErrorMessage(err, t("viewer.text.lockFailedReason"), { includeOriginalMessage: true });
+        setEditError(t("viewer.text.lockFailed", { message }));
+        logError("Failed to enter text edit mode", { error: err, path, connectionId });
+        return false;
+      }
+    },
+    [
+      beginBaselineSyncWindow,
+      clearPendingBaselineSync,
+      connectionId,
+      contentProviders,
+      content,
+      error,
+      exceedsEditorLimit,
+      isReadOnly,
+      loading,
+      markEditSessionPristine,
+      path,
+      setEditBaselineContent,
+      t,
+    ]
+  );
+
+  const handleResumeRecoveryDraft = useCallback(() => {
+    const recoveredDraft = recoveryDraft;
+    if (!recoveredDraft || isResumingRecoveryDraft) {
       return;
     }
 
+    setIsResumingRecoveryDraft(true);
+    void handleEnterEditMode(recoveredDraft.content)
+      .then((enteredEditMode) => {
+        if (enteredEditMode) {
+          setRecoveryDraft(null);
+          setResumedRecoveryDraft(true);
+        }
+      })
+      .finally(() => setIsResumingRecoveryDraft(false));
+  }, [handleEnterEditMode, isResumingRecoveryDraft, recoveryDraft]);
+
+  const handleDiscardRecoveryDraft = useCallback(() => {
+    clearDraft(connectionId, path, "text");
+    setDraftContent(content);
+    setEditBaselineContent(content);
     setEditError(null);
-
-    try {
-      const editResult = await beginViewerTextEdit(connectionId, path, contentProviders);
-      if (editResult.kind !== "acquired") throw new Error(`Editing is ${editResult.kind}`);
-      setEditSession(editResult.session);
-
-      setDraftContent(content);
-      setEditBaselineContent(content);
-      clearPendingBaselineSync();
-      beginBaselineSyncWindow();
-      markEditSessionPristine();
-      setSearchAutoNavigate(true);
-      setEditorBoundaryKey((previousKey) => previousKey + 1);
-      setIsEditing(true);
-    } catch (err) {
-      const message = getApiErrorMessage(err, t("viewer.text.lockFailedReason"), { includeOriginalMessage: true });
-      setEditError(t("viewer.text.lockFailed", { message }));
-      logError("Failed to enter text edit mode", { error: err, path, connectionId });
-    }
-  }, [
-    beginBaselineSyncWindow,
-    clearPendingBaselineSync,
-    connectionId,
-    contentProviders,
-    content,
-    error,
-    exceedsEditorLimit,
-    isReadOnly,
-    loading,
-    markEditSessionPristine,
-    path,
-    setEditBaselineContent,
-    t,
-  ]);
+    setRecoveryDraft(null);
+  }, [connectionId, content, path, setEditBaselineContent]);
 
   const handleCancelEdit = useCallback(async () => {
     if (hasUnsavedChanges) {
@@ -1136,111 +1173,92 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
                 </Box>
               </Box>
             ) : (
-              <Box
-                sx={{
-                  p: 0,
-                  flex: 1,
-                  minHeight: 0,
-                  display: "flex",
-                  overflow: "hidden",
-                  "& .sambee-text-editor": {
+              <>
+                {isEditing && editorChangeSummary ? (
+                  <Box
+                    id={editorChangeSummaryId}
+                    sx={{ display: { xs: "block", sm: "none" }, px: 2, py: 0.75, color: "text.secondary", fontSize: "0.875rem" }}
+                  >
+                    {formatEditorChangeSummary(editorChangeSummary)}
+                  </Box>
+                ) : null}
+                <Box
+                  sx={{
+                    p: 0,
                     flex: 1,
                     minHeight: 0,
-                    [CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(CODEMIRROR_EDITOR_CONTENT_PADDING.xs),
-                    [muiTheme.breakpoints.up("sm")]: {
-                      [CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(CODEMIRROR_EDITOR_CONTENT_PADDING.sm),
+                    display: "flex",
+                    overflow: "hidden",
+                    "& .sambee-text-editor": {
+                      flex: 1,
+                      minHeight: 0,
+                      [CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(CODEMIRROR_EDITOR_CONTENT_PADDING.xs),
+                      [muiTheme.breakpoints.up("sm")]: {
+                        [CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(CODEMIRROR_EDITOR_CONTENT_PADDING.sm),
+                      },
                     },
-                  },
-                  "& .sambee-text-editor .cm-content": {
-                    pt: CODEMIRROR_EDITOR_CONTENT_PADDING,
-                    pb: VIEWER_SCROLL_END_PADDING,
-                  },
-                }}
-              >
-                <MarkdownEditorErrorBoundary
-                  key={editorBoundaryKey}
-                  title={t("viewer.text.editorCrashTitle")}
-                  description={t("viewer.text.editorCrashMessage")}
-                  retryLabel={t("viewer.edit.retryEditor")}
-                  returnToPreviewLabel={t("viewer.edit.returnToPreview")}
-                  onError={() => {}}
-                  onRetry={() => {
-                    setEditError(null);
-                    setEditorBoundaryKey((previousKey) => previousKey + 1);
-                  }}
-                  onReturnToPreview={() => {
-                    void handleCancelEdit();
+                    "& .sambee-text-editor .cm-content": {
+                      pt: CODEMIRROR_EDITOR_CONTENT_PADDING,
+                      pb: VIEWER_SCROLL_END_PADDING,
+                    },
                   }}
                 >
-                  <TextCodeEditor
-                    ref={editorRef}
-                    className="sambee-text-editor"
-                    text={isEditing ? draftContent : content}
-                    filename={filename}
-                    theme={textEditorTheme}
-                    onChange={handleEditorChange}
-                    onUserEdit={handleEditorUserEdit}
-                    ariaLabel={t("viewer.text.editorLabel")}
-                    autoFocus={true}
-                    readOnly={editorShouldBeReadOnly}
-                    lineWrapping={wordWrapEnabled}
-                    searchText={searchPanelOpen ? searchText : ""}
-                    searchOpen={searchPanelOpen}
-                    searchAutoNavigate={searchAutoNavigate}
-                    searchCaseSensitive={searchCaseSensitive}
-                    onSearchStateChange={handleEditorSearchStateChange}
-                    searchRegexp={searchRegexp}
-                    searchReplaceText={searchReplaceText}
-                    searchWholeWord={searchWholeWord}
-                  />
-                </MarkdownEditorErrorBoundary>
-              </Box>
+                  <MarkdownEditorErrorBoundary
+                    key={editorBoundaryKey}
+                    title={t("viewer.text.editorCrashTitle")}
+                    description={t("viewer.text.editorCrashMessage")}
+                    retryLabel={t("viewer.edit.retryEditor")}
+                    returnToPreviewLabel={t("viewer.edit.returnToPreview")}
+                    onError={() => {}}
+                    onRetry={() => {
+                      setEditError(null);
+                      setEditorBoundaryKey((previousKey) => previousKey + 1);
+                    }}
+                    onReturnToPreview={() => {
+                      void handleCancelEdit();
+                    }}
+                  >
+                    <TextCodeEditor
+                      ref={editorRef}
+                      className="sambee-text-editor"
+                      text={isEditing ? draftContent : content}
+                      filename={filename}
+                      theme={textEditorTheme}
+                      onChange={handleEditorChange}
+                      onUserEdit={handleEditorUserEdit}
+                      ariaLabel={t("viewer.text.editorLabel")}
+                      autoFocus={true}
+                      readOnly={editorShouldBeReadOnly}
+                      lineWrapping={wordWrapEnabled}
+                      searchText={searchPanelOpen ? searchText : ""}
+                      searchOpen={searchPanelOpen}
+                      searchAutoNavigate={searchAutoNavigate}
+                      searchCaseSensitive={searchCaseSensitive}
+                      onSearchStateChange={handleEditorSearchStateChange}
+                      searchRegexp={searchRegexp}
+                      searchReplaceText={searchReplaceText}
+                      searchWholeWord={searchWholeWord}
+                      changeSummary={editorChangeSummary ?? undefined}
+                      showChangeGutter={!isMobile}
+                      describedById={editorChangeSummary ? editorChangeSummaryId : undefined}
+                    />
+                  </MarkdownEditorErrorBoundary>
+                </Box>
+              </>
             )}
           </Box>
         </Box>
       </Dialog>
 
-      <ResponsiveDialogShell
-        open={recoveryDraft !== null}
-        onClose={() => setRecoveryDraft(null)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            event.stopPropagation();
-            setRecoveryDraft(null);
-          }
-        }}
-        title="Recovered draft needs review"
-        description="This file changed since the draft was saved. Choose whether to resume the recovered draft or discard it."
-        maxWidth="xs"
-        actions={
-          <>
-            <Button
-              color="warning"
-              onClick={() => {
-                clearDraft(connectionId, path, "text");
-                setRecoveryDraft(null);
-              }}
-            >
-              Discard draft
-            </Button>
-            <Button
-              variant="contained"
-              onClick={() => {
-                const recovered = recoveryDraft;
-                setRecoveryDraft(null);
-                if (recovered) {
-                  void handleEnterEditMode().then(() => setDraftContent(recovered.content));
-                }
-              }}
-            >
-              Resume draft
-            </Button>
-          </>
-        }
-      >
-        {null}
-      </ResponsiveDialogShell>
+      <RecoveredDraftDialog
+        draft={recoveryDraft}
+        fileSize={fileSize}
+        fileModifiedAt={fileModifiedAt}
+        error={editError}
+        isResuming={isResumingRecoveryDraft}
+        onDiscard={handleDiscardRecoveryDraft}
+        onResume={handleResumeRecoveryDraft}
+      />
 
       <ResponsiveDialogShell
         open={unsavedChangesDialogOpen}
@@ -1264,6 +1282,9 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
             </Button>
             <Button
               onClick={() => {
+                if (resumedRecoveryDraft) {
+                  clearDraft(connectionId, path, "text");
+                }
                 if (pendingUnsavedChangesAction === "close-viewer") {
                   void closeViewer();
                 } else {

@@ -30,6 +30,11 @@ import { STATUS_BAR_HEIGHT } from "../../components/FileBrowser/StatusBar";
 import type { SearchProvider } from "../../components/FileBrowser/search";
 import type { UnifiedSearchBarModeOption } from "../../components/FileBrowser/UnifiedSearchBar";
 import { UnifiedSearchBar } from "../../components/FileBrowser/UnifiedSearchBar";
+import {
+  DRAFT_RECOVERY_CHANGED_EVENT,
+  getUnsavedDraftsForConnection,
+  purgeExpiredDraftsForCurrentUser,
+} from "../../services/draftRecovery";
 import { COMPACT_LAYOUT_SIZE } from "../../theme/constants";
 import type { Connection, FileEntry } from "../../types";
 import { FileType } from "../../types";
@@ -194,6 +199,31 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   } = pane;
 
   const currentConnection = useMemo(() => connections.find((connection) => connection.id === connectionId), [connections, connectionId]);
+  const [unsavedDraftPaths, setUnsavedDraftPaths] = React.useState<Set<string>>(new Set());
+
+  React.useEffect(() => {
+    const refreshDraftPaths = () => {
+      purgeExpiredDraftsForCurrentUser();
+      setUnsavedDraftPaths(new Set(getUnsavedDraftsForConnection(connectionId).map((draft) => draft.path)));
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshDraftPaths();
+      }
+    };
+
+    refreshDraftPaths();
+    window.addEventListener(DRAFT_RECOVERY_CHANGED_EVENT, refreshDraftPaths);
+    window.addEventListener("focus", refreshDraftPaths);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    const intervalId = window.setInterval(refreshDraftPaths, 5 * 60 * 1000);
+    return () => {
+      window.removeEventListener(DRAFT_RECOVERY_CHANGED_EVENT, refreshDraftPaths);
+      window.removeEventListener("focus", refreshDraftPaths);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.clearInterval(intervalId);
+    };
+  }, [connectionId]);
 
   // Connection display name for breadcrumbs
   const connectionName = currentConnection?.name ?? "";
@@ -539,6 +569,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
             listContainerRef={listContainerRef}
             fileRowStyles={fileRowStyles}
             viewMode={viewMode}
+            unsavedDraftPaths={unsavedDraftPaths}
             getCompactItemActions={getCompactItemActionsForFile}
           />
         </Box>

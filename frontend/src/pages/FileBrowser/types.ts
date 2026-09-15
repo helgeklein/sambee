@@ -37,6 +37,8 @@ export type PaneMode = "single" | "dual";
 export interface ViewInfo {
   connectionId?: string;
   path: string;
+  fileSize?: number;
+  fileModifiedAt?: string;
   mimeType: string;
   viewerId?: ViewerId;
   virtualSource?: VirtualItemHandle;

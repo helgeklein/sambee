@@ -19,6 +19,8 @@ import { logger } from "../services/logger";
 export interface ViewerComponentProps {
   connectionId: string;
   path: string;
+  fileSize?: number;
+  fileModifiedAt?: string;
   onClose: () => void;
   isReadOnly?: boolean;
   virtualSource?: VirtualItemHandle;

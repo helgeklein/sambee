@@ -5,6 +5,7 @@ import { insertEmptyMarkdownTable } from "codemirror-markdown-tables";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { buildMarkdownEditorExtensions } from "../Editor/buildMarkdownEditorExtensions";
 import type { MarkdownEditorThemeOptions } from "../Editor/buildMarkdownEditorTheme";
+import { buildEditorChangeTrackingExtension, type EditorChangeSummary } from "../Editor/editorChangeTracking";
 import { SourceTextEditor } from "../Editor/SourceTextEditor";
 import type { SourceTextEditorHandle } from "../Editor/sourceTextEditorTypes";
 import {
@@ -71,6 +72,9 @@ export interface MarkdownRichEditorProps {
   searchRegexp?: boolean;
   searchReplaceText?: string;
   searchWholeWord?: boolean;
+  changeSummary?: EditorChangeSummary;
+  showChangeGutter?: boolean;
+  describedById?: string;
   onSearchStateChange?: (state: MarkdownRichEditorSearchState) => void;
 }
 
@@ -260,6 +264,9 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       searchRegexp = false,
       searchReplaceText = "",
       searchWholeWord = false,
+      changeSummary,
+      showChangeGutter = false,
+      describedById,
       onSearchStateChange,
     },
     ref
@@ -279,7 +286,13 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       pendingPromise: null,
       resolvePending: null,
     });
-    const extensions = useMemo(() => buildMarkdownEditorExtensions(theme, lineWrapping), [lineWrapping, theme]);
+    const extensions = useMemo(
+      () => [
+        ...buildMarkdownEditorExtensions(theme, lineWrapping),
+        ...(changeSummary && showChangeGutter ? [buildEditorChangeTrackingExtension(changeSummary)] : []),
+      ],
+      [changeSummary, lineWrapping, showChangeGutter, theme]
+    );
     const [editorMarkdown, setEditorMarkdown] = useState(() => prepareMarkdownTableCellLineBreaksForEditor(markdown));
 
     useEffect(() => {
@@ -522,6 +535,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         readOnly={readOnly}
         autoFocus={autoFocus}
         ariaLabel={ariaLabel}
+        contentAttributes={describedById ? { "aria-describedby": describedById } : undefined}
         onChange={handleChange}
         onUserEdit={onUserEdit}
         onUpdate={() => {
