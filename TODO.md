@@ -1,9 +1,5 @@
 # TODO
 
-## Text/Markdown viewers and editors
-
-- I cannot scroll beneath the last line to move that further up the screen. That means that longer texts end exactly on the last visible line of the viewport. It would be nice to move the up a bit.
-
 ## Misc. commands
 
 - Add a command to open the current file list location in a new browser tab (which keyboard shortcut to assign? Ctrl+(Shift)+Tab is needed by the browser)

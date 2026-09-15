@@ -22,7 +22,7 @@
 import { AppBar, Box, Container, Divider, Snackbar, Toolbar, Typography, useMediaQuery, useTheme } from "@mui/material";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
-import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArchiveExtractDialog, type ArchiveExtractionScope } from "../components/FileBrowser/ArchiveExtractDialog";
 import { ArchiveOperationProgress } from "../components/FileBrowser/ArchiveOperationProgress";
 import type { CompactItemAction } from "../components/FileBrowser/CompactItemActionsMenu";
@@ -392,7 +392,7 @@ const Browser: React.FC = () => {
   const navigate = useNavigate();
   const params = useParams<{ targetType: string; targetId: string; "*": string }>();
   const location = useLocation();
-  const [searchParams] = useSearchParams();
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const theme = useTheme();
   const { t } = useTranslation();
   const initialRecoverySnapshotRef = React.useRef(loadBrowserRecoverySnapshot());
@@ -1380,6 +1380,7 @@ const Browser: React.FC = () => {
         return;
       }
 
+      setActivePaneId(nextActivePaneId);
       navigateToBrowseState(
         {
           left: leftTarget,
@@ -1590,13 +1591,8 @@ const Browser: React.FC = () => {
     const nextPaneMode: PaneMode = resolvedRoute.right ? "dual" : "single";
     const nextActivePaneId: PaneId = resolvedRoute.right ? resolvedRoute.activePaneId : "left";
 
-    if (paneMode !== nextPaneMode) {
-      setPaneMode(nextPaneMode);
-    }
-
-    if (activePaneId !== nextActivePaneId) {
-      setActivePaneId(nextActivePaneId);
-    }
+    setPaneMode((currentPaneMode) => (currentPaneMode === nextPaneMode ? currentPaneMode : nextPaneMode));
+    setActivePaneId((currentActivePaneId) => (currentActivePaneId === nextActivePaneId ? currentActivePaneId : nextActivePaneId));
 
     setFileBrowserPaneModePreference(nextPaneMode);
     localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, nextActivePaneId);
@@ -1604,7 +1600,7 @@ const Browser: React.FC = () => {
     if (pendingPaneFocusRef.current !== nextActivePaneId) {
       pendingPaneFocusRef.current = null;
     }
-  }, [activePaneId, leftApplyLocation, loadingConnections, paneMode, resolvedRoute, rightApplyLocation]);
+  }, [leftApplyLocation, loadingConnections, resolvedRoute, rightApplyLocation]);
 
   useEffect(() => {
     if (pendingPaneFocusRef.current !== activePaneId) {

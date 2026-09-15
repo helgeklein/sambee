@@ -10,6 +10,7 @@ const WRAPPED_SELECTION_MARKDOWN = [
   "but potentially valuable to other teams as well.",
 ].join("");
 const LONG_UNWRAPPED_LINE = "long unwrapped editor content ".repeat(200);
+const CURSOR_EDGE_TOLERANCE_PX = 2;
 const SCROLLED_SELECTION_MARKDOWN = [
   ...Array.from({ length: 120 }, (_, index) => `Filler line ${index + 1}`),
   WRAPPED_SELECTION_MARKDOWN,
@@ -226,6 +227,48 @@ async function activateCellEditor(cellLocator: Locator): Promise<Locator> {
   await nestedEditor.click();
 
   return nestedEditor;
+}
+
+async function getActiveCursorViewportPosition(editorRoot: Locator): Promise<{ position: "bottom" | "other" | "top" } | null> {
+  return editorRoot.evaluate((root, edgeTolerance) => {
+    const activeLine = root.querySelector(".cm-activeLine");
+    const scroller = root.querySelector(".cm-scroller");
+
+    if (!(activeLine instanceof HTMLElement) || !(scroller instanceof HTMLElement)) {
+      return null;
+    }
+
+    const activeLineRect = activeLine.getBoundingClientRect();
+    const scrollerRect = scroller.getBoundingClientRect();
+    const activeLineIsFullyVisible =
+      activeLineRect.top >= scrollerRect.top - edgeTolerance && activeLineRect.bottom <= scrollerRect.bottom + edgeTolerance;
+
+    if (activeLineIsFullyVisible && activeLineRect.top <= scrollerRect.top + activeLineRect.height + edgeTolerance) {
+      return { position: "top" as const };
+    }
+
+    if (activeLineIsFullyVisible && activeLineRect.bottom >= scrollerRect.bottom - activeLineRect.height - edgeTolerance) {
+      return { position: "bottom" as const };
+    }
+
+    return { position: "other" as const };
+  }, CURSOR_EDGE_TOLERANCE_PX);
+}
+
+async function getActiveLineScrollState(editorRoot: Locator): Promise<{ activeLineText: string; scrollTop: number } | null> {
+  return editorRoot.evaluate((root) => {
+    const activeLine = root.querySelector(".cm-activeLine");
+    const scroller = root.querySelector(".cm-scroller");
+
+    if (!(activeLine instanceof HTMLElement) || !(scroller instanceof HTMLElement)) {
+      return null;
+    }
+
+    return {
+      activeLineText: activeLine.textContent ?? "",
+      scrollTop: scroller.scrollTop,
+    };
+  });
 }
 
 async function setCaretToCellEnd(cellEditorLocator: Locator): Promise<void> {
@@ -452,6 +495,70 @@ test.describe("markdown editor selection", () => {
       const scroller = content.closest(".cm-editor")?.querySelector(".cm-scroller");
       return scroller instanceof HTMLElement && scroller.scrollHeight === scroller.clientHeight;
     })).resolves.toBe(true);
+  });
+
+  test("keeps the cursor on a viewport edge while scrolling a wrapped editor with Ctrl+Arrow keys", async ({ page }) => {
+    await mockMarkdownViewerApi(page, { initialMarkdown: SCROLLED_SELECTION_MARKDOWN });
+
+    await openMarkdownViewer(page);
+    await enterMarkdownEditMode(page);
+
+    const editor = page.getByRole("textbox", { name: "Markdown editor" });
+    const editorRoot = page.locator(".sambee-markdown-editor .cm-editor");
+    const scroller = editorRoot.locator(".cm-scroller");
+    await editor.click();
+
+    await scroller.evaluate((element) => {
+      element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2);
+      element.dispatchEvent(new Event("scroll"));
+    });
+
+    const scrollerBox = await scroller.boundingBox();
+
+    if (!scrollerBox) {
+      throw new Error("Expected Markdown editor scroller to be visible");
+    }
+
+    await page.mouse.click(scrollerBox.x + 80, scrollerBox.y + 8);
+    const beforeScrollDown = await getActiveLineScrollState(editorRoot);
+
+    if (!beforeScrollDown) {
+      throw new Error("Expected an active line before scrolling down");
+    }
+
+    await page.keyboard.press("Control+ArrowDown");
+    await page.keyboard.press("Control+ArrowDown");
+
+    await expect.poll(() => getActiveLineScrollState(editorRoot)).not.toEqual(beforeScrollDown);
+    const afterScrollDown = await getActiveLineScrollState(editorRoot);
+
+    expect(afterScrollDown?.scrollTop).toBeGreaterThan(beforeScrollDown.scrollTop);
+    expect(afterScrollDown?.activeLineText).not.toBe(beforeScrollDown.activeLineText);
+
+    await expect.poll(() => getActiveCursorViewportPosition(editorRoot)).toEqual({ position: "top" });
+
+    await scroller.evaluate((element) => {
+      element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2);
+      element.dispatchEvent(new Event("scroll"));
+    });
+
+    await page.mouse.click(scrollerBox.x + 80, scrollerBox.y + scrollerBox.height - 8);
+    const beforeScrollUp = await getActiveLineScrollState(editorRoot);
+
+    if (!beforeScrollUp) {
+      throw new Error("Expected an active line before scrolling up");
+    }
+
+    await page.keyboard.press("Control+ArrowUp");
+    await page.keyboard.press("Control+ArrowUp");
+
+    await expect.poll(() => getActiveLineScrollState(editorRoot)).not.toEqual(beforeScrollUp);
+    const afterScrollUp = await getActiveLineScrollState(editorRoot);
+
+    expect(afterScrollUp?.scrollTop).toBeLessThan(beforeScrollUp.scrollTop);
+    expect(afterScrollUp?.activeLineText).not.toBe(beforeScrollUp.activeLineText);
+
+    await expect.poll(() => getActiveCursorViewportPosition(editorRoot)).toEqual({ position: "bottom" });
   });
 
   test("keeps empty editor lines at the normal line height", async ({ page }) => {

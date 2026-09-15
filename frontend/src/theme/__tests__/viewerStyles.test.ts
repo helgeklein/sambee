@@ -1,6 +1,11 @@
 import { createTheme, type Theme } from "@mui/material/styles";
 import { describe, expect, it } from "vitest";
-import { getMarkdownCodeSurfaceColors, getMarkdownContentStyles, getViewerToolbarForegroundColors } from "../viewerStyles";
+import {
+  getMarkdownCodeSurfaceColors,
+  getMarkdownContentStyles,
+  getViewerToolbarForegroundColors,
+  VIEWER_SCROLL_END_PADDING,
+} from "../viewerStyles";
 
 function createMuiTheme(mode: "light" | "dark"): Theme {
   return createTheme({
@@ -73,5 +78,12 @@ describe("viewerStyles markdown regressions", () => {
     expect(tableStyles.border).toBe(0);
     expect(resolveThemeValue(tableStyles.boxShadow, lightTheme)).toBe("inset 0 0 0 1px #d4c4ae");
     expect(resolveThemeValue(tableStyles.backgroundColor, lightTheme)).toBe("#fbf9f4");
+  });
+
+  it("keeps end padding outside the shrunk Markdown content", () => {
+    const styles = getMarkdownContentStyles("#1f262b", "#c24400", "#ff5900") as Record<string, unknown>;
+
+    expect(styles.flexShrink).toBe(0);
+    expect(styles.pb).toEqual(VIEWER_SCROLL_END_PADDING);
   });
 });

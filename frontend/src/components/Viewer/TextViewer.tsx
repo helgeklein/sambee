@@ -20,6 +20,7 @@ import {
   CODEMIRROR_EDITOR_CONTENT_PADDING,
   CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE,
   getViewerColors,
+  VIEWER_SCROLL_END_PADDING,
 } from "../../theme/viewerStyles";
 import { getApiErrorMessage } from "../../utils/apiErrors";
 import { openExternalUrl } from "../../utils/externalLinks";
@@ -1120,7 +1121,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
                 <Alert severity="error">{error}</Alert>
               </Box>
             ) : exceedsEditorLimit ? (
-              <Box sx={{ p: 2, overflow: "auto" }}>
+              <Box sx={{ p: 2, pb: VIEWER_SCROLL_END_PADDING, overflow: "auto" }}>
                 <Alert severity="warning" sx={{ mb: 2 }}>
                   {t("viewer.text.limitMessage", {
                     currentSizeMb: (contentSizeBytes / (1024 * 1024)).toFixed(1),
@@ -1151,7 +1152,8 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
                     },
                   },
                   "& .sambee-text-editor .cm-content": {
-                    py: CODEMIRROR_EDITOR_CONTENT_PADDING,
+                    pt: CODEMIRROR_EDITOR_CONTENT_PADDING,
+                    pb: VIEWER_SCROLL_END_PADDING,
                   },
                 }}
               >

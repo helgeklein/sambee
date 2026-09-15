@@ -183,9 +183,9 @@ USER sambee
 # Expose port
 EXPOSE 8000
 
-# Health check (wget is installed via install-system-deps script)
+# Health check uses Python's standard library, so no separate HTTP client is needed.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget -qO- http://localhost:8000/api/health >/dev/null || exit 1
+    CMD python -c "from urllib.request import urlopen; urlopen('http://localhost:8000/api/health', timeout=5).close()" || exit 1
 
 # Block deployment before migrations when legacy archive operation state remains.
 CMD ["sh", "-c", "/app/scripts/preflight-archive-v2-cutover && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --no-proxy-headers"]

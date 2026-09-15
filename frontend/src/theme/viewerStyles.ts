@@ -159,6 +159,10 @@ export const MARKDOWN_CODE_BLOCK_ACTIVE_LINE_NUMBER_BG = "rgba(212, 196, 174, 0.
 export const MARKDOWN_CONTENT_PADDING = { xs: 2, sm: 4 } as const;
 export const CODEMIRROR_EDITOR_CONTENT_PADDING = { xs: 2, sm: 4 } as const;
 export const CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE = "--sambee-codemirror-editor-horizontal-inset";
+export const VIEWER_SCROLL_END_PADDING = {
+  xs: "clamp(64px, 18dvh, 192px)",
+  sm: "clamp(64px, 18dvh, 192px)",
+} as const;
 export const MARKDOWN_TABLE_CELL_PADDING_INLINE = "0.675rem";
 export const MARKDOWN_TABLE_CELL_PADDING_BLOCK = "0.8em";
 export const MARKDOWN_TABLE_FONT_SIZE = "0.9375em";
@@ -388,7 +392,9 @@ export function getMarkdownContentStyles(viewerText: string, linkColor: string, 
     minWidth: 0,
     width: "100%",
     maxWidth: "100%",
+    flexShrink: 0,
     p: MARKDOWN_CONTENT_PADDING,
+    pb: VIEWER_SCROLL_END_PADDING,
     ...getMarkdownDocumentStyles(viewerText, linkColor, linkHoverColor),
   };
 }

@@ -72,6 +72,31 @@ describe("FileRow", () => {
     expect(props.onClick).toHaveBeenCalledWith(props.file, props.index);
   });
 
+  it("rerenders a selected row when its styles change", () => {
+    const props = createDefaultFileRowProps();
+    props.isMultiSelected = false;
+    props.fileRowStyles = {
+      ...props.fileRowStyles,
+      buttonSelected: { backgroundColor: "rgb(1, 2, 3)" },
+    };
+    const { rerender } = render(<FileRow {...props} />);
+
+    const rowButton = screen.getByRole("button", { name: /report\.pdf/i });
+    expect(rowButton).toHaveStyle({ backgroundColor: "rgb(1, 2, 3)" });
+
+    rerender(
+      <FileRow
+        {...props}
+        fileRowStyles={{
+          ...props.fileRowStyles,
+          buttonSelected: { backgroundColor: "rgb(4, 5, 6)" },
+        }}
+      />
+    );
+
+    expect(rowButton).toHaveStyle({ backgroundColor: "rgb(4, 5, 6)" });
+  });
+
   it("disables unavailable archive entries and hides their actions", () => {
     const props = createDefaultFileRowProps();
     props.file = { ...props.file, is_readable: false, archive_entry_state: "blocked" };

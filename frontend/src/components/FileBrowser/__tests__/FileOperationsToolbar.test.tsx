@@ -40,6 +40,16 @@ describe("FileOperationsToolbar", () => {
     expect(onClick).toHaveBeenCalledOnce();
   });
 
+  it("does not clip the first command's focus indicator", () => {
+    renderToolbar([createAction("new-directory", { label: "New folder" })]);
+
+    const toolbar = screen.getByTestId("file-operations-toolbar");
+    expect(getComputedStyle(toolbar).overflow).toBe("visible");
+    expect(getComputedStyle(toolbar.parentElement as HTMLElement).height).toBe("44px");
+    expect(getComputedStyle(toolbar.parentElement as HTMLElement).paddingLeft).toBe("4px");
+    expect(getComputedStyle(screen.getByRole("button", { name: "New folder" })).minHeight).toBe("36px");
+  });
+
   it("does not invoke disabled actions", () => {
     const onClick = vi.fn();
     renderToolbar([createAction("delete", { label: "Delete", enabled: false, onClick })]);

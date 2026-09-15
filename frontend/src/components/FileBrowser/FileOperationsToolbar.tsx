@@ -83,7 +83,7 @@ export function FileOperationsToolbar({ actions, moreLabel }: FileOperationsTool
       <Box
         ref={toolbarRef}
         data-testid="file-operations-toolbar"
-        sx={{ display: "flex", flex: 1, alignItems: "center", gap: 1, minWidth: 0, overflow: "hidden" }}
+        sx={{ display: "flex", flex: 1, alignItems: "center", gap: 1, minWidth: 0, overflow: "visible" }}
       >
         {visibleActions.map((action) => (
           <CommandButton key={action.id} action={action} />

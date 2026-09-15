@@ -32,7 +32,6 @@ SAMBEE_SYSTEM_PACKAGES=(
     libexif12
     ghostscript
     libgs-common
-    wget
 )
 
 MAGICK_VERSIONED_SYSTEM_PACKAGE="imagemagick-7.q16"

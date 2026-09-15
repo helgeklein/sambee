@@ -41,6 +41,7 @@ import {
   getMarkdownContentStyles,
   getMarkdownTableSurfaceColors,
   getViewerColors,
+  VIEWER_SCROLL_END_PADDING,
 } from "../../theme/viewerStyles";
 import { isApiError } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
@@ -1854,7 +1855,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
                     },
                   },
                   "& .sambee-markdown-editor .cm-content": {
-                    py: CODEMIRROR_EDITOR_CONTENT_PADDING,
+                    pt: CODEMIRROR_EDITOR_CONTENT_PADDING,
+                    pb: VIEWER_SCROLL_END_PADDING,
                   },
                 }}
               >

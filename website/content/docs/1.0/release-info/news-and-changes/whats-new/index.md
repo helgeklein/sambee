@@ -30,7 +30,8 @@ In any editor, search and replace are essential functions that need to work effi
 
 - Added keyboard shortcuts help
 - Added word wrap (toggled by keyboard shortcut <kbd>Alt+Z</kbd>)
-- Bugfix: text selection highlighting
+- Added viewport scrolling (keyboard shortcut <kbd>Ctrl+Arrow up/down</kbd>)
+- Fixed text selection highlighting
 
 ### Markdown Editor
 

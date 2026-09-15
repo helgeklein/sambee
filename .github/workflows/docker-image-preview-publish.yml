@@ -306,6 +306,15 @@ jobs:
       shell: bash
       run: docker pull --platform ${{ matrix.docker_platform }} "${{ needs.prepare.outputs.staging_image_name }}@${{ steps.build.outputs.digest }}"
 
+    - name: Report preview platform image size
+      shell: bash
+      run: |
+        image_ref="${{ needs.prepare.outputs.staging_image_name }}@${{ steps.build.outputs.digest }}"
+        python3 .github/scripts/report_docker_image_size.py \
+          --image "$image_ref" \
+          --platform "${{ matrix.docker_platform }}" \
+          --registry-image "$image_ref"
+
     - name: Start preview platform validation container
       shell: bash
       run: |

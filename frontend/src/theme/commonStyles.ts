@@ -202,8 +202,8 @@ export const toolbarIconButtonSx: SxProps<Theme> = {
 };
 
 export const fileOperationsToolbarSx: SxProps<Theme> = (theme) => ({
-  px: 1,
-  height: 52,
+  px: 0.5,
+  height: 44,
   boxSizing: "border-box",
   display: "flex",
   alignItems: "center",
@@ -213,7 +213,7 @@ export const fileOperationsToolbarSx: SxProps<Theme> = (theme) => ({
 });
 
 export const fileOperationsToolbarButtonSx: SxProps<Theme> = {
-  minHeight: 44,
+  minHeight: 36,
   minWidth: 0,
   px: 1.5,
   flexShrink: 0,
@@ -230,7 +230,7 @@ export const fileOperationsToolbarButtonSx: SxProps<Theme> = {
 
 export const fileOperationsToolbarOverflowButtonSx: SxProps<Theme> = {
   minWidth: 44,
-  minHeight: 44,
+  minHeight: 36,
   p: 1,
   flexShrink: 0,
   color: (theme) => theme.palette.text.secondary,

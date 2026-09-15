@@ -412,6 +412,15 @@ describe("Browser Component - Interactions", () => {
         expect(rightPaneList).toHaveFocus();
       });
 
+      await user.keyboard("{Tab}");
+
+      await waitFor(() => {
+        expect(localStorage.getItem("active-pane")).toBe("left");
+        const leftPaneList = container.querySelector('[data-pane-id="left"] [data-testid="file-list-container"]');
+        expect(leftPaneList).toBeInstanceOf(HTMLElement);
+        expect(leftPaneList).toHaveFocus();
+      });
+
       await user.keyboard("{Control>}b{/Control}");
 
       await waitFor(() => {

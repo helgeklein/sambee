@@ -49,6 +49,111 @@ const TEST_TEXT_THEME: TextEditorThemeOptions = {
 };
 
 describe("SourceTextEditor", () => {
+  it("scrolls the viewport with Ctrl+Arrow keys without changing the selection", async () => {
+    const editorRef = createRef<SourceTextEditorHandle>();
+    const initialValue = "Editor content";
+
+    render(
+      <SourceTextEditor
+        ref={editorRef}
+        value={initialValue}
+        extensions={buildCommonEditorExtensions()}
+        ariaLabel="Viewport scroll editor"
+        onChange={() => {}}
+      />
+    );
+
+    const editor = await screen.findByLabelText("Viewport scroll editor");
+    const view = editorRef.current?.getView();
+
+    if (!view) {
+      throw new Error("Expected editor view to be available");
+    }
+
+    Object.defineProperties(view.scrollDOM, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 500 },
+      scrollTop: { configurable: true, value: 40, writable: true },
+    });
+    view.dispatch({ selection: EditorSelection.range(2, 10) });
+    const selectionBeforeScroll = view.state.selection.main.toJSON();
+
+    const downEvent = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ctrlKey: true, key: "ArrowDown" });
+    editor.dispatchEvent(downEvent);
+
+    expect(downEvent.defaultPrevented).toBe(true);
+    expect(view.scrollDOM.scrollTop).toBe(40 + view.defaultLineHeight);
+    expect(view.state.selection.main.toJSON()).toEqual(selectionBeforeScroll);
+    expect(view.state.doc.toString()).toBe(initialValue);
+
+    view.scrollDOM.scrollTop = 400;
+    const bottomEvent = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ctrlKey: true, key: "ArrowDown" });
+    editor.dispatchEvent(bottomEvent);
+
+    expect(bottomEvent.defaultPrevented).toBe(true);
+    expect(view.scrollDOM.scrollTop).toBe(400);
+
+    view.scrollDOM.scrollTop = 0;
+    const topEvent = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ctrlKey: true, key: "ArrowUp" });
+    editor.dispatchEvent(topEvent);
+
+    expect(topEvent.defaultPrevented).toBe(true);
+    expect(view.scrollDOM.scrollTop).toBe(0);
+  });
+
+  it("moves an empty cursor by one visual line before scrolling would hide it", async () => {
+    const editorRef = createRef<SourceTextEditorHandle>();
+
+    render(
+      <SourceTextEditor
+        ref={editorRef}
+        value="First line\nSecond line"
+        extensions={buildCommonEditorExtensions()}
+        ariaLabel="Edge cursor editor"
+        onChange={() => {}}
+      />
+    );
+
+    const editor = await screen.findByLabelText("Edge cursor editor");
+    const view = editorRef.current?.getView();
+
+    if (!view) {
+      throw new Error("Expected editor view to be available");
+    }
+
+    Object.defineProperties(view.scrollDOM, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 500 },
+      scrollTop: { configurable: true, value: 40, writable: true },
+    });
+    view.dispatch({ selection: EditorSelection.cursor(2) });
+    vi.spyOn(view, "coordsAtPos").mockReturnValue({ bottom: view.defaultLineHeight + 1, left: 0, right: 1, top: 1 });
+    vi.spyOn(view, "moveVertically").mockReturnValue(EditorSelection.cursor(12));
+
+    editor.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ctrlKey: true, key: "ArrowDown" }));
+
+    expect(view.moveVertically).toHaveBeenCalledWith(expect.objectContaining({ head: 2 }), true, view.defaultLineHeight - 1);
+    expect(view.state.selection.main.head).toBe(12);
+    expect(view.scrollDOM.scrollTop).toBe(40 + view.defaultLineHeight);
+  });
+
+  it("normalizes dispatched multiple selections to the primary selection", async () => {
+    const editorRef = createRef<SourceTextEditorHandle>();
+
+    render(<SourceTextEditor ref={editorRef} value="First line\nSecond line" ariaLabel="Single selection editor" onChange={() => {}} />);
+
+    const view = editorRef.current?.getView();
+
+    if (!view) {
+      throw new Error("Expected editor view to be available");
+    }
+
+    view.dispatch({ selection: EditorSelection.create([EditorSelection.cursor(1), EditorSelection.cursor(12)], 1) });
+
+    expect(view.state.selection.ranges).toHaveLength(1);
+    expect(view.state.selection.main.head).toBe(12);
+  });
+
   it("renders the initial value and reports user edits", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

@@ -77,6 +77,13 @@ jobs:
         cache-from: type=gha,scope=docker-image-security-scan-${{ matrix.platform_id }}
         cache-to: type=gha,mode=max,scope=docker-image-security-scan-${{ matrix.platform_id }}
 
+    - name: Report security-scan image size
+      shell: bash
+      run: |
+        python3 .github/scripts/report_docker_image_size.py \
+          --image "sambee:security-scan-${{ matrix.platform_id }}" \
+          --platform "${{ matrix.docker_platform }}"
+
     - name: Resolve Trivy container image
       id: trivy-image
       shell: bash

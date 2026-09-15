@@ -397,6 +397,7 @@ export const FileRow = React.memo(
     prev.index === next.index &&
     prev.useCompactLayout === next.useCompactLayout &&
     prev.useTouchSelectionControls === next.useTouchSelectionControls &&
+    prev.fileRowStyles === next.fileRowStyles &&
     prev.isSelected === next.isSelected &&
     prev.isMultiSelected === next.isMultiSelected &&
     prev.file.name === next.file.name &&
