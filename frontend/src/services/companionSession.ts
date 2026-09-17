@@ -4,6 +4,15 @@ const COMPANION_SECRET_KEY = "companion_secret";
 
 type Listener = () => void;
 
+function haveSameDrives(left: readonly CompanionDriveDescriptor[], right: readonly CompanionDriveDescriptor[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (drive, index) => drive.driveId === right[index]?.driveId && drive.name === right[index]?.name && drive.path === right[index]?.path
+    )
+  );
+}
+
 async function sign(secret: string, value: string): Promise<string> {
   const bytes = new TextEncoder();
   const key = await crypto.subtle.importKey("raw", bytes.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
@@ -30,6 +39,10 @@ export class CompanionSession {
     drives: readonly CompanionDriveDescriptor[] = [],
     error: CompanionSessionSnapshot["error"] = null
   ): void {
+    if (this.snapshot.status === status && this.snapshot.error === error && haveSameDrives(this.snapshot.drives, drives)) {
+      return;
+    }
+
     this.revision += 1;
     this.snapshot = { status, drives, error, revision: this.revision };
     for (const listener of this.listeners) listener();

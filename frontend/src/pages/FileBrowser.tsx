@@ -177,6 +177,7 @@ type FileListShortcutUnavailableReason =
   | "interaction-blocked";
 type FileListShortcutAvailability = { available: true } | { available: false; reason: FileListShortcutUnavailableReason };
 type UnavailableShortcutNotice = { id: number; message: string };
+type RecoveryPhase = "pending" | "awaiting-route" | "ready";
 
 const AVAILABLE_FILE_LIST_SHORTCUT: FileListShortcutAvailability = { available: true };
 
@@ -397,6 +398,11 @@ const Browser: React.FC = () => {
   const { t } = useTranslation();
   const initialRecoverySnapshotRef = React.useRef(loadBrowserRecoverySnapshot());
   const hasHydratedRecoverySnapshotRef = React.useRef(false);
+  const hasStartedInitialConnectionLoadRef = React.useRef(false);
+  const recoveryNavigationStartKeyRef = React.useRef<string | null>(null);
+  const [recoveryPhase, setRecoveryPhase] = useState<RecoveryPhase>(() =>
+    initialRecoverySnapshotRef.current === null ? "ready" : "pending"
+  );
 
   // ──────────────────────────────────────────────────────────────────────────
   // Responsive Design
@@ -1159,14 +1165,33 @@ const Browser: React.FC = () => {
     localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, snapshot.activePaneId);
 
     const currentUrl = location.pathname + location.search;
-    if (currentUrl !== snapshot.routeUrl) {
-      navigate(snapshot.routeUrl, { replace: true });
+    if (currentUrl === snapshot.routeUrl) {
+      setRecoveryPhase("ready");
+      return;
     }
-  }, [activePaneId, leftPane, location.pathname, location.search, navigate, paneMode, rightPane]);
+
+    recoveryNavigationStartKeyRef.current = location.key;
+    setRecoveryPhase("awaiting-route");
+    navigate(snapshot.routeUrl, { replace: true });
+  }, [activePaneId, leftPane, location.key, location.pathname, location.search, navigate, paneMode, rightPane]);
 
   useEffect(() => {
     restoreInitialRecoverySnapshot();
   }, [restoreInitialRecoverySnapshot]);
+
+  useEffect(() => {
+    const snapshot = initialRecoverySnapshotRef.current;
+    if (!snapshot || recoveryPhase !== "awaiting-route") {
+      return;
+    }
+
+    const currentUrl = location.pathname + location.search;
+    const snapshotRouteReached = currentUrl === snapshot.routeUrl;
+    const routeChangedAfterRecoveryNavigation = location.key !== recoveryNavigationStartKeyRef.current;
+    if (snapshotRouteReached || routeChangedAfterRecoveryNavigation) {
+      setRecoveryPhase("ready");
+    }
+  }, [location.key, location.pathname, location.search, recoveryPhase]);
 
   useEffect(() => {
     const leftSnapshot = leftPane.captureRecoverySnapshot();
@@ -1573,12 +1598,17 @@ const Browser: React.FC = () => {
   // Initial load - run once on mount.
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally run only once on mount to avoid aborting requests
   useEffect(() => {
+    if (hasStartedInitialConnectionLoadRef.current) {
+      return;
+    }
+
+    hasStartedInitialConnectionLoadRef.current = true;
     const initialLoadMode = initialRecoverySnapshotRef.current !== null ? "background-revalidate" : "bootstrap";
     void loadConnections(initialLoadMode);
   }, []);
 
   useEffect(() => {
-    if (loadingConnections) {
+    if (loadingConnections || recoveryPhase !== "ready") {
       return;
     }
 
@@ -1600,7 +1630,7 @@ const Browser: React.FC = () => {
     if (pendingPaneFocusRef.current !== nextActivePaneId) {
       pendingPaneFocusRef.current = null;
     }
-  }, [leftApplyLocation, loadingConnections, resolvedRoute, rightApplyLocation]);
+  }, [leftApplyLocation, loadingConnections, recoveryPhase, resolvedRoute, rightApplyLocation]);
 
   useEffect(() => {
     if (pendingPaneFocusRef.current !== activePaneId) {

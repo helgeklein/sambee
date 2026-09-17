@@ -81,6 +81,49 @@ describe("Browser Component - Rendering", () => {
     expect(screen.queryByText(/Loading connections/i)).not.toBeInTheDocument();
   });
 
+  it("preserves a recovered viewer while synchronizing a different initial route", async () => {
+    saveBrowserRecoverySnapshot({
+      savedAt: Date.now(),
+      routeUrl: "/browse/smb/test-server-1",
+      activePaneId: "left",
+      paneMode: "single",
+      connections: mockConnections,
+      left: {
+        connectionId: "conn-1",
+        path: "",
+        items: mockDirectoryListing.items,
+        sortBy: "name",
+        sortDirection: "asc",
+        viewMode: "details",
+        focusedIndex: 0,
+        focusedFileName: "Documents",
+        selectedFileNames: [],
+        viewInfo: {
+          path: "readme.md",
+          mimeType: "text/markdown",
+          viewerId: "markdown",
+          sessionId: "recovered-viewer",
+        },
+        scrollOffset: 0,
+      },
+      right: null,
+    });
+
+    renderBrowser("/browse");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("router-location")).toHaveTextContent("/browse/smb/test-server-1");
+    });
+    expect(await screen.findByTestId("markdown-viewer")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /documents/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("router-location")).toHaveTextContent("/browse/smb/test-server-1/Documents");
+    });
+    expect(screen.queryByTestId("markdown-viewer")).not.toBeInTheDocument();
+  });
+
   it("displays connection selector with available connections", async () => {
     renderBrowser();
 

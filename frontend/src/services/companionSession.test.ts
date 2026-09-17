@@ -20,4 +20,18 @@ describe("CompanionSession", () => {
     session.setState("unavailable");
     expect(listener).toHaveBeenCalledOnce();
   });
+
+  it("does not publish when the companion state is unchanged", () => {
+    const session = new CompanionSession();
+    const listener = vi.fn();
+    session.subscribe(listener);
+    const drives = [{ driveId: "c", name: "System", path: "" }];
+
+    session.setState("paired", drives);
+    const firstSnapshot = session.getSnapshot();
+    session.setState("paired", [...drives]);
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(session.getSnapshot()).toBe(firstSnapshot);
+  });
 });

@@ -27,6 +27,7 @@ import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../con
 import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "../../hooks/useApiRetry";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import {
+  type ContentProviderRegistry,
   invalidateViewerPdfDerivative,
   readViewerContent,
   readVirtualContent,
@@ -85,6 +86,17 @@ const PDF_LOAD_CANCELED_MESSAGE = "PDF loading was canceled. You can still downl
 
 type PdfLoadPhase = "downloading" | "parsing" | "rendering" | "ready" | "error";
 type PdfLoadingStage = "spinner" | "loading" | "phase" | "slow";
+
+interface ActivePdfLoad {
+  connectionId: string;
+  path: string;
+  sourceVariant: PdfSourceVariant;
+  loadAttempt: number;
+  virtualSource: ViewerComponentProps["virtualSource"];
+  contentProviders: ContentProviderRegistry;
+  abortController: AbortController;
+  cleanupTimeoutId: number | null;
+}
 
 function getPdfLoadPhaseMessage(phase: PdfLoadPhase): string {
   switch (phase) {
@@ -180,6 +192,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({
   const pdfLoadSessionRef = useRef(pdfLoadSession);
   const activePdfAbortControllerRef = useRef<AbortController | null>(null);
   const activePdfUrlRef = useRef<string | null>(null);
+  const pendingPdfUrlReleaseTimeoutRef = useRef<number | null>(null);
+  const activePdfLoadRef = useRef<ActivePdfLoad | null>(null);
   const pdfLoadCanceledRef = useRef(false);
 
   // Search state
@@ -210,6 +224,28 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({
   const filename = path.split("/").pop() || path;
 
   const isPdfLoading = pdfLoadPhase !== "ready" && pdfLoadPhase !== "error";
+
+  useEffect(() => {
+    if (pendingPdfUrlReleaseTimeoutRef.current !== null) {
+      window.clearTimeout(pendingPdfUrlReleaseTimeoutRef.current);
+      pendingPdfUrlReleaseTimeoutRef.current = null;
+    }
+
+    return () => {
+      const activePdfUrl = activePdfUrlRef.current;
+      if (!activePdfUrl || pendingPdfUrlReleaseTimeoutRef.current !== null) {
+        return;
+      }
+
+      pendingPdfUrlReleaseTimeoutRef.current = window.setTimeout(() => {
+        pendingPdfUrlReleaseTimeoutRef.current = null;
+        if (activePdfUrlRef.current === activePdfUrl) {
+          activePdfUrlRef.current = null;
+          URL.revokeObjectURL(activePdfUrl);
+        }
+      }, 0);
+    };
+  }, []);
 
   useEffect(() => {
     pdfLoadPhaseRef.current = pdfLoadPhase;
@@ -245,6 +281,30 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({
     setIsSwipeTransitioning(false);
   }, [carouselApi]);
 
+  const disposePdfLoad = useCallback((load: ActivePdfLoad) => {
+    if (load.cleanupTimeoutId !== null) {
+      window.clearTimeout(load.cleanupTimeoutId);
+      load.cleanupTimeoutId = null;
+    }
+    load.abortController.abort();
+    if (activePdfAbortControllerRef.current === load.abortController) {
+      activePdfAbortControllerRef.current = null;
+    }
+    if (activePdfLoadRef.current === load) {
+      activePdfLoadRef.current = null;
+    }
+  }, []);
+
+  const schedulePdfLoadDisposal = useCallback(
+    (load: ActivePdfLoad) => {
+      if (load.cleanupTimeoutId !== null) {
+        return;
+      }
+      load.cleanupTimeoutId = window.setTimeout(() => disposePdfLoad(load), 0);
+    },
+    [disposePdfLoad]
+  );
+
   // Rotation handlers
   const handleRotateLeft = useCallback((_event?: KeyboardEvent) => {
     setUserRotation((rotation) => normalizeRotation(rotation - 90));
@@ -256,9 +316,40 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({
 
   // Fetch PDF via API with auth header, then create blob URL
   useEffect(() => {
-    let isMounted = true;
-    let blobUrl: string | null = null;
+    const previousLoad = activePdfLoadRef.current;
+    if (previousLoad && previousLoad.cleanupTimeoutId !== null) {
+      window.clearTimeout(previousLoad.cleanupTimeoutId);
+      previousLoad.cleanupTimeoutId = null;
+    }
+
+    const reusesActiveLoad =
+      previousLoad !== null &&
+      previousLoad.connectionId === connectionId &&
+      previousLoad.path === path &&
+      previousLoad.sourceVariant === pdfSourceVariant &&
+      previousLoad.loadAttempt === loadAttempt &&
+      previousLoad.virtualSource === virtualSource &&
+      previousLoad.contentProviders === contentProviders;
+    if (reusesActiveLoad && previousLoad) {
+      return () => schedulePdfLoadDisposal(previousLoad);
+    }
+
+    if (previousLoad) {
+      disposePdfLoad(previousLoad);
+    }
+
     const abortController = new AbortController();
+    const activeLoad: ActivePdfLoad = {
+      connectionId,
+      path,
+      sourceVariant: pdfSourceVariant,
+      loadAttempt,
+      virtualSource,
+      contentProviders,
+      abortController,
+      cleanupTimeoutId: null,
+    };
+    activePdfLoadRef.current = activeLoad;
     activePdfAbortControllerRef.current = abortController;
 
     const fetchPdf = async () => {
@@ -272,8 +363,11 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({
         setPdfLoadSession(nextPdfLoadSession);
         setError(null);
         setShareFile(null);
-        if (loadAttempt > 0) {
-          setPdfUrl(null);
+        const previousPdfUrl = activePdfUrlRef.current;
+        activePdfUrlRef.current = null;
+        setPdfUrl(null);
+        if (previousPdfUrl) {
+          window.setTimeout(() => URL.revokeObjectURL(previousPdfUrl), 0);
         }
         numPagesRef.current = 0;
         setNumPages(0);
@@ -310,15 +404,15 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({
           throw new Error("Received empty PDF blob");
         }
 
-        if (!isMounted || abortController.signal.aborted) return;
+        if (activePdfLoadRef.current !== activeLoad || abortController.signal.aborted) return;
 
-        blobUrl = URL.createObjectURL(blob);
+        const blobUrl = URL.createObjectURL(blob);
         activePdfUrlRef.current = blobUrl;
         setPdfUrl(blobUrl);
         setShareFile(createShareFile(blob, filename));
         setPdfLoadPhase("parsing");
       } catch (err) {
-        if (!isMounted || abortController.signal.aborted) return;
+        if (activePdfLoadRef.current !== activeLoad || abortController.signal.aborted) return;
 
         // Show "server busy" only for actual transient/network errors
         const errorMessage = checkIsTransientError(err)
@@ -345,21 +439,22 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({
     fetchPdf();
 
     return () => {
-      isMounted = false;
-      abortController.abort();
-      if (activePdfAbortControllerRef.current === abortController) {
-        activePdfAbortControllerRef.current = null;
-      }
-
-      if (blobUrl) {
-        URL.revokeObjectURL(blobUrl);
-        if (activePdfUrlRef.current === blobUrl) {
-          activePdfUrlRef.current = null;
-        }
-      }
+      schedulePdfLoadDisposal(activeLoad);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId, path, fetchWithRetry, filename, cancelSwipeTransition, loadAttempt, pdfSourceVariant, virtualSource, contentProviders]);
+  }, [
+    connectionId,
+    path,
+    fetchWithRetry,
+    filename,
+    cancelSwipeTransition,
+    loadAttempt,
+    pdfSourceVariant,
+    virtualSource,
+    contentProviders,
+    disposePdfLoad,
+    schedulePdfLoadDisposal,
+  ]);
 
   const handleRetryLoad = useCallback(() => {
     setPdfSourceVariant("original");
@@ -803,25 +898,34 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({
     [connectionId, contentProviders, path, filename, virtualSource]
   );
 
+  const releasePdfUrl = useCallback(() => {
+    if (activePdfUrlRef.current) {
+      URL.revokeObjectURL(activePdfUrlRef.current);
+      activePdfUrlRef.current = null;
+    }
+  }, []);
+
   const handleCancelPdfLoad = useCallback(() => {
     pdfLoadCanceledRef.current = true;
     const nextPdfLoadSession = pdfLoadSessionRef.current + 1;
     pdfLoadSessionRef.current = nextPdfLoadSession;
     setPdfLoadSession(nextPdfLoadSession);
-    activePdfAbortControllerRef.current?.abort();
-    activePdfAbortControllerRef.current = null;
-
-    if (activePdfUrlRef.current) {
-      URL.revokeObjectURL(activePdfUrlRef.current);
-      activePdfUrlRef.current = null;
+    const activeLoad = activePdfLoadRef.current;
+    if (activeLoad) {
+      disposePdfLoad(activeLoad);
+    } else {
+      activePdfAbortControllerRef.current?.abort();
+      activePdfAbortControllerRef.current = null;
     }
+
+    releasePdfUrl();
 
     setPdfUrl(null);
     setShareFile(null);
     setDocumentFailure(null);
     setPdfLoadPhase("error");
     setError(PDF_LOAD_CANCELED_MESSAGE);
-  }, []);
+  }, [disposePdfLoad, releasePdfUrl]);
 
   const handleShare = useCallback(async () => {
     setShareError(null);
@@ -1090,10 +1194,11 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({
         setMatchLocations([]);
         setCurrentMatch(0);
       } else {
+        releasePdfUrl();
         onClose();
       }
     },
-    [searchPanelOpen, onClose]
+    [searchPanelOpen, onClose, releasePdfUrl]
   );
 
   /**
@@ -1248,9 +1353,10 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({
         return;
       }
 
+      releasePdfUrl();
       onClose();
     },
-    [onClose]
+    [onClose, releasePdfUrl]
   );
 
   return (
@@ -1314,7 +1420,10 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({
               download: true,
               share: shareEnabled,
             }}
-            onClose={onClose}
+            onClose={() => {
+              releasePdfUrl();
+              onClose();
+            }}
             pageNavigation={{
               currentPage,
               totalPages: numPages,
@@ -1499,6 +1608,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({
               <Document
                 file={pdfUrl}
                 options={PDF_DOCUMENT_OPTIONS}
+                suspense={false}
                 onItemClick={handleInternalLinkNavigation}
                 onLoadSuccess={handleDocumentLoadSuccess}
                 onLoadError={handleDocumentLoadError}

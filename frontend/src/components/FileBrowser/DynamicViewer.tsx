@@ -125,7 +125,7 @@ export const DynamicViewer = memo(function DynamicViewer({
     const loadAttempt = retryToken;
     const requestedPath = latestViewInfoRef.current.path;
     const requestedSessionId = latestViewInfoRef.current.sessionId;
-    setLoadState({ status: "loading" });
+    setLoadState((current) => (current.status === "loading" ? current : { status: "loading" }));
 
     logger.info(
       "DynamicViewer: Loading viewer component",

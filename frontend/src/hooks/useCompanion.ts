@@ -47,6 +47,15 @@ export interface UseCompanionResult {
   loading: boolean;
 }
 
+function haveSameDrives(left: readonly DriveInfo[], right: readonly DriveInfo[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (drive, index) => drive.id === right[index]?.id && drive.name === right[index]?.name && drive.drive_type === right[index]?.drive_type
+    )
+  );
+}
+
 /**
  * Hook that manages the companion lifecycle:
  * 1. On mount, probes `GET /api/health` with a short timeout.
@@ -58,6 +67,10 @@ export function useCompanion(): UseCompanionResult {
   const [drives, setDrives] = useState<DriveInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);
+  const initialDetectionStartedRef = useRef(false);
+  const setDrivesIfChanged = useCallback((nextDrives: DriveInfo[]) => {
+    setDrives((currentDrives) => (haveSameDrives(currentDrives, nextDrives) ? currentDrives : nextDrives));
+  }, []);
 
   /**
    * Probe the companion and, if paired, load drives.
@@ -71,7 +84,7 @@ export function useCompanion(): UseCompanionResult {
 
       if (!health) {
         setStatus("unavailable");
-        setDrives([]);
+        setDrivesIfChanged([]);
         return;
       }
 
@@ -81,7 +94,7 @@ export function useCompanion(): UseCompanionResult {
 
       if (pairStatus.status === "pending_local_approval") {
         setStatus("pending_local_approval");
-        setDrives([]);
+        setDrivesIfChanged([]);
         return;
       }
 
@@ -93,14 +106,14 @@ export function useCompanion(): UseCompanionResult {
           const driveList = await companionService.getDrives();
           if (mountedRef.current) {
             setStatus("paired");
-            setDrives(driveList);
+            setDrivesIfChanged(driveList);
           }
           return;
         } catch (err) {
           logger.warn("Stored companion secret was not accepted during startup", { error: err }, "companion");
           if (mountedRef.current) {
             setStatus("needs_repair");
-            setDrives([]);
+            setDrivesIfChanged([]);
           }
           return;
         }
@@ -109,28 +122,31 @@ export function useCompanion(): UseCompanionResult {
       if (currentOriginPaired) {
         logger.warn("Companion reported this origin as paired but no usable browser secret was available", {}, "companion");
         setStatus("needs_repair");
-        setDrives([]);
+        setDrivesIfChanged([]);
         return;
       }
 
       setStatus("unpaired");
-      setDrives([]);
+      setDrivesIfChanged([]);
     } catch {
       if (mountedRef.current) {
         setStatus("unavailable");
-        setDrives([]);
+        setDrivesIfChanged([]);
       }
     } finally {
       if (mountedRef.current) {
         setLoading(false);
       }
     }
-  }, []);
+  }, [setDrivesIfChanged]);
 
   // Detect on mount
   useEffect(() => {
     mountedRef.current = true;
-    detect();
+    if (!initialDetectionStartedRef.current) {
+      initialDetectionStartedRef.current = true;
+      void detect();
+    }
     return () => {
       mountedRef.current = false;
     };

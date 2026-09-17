@@ -11,6 +11,45 @@ import { BrowserStorageBackendRegistry } from "./storageRegistry";
 
 type Listener = () => void;
 
+function haveSameConnections(left: readonly Connection[], right: readonly Connection[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (connection, index) =>
+        connection.id === right[index]?.id &&
+        connection.name === right[index]?.name &&
+        connection.slug === right[index]?.slug &&
+        connection.type === right[index]?.type &&
+        connection.host === right[index]?.host &&
+        connection.port === right[index]?.port &&
+        connection.share_name === right[index]?.share_name &&
+        connection.username === right[index]?.username &&
+        connection.path_prefix === right[index]?.path_prefix &&
+        connection.scope === right[index]?.scope &&
+        connection.access_mode === right[index]?.access_mode &&
+        connection.can_manage === right[index]?.can_manage &&
+        connection.created_at === right[index]?.created_at &&
+        connection.updated_at === right[index]?.updated_at
+    )
+  );
+}
+
+function haveSameCompanionSnapshot(left: CompanionSessionSnapshot, right: CompanionSessionSnapshot): boolean {
+  return (
+    left.status === right.status &&
+    left.revision === right.revision &&
+    left.error?.code === right.error?.code &&
+    left.error?.detail === right.error?.detail &&
+    left.drives.length === right.drives.length &&
+    left.drives.every(
+      (drive, index) =>
+        drive.driveId === right.drives[index]?.driveId &&
+        drive.name === right.drives[index]?.name &&
+        drive.path === right.drives[index]?.path
+    )
+  );
+}
+
 export interface BrowserContentServices {
   providers: ContentProviderRegistry;
   registry: StorageBackendRegistry;
@@ -45,7 +84,11 @@ export function createBrowserContentServices(
   const providers = createStorageBackedContentProviderRegistry(registry);
   const archiveOperations = new StorageArchiveOperationCoordinator(registry);
   const unsubscribeSession = session.subscribe(() => {
-    companion = session.getSnapshot();
+    const nextCompanion = session.getSnapshot();
+    if (haveSameCompanionSnapshot(companion, nextCompanion)) {
+      return;
+    }
+    companion = nextCompanion;
     publish();
   });
   return {
@@ -61,10 +104,16 @@ export function createBrowserContentServices(
       return () => listeners.delete(listener);
     },
     updateConnections(nextConnections) {
+      if (haveSameConnections(connections, nextConnections)) {
+        return;
+      }
       connections = nextConnections;
       publish();
     },
     updateCompanionSnapshot(nextSnapshot) {
+      if (haveSameCompanionSnapshot(companion, nextSnapshot)) {
+        return;
+      }
       companion = nextSnapshot;
       publish();
     },

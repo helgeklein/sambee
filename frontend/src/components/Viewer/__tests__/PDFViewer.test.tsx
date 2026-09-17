@@ -20,6 +20,7 @@ vi.mock("react-pdf", () => ({
     file,
     onItemClick,
     options,
+    suspense,
   }: {
     children: React.ReactNode;
     onLoadSuccess?: (pdf: {
@@ -39,6 +40,7 @@ vi.mock("react-pdf", () => ({
     onLoadError?: (error: Error) => void;
     onPassword?: (callback: (password: string | null) => void) => void;
     file: string;
+    suspense?: boolean;
     onItemClick?: (args: { dest?: unknown; pageIndex?: number; pageNumber?: number }) => void;
     options?: {
       cMapPacked?: boolean;
@@ -145,6 +147,7 @@ vi.mock("react-pdf", () => ({
         data-testid="pdf-document"
         data-wasm-url={options?.wasmUrl}
         data-file={file}
+        data-suspense={suspense}
       >
         <button
           type="button"
@@ -726,7 +729,7 @@ describe("PDFViewer", () => {
       });
     });
 
-    it("revokes blob URL on component unmount", async () => {
+    it("revokes the blob URL after the viewer unmounts", async () => {
       const { unmount } = renderPDFViewer();
 
       await waitFor(() => {
@@ -735,7 +738,22 @@ describe("PDFViewer", () => {
 
       unmount();
 
+      await waitFor(() => {
+        expect(mockRevokeObjectURL).toHaveBeenCalledWith("blob:mock-url-1");
+      });
+    });
+
+    it("revokes the blob URL when the viewer is closed", async () => {
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(mockCreateObjectURL).toHaveBeenCalled();
+      });
+
+      fireEvent.click(screen.getByLabelText("Close"));
+
       expect(mockRevokeObjectURL).toHaveBeenCalledWith("blob:mock-url-1");
+      expect(mockOnClose).toHaveBeenCalled();
     });
 
     it("revokes old blob URL when path changes", async () => {
@@ -776,11 +794,21 @@ describe("PDFViewer", () => {
 
       unmount();
 
-      expect(abortSpy).toHaveBeenCalled();
+      await waitFor(() => {
+        expect(abortSpy).toHaveBeenCalled();
+      });
     });
   });
 
   describe("Document Loading", () => {
+    it("uses callback-driven loading instead of React-PDF Suspense", async () => {
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-document")).toHaveAttribute("data-suspense", "false");
+      });
+    });
+
     it("updates numPages state on load success", async () => {
       renderPDFViewer();
 
