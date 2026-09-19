@@ -32,6 +32,7 @@ In any editor, search and replace are essential functions that need to work effi
 - Added word wrap (toggled by keyboard shortcut <kbd>Alt+Z</kbd>)
 - Added viewport scrolling (keyboard shortcut <kbd>Ctrl+Arrow up/down</kbd>)
 - Fixed text selection highlighting
+- Fixed `lock not found or expired` when saving
 
 ### Markdown Editor
 
