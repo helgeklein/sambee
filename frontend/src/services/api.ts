@@ -127,7 +127,6 @@ function supportsStreamUploadRequestBodies(): boolean {
 
 const CONNECTIONS_API_BASE = "/connections";
 const API_PATH_SUFFIX = "/api";
-const LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE = "Edit locks are not supported for local drives";
 const DIRECTORY_LIST_REQUEST_TIMEOUT_MS = 40_000;
 const LOCAL_LINK_TARGET_REQUEST_TIMEOUT_MS = 15_000;
 const LOCAL_ARCHIVE_EXECUTION_POLL_INTERVAL_MS = 200;
@@ -2397,7 +2396,6 @@ class ApiService {
 
 export const apiService = new ApiService();
 export default apiService;
-export { LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE };
 
 // Export convenience functions
 export const login = (username: string, password: string) => apiService.login(username, password);

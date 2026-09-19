@@ -140,6 +140,64 @@ describe("SambeeSmbBackend archive reads", () => {
     expect(api.releaseEditLock).toHaveBeenCalledWith("connection-1", "docs/readme.txt", expect.objectContaining({ lock_id: "lock-2" }));
   });
 
+  it("reacquires an expired Companion local-drive edit lock", async () => {
+    const target = { kind: "local" as const, driveId: "c" };
+    const source = {
+      target,
+      path: "docs/readme.md",
+      resolvedTarget: {
+        target,
+        connection: null,
+        capabilitySnapshot: { companion: { status: "paired" } },
+      },
+    };
+    vi.mocked(api.acquireEditLock)
+      .mockResolvedValueOnce({
+        lock_id: "lock-1",
+        lock_capability: "capability-1",
+        operation_id: "operation-1",
+        file_path: "docs/readme.md",
+        locked_by: "alice",
+        locked_at: "2026-03-23T12:00:00Z",
+      })
+      .mockResolvedValueOnce({
+        lock_id: "lock-2",
+        lock_capability: "capability-2",
+        operation_id: "operation-2",
+        file_path: "docs/readme.md",
+        locked_by: "alice",
+        locked_at: "2026-03-23T12:05:00Z",
+      });
+    vi.mocked(api.writeTextWithEditLock).mockRejectedValueOnce(new ExpiredEditLockError()).mockResolvedValueOnce(undefined);
+
+    const session = await new CompanionLocalBackend().editing?.begin(source as never);
+    if (session?.kind !== "acquired") throw new Error("Expected acquired edit session");
+
+    await session.session.writeText("# Updated", { mimeType: "text/markdown;charset=utf-8" });
+    await session.session.heartbeat();
+    await session.session.release();
+
+    expect(api.acquireEditLock).toHaveBeenCalledTimes(2);
+    expect(api.writeTextWithEditLock).toHaveBeenNthCalledWith(
+      1,
+      "local-drive:c",
+      "docs/readme.md",
+      "# Updated",
+      { lock_id: "lock-1", lock_capability: "capability-1", operation_id: "operation-1" },
+      { mimeType: "text/markdown;charset=utf-8" }
+    );
+    expect(api.writeTextWithEditLock).toHaveBeenNthCalledWith(
+      2,
+      "local-drive:c",
+      "docs/readme.md",
+      "# Updated",
+      { lock_id: "lock-2", lock_capability: "capability-2", operation_id: "operation-2" },
+      { mimeType: "text/markdown;charset=utf-8" }
+    );
+    expect(api.heartbeatEditLock).toHaveBeenCalledWith("local-drive:c", "docs/readme.md", expect.objectContaining({ lock_id: "lock-2" }));
+    expect(api.releaseEditLock).toHaveBeenCalledWith("local-drive:c", "docs/readme.md", expect.objectContaining({ lock_id: "lock-2" }));
+  });
+
   it("retries an edit-lock release after a transient failure", async () => {
     const target = { kind: "smb" as const, connectionId: "connection-1" };
     const source = {
