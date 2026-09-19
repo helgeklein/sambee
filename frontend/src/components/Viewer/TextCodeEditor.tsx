@@ -3,11 +3,9 @@ import { languages } from "@codemirror/language-data";
 import { findNext, findPrevious, replaceAll, replaceNext } from "@codemirror/search";
 import type { Extension } from "@codemirror/state";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { buildPassiveSearchHighlightExtension } from "../Editor/buildCodeMirrorSearchHighlights";
 import { buildCommonEditorExtensions } from "../Editor/buildCommonEditorExtensions";
 import { buildTextEditorTheme, type TextEditorThemeOptions } from "../Editor/buildTextEditorTheme";
-import { buildEditorChangeTrackingExtension, type EditorChangeSummary } from "../Editor/editorChangeTracking";
 import { SourceTextEditor } from "../Editor/SourceTextEditor";
 import type { SourceTextEditorHandle } from "../Editor/sourceTextEditorTypes";
 import {
@@ -58,9 +56,6 @@ export interface TextCodeEditorProps {
   searchRegexp?: boolean;
   searchReplaceText?: string;
   searchWholeWord?: boolean;
-  changeSummary?: EditorChangeSummary;
-  showChangeGutter?: boolean;
-  describedById?: string;
   onSearchStateChange?: (state: TextCodeEditorSearchState) => void;
 }
 
@@ -86,14 +81,10 @@ export const TextCodeEditor = forwardRef<TextCodeEditorHandle, TextCodeEditorPro
       searchRegexp = false,
       searchReplaceText = "",
       searchWholeWord = false,
-      changeSummary,
-      showChangeGutter = false,
-      describedById,
       onSearchStateChange,
     },
     ref
   ) => {
-    const { t } = useTranslation();
     const editorRef = useRef<SourceTextEditorHandle | null>(null);
     const [languageExtensions, setLanguageExtensions] = useState<Extension[]>(EMPTY_EXTENSIONS);
     const previousSearchRequestRef = useRef<{
@@ -112,18 +103,6 @@ export const TextCodeEditor = forwardRef<TextCodeEditorHandle, TextCodeEditorPro
       ],
       [languageExtensions, lineWrapping, theme]
     );
-    const changeTrackingExtension = useMemo(
-      () =>
-        changeSummary && showChangeGutter
-          ? buildEditorChangeTrackingExtension(changeSummary, {
-              added: t("viewer.edit.changeGutterAdded"),
-              deleted: t("viewer.edit.changeGutterDeleted"),
-              modified: t("viewer.edit.changeGutterModified"),
-            })
-          : undefined,
-      [changeSummary, showChangeGutter, t]
-    );
-
     useEffect(() => {
       let cancelled = false;
       const languageDescription = LanguageDescription.matchFilename(languages, filename);
@@ -260,11 +239,9 @@ export const TextCodeEditor = forwardRef<TextCodeEditorHandle, TextCodeEditorPro
         className={className}
         value={text}
         extensions={extensions}
-        changeTrackingExtension={changeTrackingExtension}
         readOnly={readOnly}
         autoFocus={autoFocus}
         ariaLabel={ariaLabel}
-        contentAttributes={describedById ? { "aria-describedby": describedById } : undefined}
         onChange={onChange}
         onUserEdit={onUserEdit}
         onUpdate={() => {

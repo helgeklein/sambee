@@ -104,7 +104,6 @@ const MockMarkdownRichEditor = forwardRef<
     markdown: string;
     onChange: (markdown: string) => void;
     onUserEdit?: (viewUpdate?: ViewUpdate) => void;
-    describedById?: string;
     ariaLabel: string;
     autoFocus?: boolean;
     readOnly?: boolean;
@@ -133,7 +132,6 @@ const MockMarkdownRichEditor = forwardRef<
       onChange,
       onUserEdit,
       ariaLabel,
-      describedById,
       readOnly = false,
       className,
       searchText = "",
@@ -400,7 +398,6 @@ const MockMarkdownRichEditor = forwardRef<
         <textarea
           ref={textareaRef}
           aria-label={ariaLabel}
-          aria-describedby={describedById}
           value={markdown}
           readOnly={readOnly}
           onChange={(event) => {
@@ -625,7 +622,7 @@ describe("MarkdownViewer", () => {
     await waitFor(() => expect(sessionStorage.getItem(draftKey)).toBeNull());
   });
 
-  it("shows a saved markdown viewer behind a recovered draft decision and resumes with an immediate summary", async () => {
+  it("shows a saved markdown viewer behind a recovered draft decision", async () => {
     vi.spyOn(authSession, "getUserId").mockReturnValue("test-user");
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
@@ -646,10 +643,6 @@ describe("MarkdownViewer", () => {
     const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
     expect(editor).toHaveValue("# Local draft\n");
     expect(screen.getByRole("status", { name: /unsaved changes/i })).toBeInTheDocument();
-    const changeSummary = screen.getByText("Changes: +0 added, ~1 modified, -0 deleted");
-    expect(changeSummary).toBeVisible();
-    expect(changeSummary).not.toHaveAttribute("role", "status");
-    expect(editor).toHaveAttribute("aria-describedby", "markdown-editor-change-summary");
   });
 
   it("offers recovery when the draft baseline differs from the saved markdown", async () => {

@@ -1247,10 +1247,6 @@ export const EN_TRANSLATIONS = {
       unsavedChangesTitle: "Unsaved changes",
       unsavedChangesExitMessage: "Do you want to save your changes before leaving edit mode?",
       unsavedChangesCloseMessage: "Do you want to save your changes before closing the viewer?",
-      changeSummary: "Changes: +{{added}} added, ~{{modified}} modified, -{{deleted}} deleted",
-      changeGutterAdded: "Added since saved version",
-      changeGutterModified: "Modified since saved version",
-      changeGutterDeleted: "Content deleted before this line",
       recovery: {
         title: "Unsaved local draft available",
         description: "An unsaved local draft is available.",

@@ -4,7 +4,6 @@ import type { Command, EditorView, ViewUpdate } from "@codemirror/view";
 export interface SourceTextEditorProps {
   value: string;
   extensions?: Extension[];
-  changeTrackingExtension?: Extension;
   readOnly?: boolean;
   autoFocus?: boolean;
   ariaLabel: string;

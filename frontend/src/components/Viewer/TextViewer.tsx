@@ -35,7 +35,6 @@ import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
 import { RecoveredDraftDialog } from "./RecoveredDraftDialog";
 import { TextCodeEditor, type TextCodeEditorHandle, type TextCodeEditorSearchState } from "./TextCodeEditor";
-import { useEditorChangeSummary } from "./useEditorChangeSummary";
 import { useMarkdownEditSession } from "./useMarkdownEditSession";
 import { VIEWER_SEARCH_INPUT_ATTRIBUTE, ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
 import { downloadViewerBlob } from "./viewerContent";
@@ -124,7 +123,6 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
   const [recoveryDraft, setRecoveryDraft] = useState<DraftSnapshot | null>(null);
   const [isResumingRecoveryDraft, setIsResumingRecoveryDraft] = useState(false);
   const [resumedRecoveryDraft, setResumedRecoveryDraft] = useState(false);
-  const [immediateChangeSummaryToken, setImmediateChangeSummaryToken] = useState(0);
   const [showViewerHelp, setShowViewerHelp] = useState(false);
   const [showEditorHelp, setShowEditorHelp] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -237,13 +235,6 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
   const unsavedChangesDialogOpen = pendingUnsavedChangesAction !== null;
   const hasUnsavedChanges = isEditing && draftContent !== editBaselineContentRef.current;
   const editorShouldBeReadOnly = !isEditing || Boolean(isSaving && pendingUnsavedChangesAction);
-  const editorChangeSummary = useEditorChangeSummary({
-    baseline: content,
-    current: draftContent,
-    enabled: hasUnsavedChanges,
-    immediateUpdateToken: immediateChangeSummaryToken,
-  });
-  const editorChangeSummaryId = "text-editor-change-summary";
 
   const {
     beginBaselineSyncWindow,
@@ -562,7 +553,6 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
         if (enteredEditMode) {
           setRecoveryDraft(null);
           setResumedRecoveryDraft(true);
-          setImmediateChangeSummaryToken((previousToken) => previousToken + 1);
         }
       })
       .finally(() => setIsResumingRecoveryDraft(false));
@@ -1197,75 +1187,65 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
                 </Box>
               </Box>
             ) : (
-              <>
-                {isEditing && editorChangeSummary ? (
-                  <Box id={editorChangeSummaryId} sx={{ px: 2, py: 0.75, color: "text.secondary", fontSize: "0.875rem" }}>
-                    {t("viewer.edit.changeSummary", editorChangeSummary)}
-                  </Box>
-                ) : null}
-                <Box
-                  sx={{
-                    p: 0,
+              <Box
+                sx={{
+                  p: 0,
+                  flex: 1,
+                  minHeight: 0,
+                  display: "flex",
+                  overflow: "hidden",
+                  "& .sambee-text-editor": {
                     flex: 1,
                     minHeight: 0,
-                    display: "flex",
-                    overflow: "hidden",
-                    "& .sambee-text-editor": {
-                      flex: 1,
-                      minHeight: 0,
-                      [CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(CODEMIRROR_EDITOR_CONTENT_PADDING.xs),
-                      [muiTheme.breakpoints.up("sm")]: {
-                        [CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(CODEMIRROR_EDITOR_CONTENT_PADDING.sm),
-                      },
+                    [CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(CODEMIRROR_EDITOR_CONTENT_PADDING.xs),
+                    [muiTheme.breakpoints.up("sm")]: {
+                      [CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(CODEMIRROR_EDITOR_CONTENT_PADDING.sm),
                     },
-                    "& .sambee-text-editor .cm-content": {
-                      pt: CODEMIRROR_EDITOR_CONTENT_PADDING,
-                      pb: VIEWER_SCROLL_END_PADDING,
-                    },
+                  },
+                  "& .sambee-text-editor .cm-content": {
+                    pt: CODEMIRROR_EDITOR_CONTENT_PADDING,
+                    pb: VIEWER_SCROLL_END_PADDING,
+                  },
+                }}
+              >
+                <MarkdownEditorErrorBoundary
+                  key={editorBoundaryKey}
+                  title={t("viewer.text.editorCrashTitle")}
+                  description={t("viewer.text.editorCrashMessage")}
+                  retryLabel={t("viewer.edit.retryEditor")}
+                  returnToPreviewLabel={t("viewer.edit.returnToPreview")}
+                  onError={() => {}}
+                  onRetry={() => {
+                    setEditError(null);
+                    setEditorBoundaryKey((previousKey) => previousKey + 1);
+                  }}
+                  onReturnToPreview={() => {
+                    void handleCancelEdit();
                   }}
                 >
-                  <MarkdownEditorErrorBoundary
-                    key={editorBoundaryKey}
-                    title={t("viewer.text.editorCrashTitle")}
-                    description={t("viewer.text.editorCrashMessage")}
-                    retryLabel={t("viewer.edit.retryEditor")}
-                    returnToPreviewLabel={t("viewer.edit.returnToPreview")}
-                    onError={() => {}}
-                    onRetry={() => {
-                      setEditError(null);
-                      setEditorBoundaryKey((previousKey) => previousKey + 1);
-                    }}
-                    onReturnToPreview={() => {
-                      void handleCancelEdit();
-                    }}
-                  >
-                    <TextCodeEditor
-                      ref={editorRef}
-                      className="sambee-text-editor"
-                      text={isEditing ? draftContent : content}
-                      filename={filename}
-                      theme={textEditorTheme}
-                      onChange={handleEditorChange}
-                      onUserEdit={handleEditorUserEdit}
-                      ariaLabel={t("viewer.text.editorLabel")}
-                      autoFocus={true}
-                      readOnly={editorShouldBeReadOnly}
-                      lineWrapping={wordWrapEnabled}
-                      searchText={searchPanelOpen ? searchText : ""}
-                      searchOpen={searchPanelOpen}
-                      searchAutoNavigate={searchAutoNavigate}
-                      searchCaseSensitive={searchCaseSensitive}
-                      onSearchStateChange={handleEditorSearchStateChange}
-                      searchRegexp={searchRegexp}
-                      searchReplaceText={searchReplaceText}
-                      searchWholeWord={searchWholeWord}
-                      changeSummary={editorChangeSummary ?? undefined}
-                      showChangeGutter={!isMobile}
-                      describedById={editorChangeSummary ? editorChangeSummaryId : undefined}
-                    />
-                  </MarkdownEditorErrorBoundary>
-                </Box>
-              </>
+                  <TextCodeEditor
+                    ref={editorRef}
+                    className="sambee-text-editor"
+                    text={isEditing ? draftContent : content}
+                    filename={filename}
+                    theme={textEditorTheme}
+                    onChange={handleEditorChange}
+                    onUserEdit={handleEditorUserEdit}
+                    ariaLabel={t("viewer.text.editorLabel")}
+                    autoFocus={true}
+                    readOnly={editorShouldBeReadOnly}
+                    lineWrapping={wordWrapEnabled}
+                    searchText={searchPanelOpen ? searchText : ""}
+                    searchOpen={searchPanelOpen}
+                    searchAutoNavigate={searchAutoNavigate}
+                    searchCaseSensitive={searchCaseSensitive}
+                    onSearchStateChange={handleEditorSearchStateChange}
+                    searchRegexp={searchRegexp}
+                    searchReplaceText={searchReplaceText}
+                    searchWholeWord={searchWholeWord}
+                  />
+                </MarkdownEditorErrorBoundary>
+              </Box>
             )}
           </Box>
         </Box>

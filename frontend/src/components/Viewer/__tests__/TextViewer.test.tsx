@@ -34,7 +34,6 @@ interface MockTextCodeEditorProps {
     viewMode: "source";
   }) => void;
   onUserEdit?: () => void;
-  describedById?: string;
   readOnly?: boolean;
   searchOpen?: boolean;
   searchCaseSensitive?: boolean;
@@ -98,7 +97,6 @@ vi.mock("../TextCodeEditor", () => {
     return (
       <textarea
         aria-label={props.ariaLabel}
-        aria-describedby={props.describedById}
         className={props.className}
         readOnly={props.readOnly}
         value={props.text}
@@ -301,10 +299,6 @@ describe("TextViewer", () => {
     await waitFor(() => expect(apiService.acquireEditLock).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Text editor" })).toHaveValue("local draft"));
     expect(screen.getByRole("status", { name: /unsaved changes/i })).toBeInTheDocument();
-    const changeSummary = screen.getByText("Changes: +0 added, ~1 modified, -0 deleted");
-    expect(changeSummary).toBeVisible();
-    expect(changeSummary).not.toHaveAttribute("role", "status");
-    expect(screen.getByRole("textbox", { name: "Text editor" })).toHaveAttribute("aria-describedby", "text-editor-change-summary");
     userIdSpy.mockRestore();
   });
 

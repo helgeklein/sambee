@@ -77,7 +77,6 @@ import {
 import { areMarkdownSearchStatesEqual } from "./markdownSearchState";
 import { normalizeMarkdownTableCellLineBreaks, remarkRenderMarkdownTableCellLineBreaks } from "./markdownTableCellLineBreaks";
 import { RecoveredDraftDialog } from "./RecoveredDraftDialog";
-import { useEditorChangeSummary } from "./useEditorChangeSummary";
 import { useMarkdownEditSession } from "./useMarkdownEditSession";
 import { VIEWER_SEARCH_INPUT_ATTRIBUTE, ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
 import { downloadViewerBlob } from "./viewerContent";
@@ -208,7 +207,6 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
   const [recoveryDraft, setRecoveryDraft] = useState<DraftSnapshot | null>(null);
   const [isResumingRecoveryDraft, setIsResumingRecoveryDraft] = useState(false);
   const [resumedRecoveryDraft, setResumedRecoveryDraft] = useState(false);
-  const [immediateChangeSummaryToken, setImmediateChangeSummaryToken] = useState(0);
   const [showViewerHelp, setShowViewerHelp] = useState(false);
   const [showEditorHelp, setShowEditorHelp] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -582,13 +580,6 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
   }, [isEditing]);
 
   const hasUnsavedChanges = isEditing && draftContent !== editBaselineContent;
-  const editorChangeSummary = useEditorChangeSummary({
-    baseline: content,
-    current: draftContent,
-    enabled: hasUnsavedChanges,
-    immediateUpdateToken: immediateChangeSummaryToken,
-  });
-  const editorChangeSummaryId = "markdown-editor-change-summary";
   const unsavedChangesIndicator = hasUnsavedChanges ? (
     <Box
       component="span"
@@ -909,7 +900,6 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
         if (enteredEditMode) {
           setRecoveryDraft(null);
           setResumedRecoveryDraft(true);
-          setImmediateChangeSummaryToken((previousToken) => previousToken + 1);
         }
       })
       .finally(() => setIsResumingRecoveryDraft(false));
@@ -1903,107 +1893,97 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
                 <Alert severity="error">{error}</Alert>
               </Box>
             ) : isEditing ? (
-              <>
-                {editorChangeSummary ? (
-                  <Box id={editorChangeSummaryId} sx={{ px: 2, py: 0.75, color: "text.secondary", fontSize: "0.875rem" }}>
-                    {t("viewer.edit.changeSummary", editorChangeSummary)}
-                  </Box>
-                ) : null}
-                <Box
-                  sx={{
-                    p: 0,
+              <Box
+                sx={{
+                  p: 0,
+                  flex: 1,
+                  minHeight: 0,
+                  display: "flex",
+                  overflow: "hidden",
+                  "& .sambee-markdown-editor": {
                     flex: 1,
                     minHeight: 0,
-                    display: "flex",
-                    overflow: "hidden",
-                    "& .sambee-markdown-editor": {
-                      flex: 1,
-                      minHeight: 0,
-                      [CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(CODEMIRROR_EDITOR_CONTENT_PADDING.xs),
-                      [muiTheme.breakpoints.up("sm")]: {
-                        [CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(CODEMIRROR_EDITOR_CONTENT_PADDING.sm),
-                      },
+                    [CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(CODEMIRROR_EDITOR_CONTENT_PADDING.xs),
+                    [muiTheme.breakpoints.up("sm")]: {
+                      [CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(CODEMIRROR_EDITOR_CONTENT_PADDING.sm),
                     },
-                    "& .sambee-markdown-editor .cm-content": {
-                      pt: CODEMIRROR_EDITOR_CONTENT_PADDING,
-                      pb: VIEWER_SCROLL_END_PADDING,
-                    },
-                  }}
-                >
-                  {editorLoadState === "loading" ? (
-                    <Box
-                      sx={{
-                        display: "flex",
-                        justifyContent: "center",
-                        alignItems: "center",
-                        height: "100%",
-                      }}
-                    >
-                      <CircularProgress />
-                    </Box>
-                  ) : editorLoadError ? (
-                    <Box sx={{ display: "flex", flexDirection: "column", gap: 2, py: 2 }}>
-                      <Alert severity="error">
-                        <Box component="div" sx={{ fontWeight: 600, mb: 0.5 }}>
-                          {t("viewer.edit.editorLoadTitle")}
-                        </Box>
-                        {t("viewer.edit.editorLoadMessage")}
-                      </Alert>
-                      <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                        <Button variant="contained" onClick={handleRetryEditor}>
-                          {t("viewer.edit.retryEditor")}
-                        </Button>
-                        <Button
-                          variant="outlined"
-                          onClick={() => {
-                            void handleCancelEdit();
-                          }}
-                        >
-                          {t("viewer.edit.returnToPreview")}
-                        </Button>
+                  },
+                  "& .sambee-markdown-editor .cm-content": {
+                    pt: CODEMIRROR_EDITOR_CONTENT_PADDING,
+                    pb: VIEWER_SCROLL_END_PADDING,
+                  },
+                }}
+              >
+                {editorLoadState === "loading" ? (
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      height: "100%",
+                    }}
+                  >
+                    <CircularProgress />
+                  </Box>
+                ) : editorLoadError ? (
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: 2, py: 2 }}>
+                    <Alert severity="error">
+                      <Box component="div" sx={{ fontWeight: 600, mb: 0.5 }}>
+                        {t("viewer.edit.editorLoadTitle")}
                       </Box>
+                      {t("viewer.edit.editorLoadMessage")}
+                    </Alert>
+                    <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                      <Button variant="contained" onClick={handleRetryEditor}>
+                        {t("viewer.edit.retryEditor")}
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        onClick={() => {
+                          void handleCancelEdit();
+                        }}
+                      >
+                        {t("viewer.edit.returnToPreview")}
+                      </Button>
                     </Box>
-                  ) : EditorComponent ? (
-                    <MarkdownEditorErrorBoundary
-                      key={editorBoundaryKey}
-                      title={t("viewer.edit.editorCrashTitle")}
-                      description={t("viewer.edit.editorCrashMessage")}
-                      retryLabel={t("viewer.edit.retryEditor")}
-                      returnToPreviewLabel={t("viewer.edit.returnToPreview")}
-                      onError={handleEditorCrashed}
-                      onRetry={handleRetryEditor}
-                      onReturnToPreview={() => {
-                        void handleCancelEdit();
-                      }}
-                    >
-                      <EditorComponent
-                        ref={editorRef}
-                        className="sambee-markdown-editor"
-                        markdown={draftContent}
-                        diffMarkdown={content}
-                        theme={markdownEditorTheme}
-                        lineWrapping={wordWrapEnabled}
-                        onChange={handleEditorChange}
-                        onUserEdit={handleEditorUserEdit}
-                        ariaLabel={t("viewer.edit.editorLabel")}
-                        autoFocus={true}
-                        readOnly={editorShouldBeReadOnly}
-                        searchText={activeEditorSearchText}
-                        searchOpen={searchPanelOpen}
-                        searchAutoNavigate={editorSearchAutoNavigate}
-                        searchCaseSensitive={editorSearchCaseSensitive}
-                        onSearchStateChange={handleEditorSearchStateChange}
-                        searchRegexp={editorSearchRegexp}
-                        searchReplaceText={editorSearchReplaceText}
-                        searchWholeWord={editorSearchWholeWord}
-                        changeSummary={editorChangeSummary ?? undefined}
-                        showChangeGutter={!isMobile}
-                        describedById={editorChangeSummary ? editorChangeSummaryId : undefined}
-                      />
-                    </MarkdownEditorErrorBoundary>
-                  ) : null}
-                </Box>
-              </>
+                  </Box>
+                ) : EditorComponent ? (
+                  <MarkdownEditorErrorBoundary
+                    key={editorBoundaryKey}
+                    title={t("viewer.edit.editorCrashTitle")}
+                    description={t("viewer.edit.editorCrashMessage")}
+                    retryLabel={t("viewer.edit.retryEditor")}
+                    returnToPreviewLabel={t("viewer.edit.returnToPreview")}
+                    onError={handleEditorCrashed}
+                    onRetry={handleRetryEditor}
+                    onReturnToPreview={() => {
+                      void handleCancelEdit();
+                    }}
+                  >
+                    <EditorComponent
+                      ref={editorRef}
+                      className="sambee-markdown-editor"
+                      markdown={draftContent}
+                      diffMarkdown={content}
+                      theme={markdownEditorTheme}
+                      lineWrapping={wordWrapEnabled}
+                      onChange={handleEditorChange}
+                      onUserEdit={handleEditorUserEdit}
+                      ariaLabel={t("viewer.edit.editorLabel")}
+                      autoFocus={true}
+                      readOnly={editorShouldBeReadOnly}
+                      searchText={activeEditorSearchText}
+                      searchOpen={searchPanelOpen}
+                      searchAutoNavigate={editorSearchAutoNavigate}
+                      searchCaseSensitive={editorSearchCaseSensitive}
+                      onSearchStateChange={handleEditorSearchStateChange}
+                      searchRegexp={editorSearchRegexp}
+                      searchReplaceText={editorSearchReplaceText}
+                      searchWholeWord={editorSearchWholeWord}
+                    />
+                  </MarkdownEditorErrorBoundary>
+                ) : null}
+              </Box>
             ) : (
               <Box
                 data-markdown-search-root="true"
