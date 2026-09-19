@@ -242,6 +242,11 @@ export interface PdfAdvancedSettings {
   screen_max_decoded_pixels: IntegerSystemSetting;
 }
 
+export interface AdvancedSystemSettings {
+  preprocessors: Record<string, PreprocessorAdvancedSettings>;
+  pdf?: PdfAdvancedSettings;
+}
+
 export type AdvancedSystemSettingsUpdate = { field: string; value: number };
 
 export type FileSearchExclusionCategory = "images" | "temporary_backup";

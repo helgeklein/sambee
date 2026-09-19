@@ -149,7 +149,7 @@ export type ContentTransferResult =
       effects: { source: "unchanged" | "mutated"; destination: "unchanged" | "mutated" };
       error: { code: "source_delete_failed"; detail: string };
     }
-  | { status: "outcome_unknown"; replaced: false; effects: { source: "unknown"; destination: "unknown" } }
+  | { status: "outcome_unknown"; replaced: false; effects: { source: "unchanged" | "unknown"; destination: "unknown" } }
   | { status: "failed"; replaced: false; effects: StorageMutationEffects; error: StorageOperationError }
   | { status: "cancelled"; replaced: false; effects: StorageMutationEffects };
 

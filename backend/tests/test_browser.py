@@ -1793,6 +1793,47 @@ class TestBrowserEditLocks:
         assert release.status_code == 200
         assert session.exec(select(EditLock).where(EditLock.connection_id == test_connection.id)).first() is None
 
+    def test_browser_edit_lock_heartbeat_reports_lost_lock_code(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        response = client.post(
+            f"/api/browse/{test_connection.id}/lock/heartbeat",
+            headers=auth_headers_user,
+            params={"path": "/docs/readme.md"},
+            json={"operation_id": "expired", "lock_id": str(uuid.uuid4()), "lock_capability": "expired"},
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == {
+            "code": browser_api.EDIT_LOCK_LOST_CODE,
+            "message": browser_api.EDIT_LOCK_LOST_MESSAGE,
+        }
+
+    def test_browser_edit_lock_control_reports_lost_lock_code_for_unknown_lock_id(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        lock = client.post(
+            f"/api/browse/{test_connection.id}/lock",
+            headers=auth_headers_user,
+            params={"path": "/docs/readme.md"},
+        ).json()
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/lock/heartbeat",
+            headers=auth_headers_user,
+            params={"path": "/docs/readme.md"},
+            json={**lock, "lock_id": str(uuid.uuid4())},
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == browser_api.EDIT_LOCK_LOST_CODE
+
     def test_get_browser_edit_lock_status_omits_secret_material(
         self,
         client: TestClient,
@@ -2952,6 +2993,30 @@ class TestUploadFile:
         )
 
         assert response.status_code == 403
+
+    def test_editor_upload_reports_lost_lock_code_when_lock_is_missing(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        response = client.post(
+            f"/api/browse/{test_connection.id}/upload",
+            headers=auth_headers_user,
+            params={
+                "path": "/docs/readme.md",
+                "editor_operation_id": "expired",
+                "editor_lock_id": str(uuid.uuid4()),
+                "editor_lock_capability": "expired",
+            },
+            files={"file": ("readme.md", b"updated", "text/markdown")},
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == {
+            "code": browser_api.EDIT_LOCK_LOST_CODE,
+            "message": browser_api.EDIT_LOCK_LOST_MESSAGE,
+        }
 
     def test_upload_rejects_operation_token_without_operation_context(
         self,

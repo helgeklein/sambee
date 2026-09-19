@@ -46,7 +46,7 @@ vi.mock("axios", () => {
 // Get reference to the mocked functions for assertions
 import axios from "axios";
 // Now import the API service (it will use the mocked axios.create)
-import apiService, { OIDC_FINALIZATION_REQUEST_TIMEOUT_MS } from "../api";
+import apiService, { ExpiredEditLockError, OIDC_FINALIZATION_REQUEST_TIMEOUT_MS } from "../api";
 import { authSession } from "../authSession";
 import { getBackendAvailabilitySnapshot, markBackendUnavailable, resetBackendAvailabilityForTests } from "../backendAvailability";
 import * as draftRecovery from "../draftRecovery";
@@ -1473,6 +1473,44 @@ describe("API Service", () => {
       expect((uploadedFile as File).name).toBe("readme.md");
       expect((uploadedFile as File).type).toBe("text/plain;charset=utf-8");
       expect((uploadedFile as File).size).toBeGreaterThan(0);
+    });
+
+    it("classifies an expired edit lock upload response with a nested error code", async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: { code: "edit_lock_lost", message: "Lock not found or expired" } }), { status: 404 })
+      );
+
+      await expect(
+        apiService.writeTextWithEditLock("conn1", "/notes/readme.md", "# Updated\n", {
+          lock_id: "lock-1",
+          lock_capability: "capability-1",
+          operation_id: "operation-1",
+        })
+      ).rejects.toBeInstanceOf(ExpiredEditLockError);
+    });
+
+    it("classifies an expired edit lock upload response with a top-level error code", async () => {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ code: "edit_lock_lost" }), { status: 404 }));
+
+      await expect(
+        apiService.writeTextWithEditLock("conn1", "/notes/readme.md", "# Updated\n", {
+          lock_id: "lock-1",
+          lock_capability: "capability-1",
+          operation_id: "operation-1",
+        })
+      ).rejects.toBeInstanceOf(ExpiredEditLockError);
+    });
+
+    it("does not classify a string-only expired edit lock response", async () => {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ detail: "Lock not found or expired" }), { status: 404 }));
+
+      await expect(
+        apiService.writeTextWithEditLock("conn1", "/notes/readme.md", "# Updated\n", {
+          lock_id: "lock-1",
+          lock_capability: "capability-1",
+          operation_id: "operation-1",
+        })
+      ).rejects.not.toBeInstanceOf(ExpiredEditLockError);
     });
 
     it("acquireEditLock() calls the companion lock endpoint for server connections", async () => {

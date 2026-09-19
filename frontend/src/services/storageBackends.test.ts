@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import api from "./api";
+import api, { ExpiredEditLockError } from "./api";
 import { PreviewUnavailableError } from "./previewPolicy";
 import { CompanionLocalBackend, SambeeSmbBackend } from "./storageBackends";
 
 vi.mock("./api", () => ({
+  ExpiredEditLockError: class ExpiredEditLockError extends Error {},
   default: {
     acquireEditLock: vi.fn(),
     getArchiveMember: vi.fn(),
@@ -79,6 +80,64 @@ describe("SambeeSmbBackend archive reads", () => {
       { mimeType: "text/plain;charset=utf-8" }
     );
     expect(api.releaseEditLock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reacquires an expired edit lock and updates the session lease", async () => {
+    const target = { kind: "smb" as const, connectionId: "connection-1" };
+    const source = {
+      target,
+      path: "docs/readme.txt",
+      resolvedTarget: {
+        target,
+        connection: { access_mode: "read_write" },
+        capabilitySnapshot: { companion: { status: "unavailable" } },
+      },
+    };
+    vi.mocked(api.acquireEditLock)
+      .mockResolvedValueOnce({
+        lock_id: "lock-1",
+        lock_capability: "capability-1",
+        operation_id: "operation-1",
+        file_path: "docs/readme.txt",
+        locked_by: "alice",
+        locked_at: "2026-03-23T12:00:00Z",
+      })
+      .mockResolvedValueOnce({
+        lock_id: "lock-2",
+        lock_capability: "capability-2",
+        operation_id: "operation-2",
+        file_path: "docs/readme.txt",
+        locked_by: "alice",
+        locked_at: "2026-03-23T12:05:00Z",
+      });
+    vi.mocked(api.writeTextWithEditLock).mockRejectedValueOnce(new ExpiredEditLockError()).mockResolvedValueOnce(undefined);
+
+    const session = await new SambeeSmbBackend().editing?.begin(source as never);
+    if (session?.kind !== "acquired") throw new Error("Expected acquired edit session");
+
+    await session.session.writeText("updated", { mimeType: "text/plain;charset=utf-8" });
+    await session.session.heartbeat();
+    await session.session.release();
+
+    expect(api.acquireEditLock).toHaveBeenCalledTimes(2);
+    expect(api.writeTextWithEditLock).toHaveBeenNthCalledWith(
+      1,
+      "connection-1",
+      "docs/readme.txt",
+      "updated",
+      { lock_id: "lock-1", lock_capability: "capability-1", operation_id: "operation-1" },
+      { mimeType: "text/plain;charset=utf-8" }
+    );
+    expect(api.writeTextWithEditLock).toHaveBeenNthCalledWith(
+      2,
+      "connection-1",
+      "docs/readme.txt",
+      "updated",
+      { lock_id: "lock-2", lock_capability: "capability-2", operation_id: "operation-2" },
+      { mimeType: "text/plain;charset=utf-8" }
+    );
+    expect(api.heartbeatEditLock).toHaveBeenCalledWith("connection-1", "docs/readme.txt", expect.objectContaining({ lock_id: "lock-2" }));
+    expect(api.releaseEditLock).toHaveBeenCalledWith("connection-1", "docs/readme.txt", expect.objectContaining({ lock_id: "lock-2" }));
   });
 
   it("retries an edit-lock release after a transient failure", async () => {

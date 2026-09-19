@@ -17,6 +17,9 @@ export function getApiErrorMessage(error: unknown, fallback: string, options: Ap
   if (typeof detail === "string" && detail.trim()) {
     return detail;
   }
+  if (isMessageDetail(detail)) {
+    return detail.message;
+  }
   if (isOidcMappingValidationDetail(detail)) {
     return detail.errors.map((mappingError) => mappingError.message).join(" ");
   }
@@ -32,6 +35,12 @@ export function getOidcMappingValidationErrors(error: unknown): OidcMappingValid
   if (!isApiError(error)) return [];
   const detail = error.response?.data?.detail;
   return isOidcMappingValidationDetail(detail) ? detail.errors : [];
+}
+
+function isMessageDetail(value: unknown): value is { message: string } {
+  return (
+    typeof value === "object" && value !== null && "message" in value && typeof value.message === "string" && value.message.trim() !== ""
+  );
 }
 
 function isOidcMappingValidationDetail(value: unknown): value is { errors: OidcMappingValidationError[] } {

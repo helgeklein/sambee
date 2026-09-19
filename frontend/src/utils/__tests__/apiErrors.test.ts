@@ -22,4 +22,10 @@ describe("OIDC mapping API errors", () => {
     expect(getOidcMappingValidationErrors(apiError)).toEqual(errors);
     expect(getApiErrorMessage(apiError, "fallback")).toBe("Provider username must be unique OIDC mapping target is unavailable");
   });
+
+  it("extracts the message from a structured error detail", () => {
+    const apiError = { response: { data: { detail: { code: "edit_lock_lost", message: "Lock not found or expired" } }, status: 404 } };
+
+    expect(getApiErrorMessage(apiError, "fallback")).toBe("Lock not found or expired");
+  });
 });

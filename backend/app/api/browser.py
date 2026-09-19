@@ -116,6 +116,8 @@ TRANSFER_RECEIPT_TTL_SECONDS = 5 * 60
 TRANSFER_OPERATION_TTL = timedelta(seconds=TRANSFER_RECEIPT_TTL_SECONDS)
 TRANSFER_OPERATION_PROGRESS_PERSIST_INTERVAL_BYTES = 1024 * 1024
 TRANSFER_UNAVAILABLE_DETAIL = "Transfers are unavailable in this release"
+EDIT_LOCK_LOST_CODE: Literal["edit_lock_lost"] = "edit_lock_lost"
+EDIT_LOCK_LOST_MESSAGE = "Lock not found or expired"
 
 
 class TransferOperationCancelled(RuntimeError):
@@ -964,6 +966,20 @@ class BrowserEditLockStatusResponse(BaseModel):
     locked_at: str | None = None
 
 
+class BrowserEditLockErrorDetail(BaseModel):
+    """Stable error payload for browser edit-lock lifecycle failures."""
+
+    code: Literal["edit_lock_lost"]
+    message: str
+
+
+def _raise_browser_edit_lock_lost() -> NoReturn:
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=BrowserEditLockErrorDetail(code=EDIT_LOCK_LOST_CODE, message=EDIT_LOCK_LOST_MESSAGE).model_dump(),
+    )
+
+
 def _validate_browser_lock_control(lock: EditLock, body: BrowserEditLockControlRequest) -> None:
     """Require a browser edit-lock control request to match the active lock."""
 
@@ -974,10 +990,7 @@ def _validate_browser_lock_control(lock: EditLock, body: BrowserEditLockControlR
         )
 
     if str(lock.id) != body.lock_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lock not found or expired",
-        )
+        _raise_browser_edit_lock_lost()
 
 
 @router.post("/{connection_id}/lock", response_model=BrowserEditLockResponse)
@@ -1065,10 +1078,7 @@ async def heartbeat_browser_edit_lock(
 
     lock = _get_active_lock(connection_id, path, session)
     if not lock:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lock not found or expired",
-        )
+        _raise_browser_edit_lock_lost()
 
     _validate_browser_lock_control(lock, body)
 
@@ -1167,7 +1177,7 @@ async def upload_file(
         current_user = await get_current_user_for_token(token, session)
         lock = _get_active_lock(connection_id, path, session)
         if not lock:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lock not found or expired")
+            _raise_browser_edit_lock_lost()
         _validate_browser_lock_control(
             lock,
             BrowserEditLockControlRequest(

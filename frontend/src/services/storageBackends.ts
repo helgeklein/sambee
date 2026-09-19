@@ -1,5 +1,5 @@
 import { type EditLockInfo, isApiError } from "../types";
-import api from "./api";
+import api, { ExpiredEditLockError } from "./api";
 import { assertLocalPreviewSupported } from "./previewPolicy";
 import type {
   ArchiveCreationOperations,
@@ -236,14 +236,24 @@ abstract class ApiStorageBackend implements StorageBackend {
       assertOwned(this.kind, item.resolvedTarget);
       if (!this.getCapabilities(item.resolvedTarget).canEditText) return { kind: "read-only" };
       const id = connectionId(item.target);
-      const lockInfo = await api.acquireEditLock(id, item.path);
-      const lockContext = requireEditLockContext(lockInfo);
+      let lockInfo = await api.acquireEditLock(id, item.path);
+      let lockContext = requireEditLockContext(lockInfo);
       let released = false;
       return {
         kind: "acquired",
         session: {
           heartbeat: () => api.heartbeatEditLock(id, item.path, lockInfo),
-          writeText: (content, options) => api.writeTextWithEditLock(id, item.path, content, lockContext, { mimeType: options?.mimeType }),
+          writeText: async (content, options) => {
+            try {
+              await api.writeTextWithEditLock(id, item.path, content, lockContext, { mimeType: options?.mimeType });
+            } catch (error) {
+              if (!(error instanceof ExpiredEditLockError)) throw error;
+
+              lockInfo = await api.acquireEditLock(id, item.path);
+              lockContext = requireEditLockContext(lockInfo);
+              await api.writeTextWithEditLock(id, item.path, content, lockContext, { mimeType: options?.mimeType });
+            }
+          },
           release: async () => {
             if (released) return;
             await api.releaseEditLock(id, item.path, lockInfo);
