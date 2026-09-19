@@ -1,5 +1,7 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useContentProviderRegistry } from "../../../pages/FileBrowser/contentProviders";
+import { createStorageBackedTestContentProviderRegistry } from "../../../test/helpers";
 import type { ViewerComponentProps } from "../../../utils/FileTypeRegistry";
 import { DynamicViewer } from "../DynamicViewer";
 
@@ -27,6 +29,7 @@ vi.mock("../../../utils/FileTypeRegistry", async () => {
 describe("DynamicViewer", () => {
   const defaultProps = {
     connectionId: "conn-1",
+    contentProviders: createStorageBackedTestContentProviderRegistry(),
     viewInfo: {
       path: "/docs/file.pdf",
       mimeType: "application/pdf",
@@ -38,6 +41,26 @@ describe("DynamicViewer", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("fails clearly when a viewer reads content providers without a context boundary", () => {
+    expect(() => renderHook(() => useContentProviderRegistry())).toThrow(
+      "useContentProviderRegistry must be used within a ContentProviderRegistryContext.Provider"
+    );
+  });
+
+  it("provides its explicit registry to the loaded viewer", async () => {
+    const contentProviders = createStorageBackedTestContentProviderRegistry();
+    mockGetViewerComponentLoadResult.mockResolvedValue({
+      status: "loaded",
+      component: function LoadedViewer() {
+        return <div data-testid="provider-registry">{useContentProviderRegistry() === contentProviders ? "matched" : "mismatched"}</div>;
+      },
+    });
+
+    render(<DynamicViewer {...defaultProps} contentProviders={contentProviders} />);
+
+    expect(await screen.findByTestId("provider-registry")).toHaveTextContent("matched");
   });
 
   it("renders the loaded viewer component", async () => {

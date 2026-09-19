@@ -1,14 +1,26 @@
 import type { ViewUpdate } from "@codemirror/view";
-import { act, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, configure, fireEvent, render as renderBase, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, type ReactNode, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ContentProviderRegistryContext } from "../../../pages/FileBrowser/contentProviders";
 import apiService from "../../../services/api";
 import { authSession } from "../../../services/authSession";
+import { createStorageBackedTestContentProviderRegistry } from "../../../test/helpers";
 import { SambeeThemeProvider } from "../../../theme";
 import MarkdownViewer from "../MarkdownViewer";
 import { normalizeMarkdownTableCellLineBreaks } from "../markdownTableCellLineBreaks";
 import { createViewerSearchTestDriver } from "./viewerSearchTestUtils";
+
+const contentProviders = createStorageBackedTestContentProviderRegistry();
+
+function ContentProviderTestWrapper({ children }: { children: ReactNode }) {
+  return <ContentProviderRegistryContext.Provider value={contentProviders}>{children}</ContentProviderRegistryContext.Provider>;
+}
+
+function render(ui: ReactNode) {
+  return renderBase(ui, { wrapper: ContentProviderTestWrapper });
+}
 
 const { mockLoadMarkdownRichEditor } = vi.hoisted(() => ({
   mockLoadMarkdownRichEditor: vi.fn(),

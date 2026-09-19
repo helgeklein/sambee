@@ -1,12 +1,24 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render as renderBase, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, type ReactNode, useEffect, useImperativeHandle, useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../../../i18n";
+import { ContentProviderRegistryContext } from "../../../pages/FileBrowser/contentProviders";
 import apiService from "../../../services/api";
 import { authSession } from "../../../services/authSession";
+import { createStorageBackedTestContentProviderRegistry } from "../../../test/helpers";
 import { SambeeThemeProvider } from "../../../theme";
 import { CODEMIRROR_FIND_HISTORY_STORAGE_KEY, CODEMIRROR_REPLACE_HISTORY_STORAGE_KEY } from "../codeMirrorFindReplaceConstants";
+
+const contentProviders = createStorageBackedTestContentProviderRegistry();
+
+function ContentProviderTestWrapper({ children }: { children: ReactNode }) {
+  return <ContentProviderRegistryContext.Provider value={contentProviders}>{children}</ContentProviderRegistryContext.Provider>;
+}
+
+function render(ui: ReactNode) {
+  return renderBase(ui, { wrapper: ContentProviderTestWrapper });
+}
 
 interface MockTextCodeEditorProps {
   ariaLabel: string;

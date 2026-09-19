@@ -32,7 +32,7 @@ interface DynamicViewerProps {
   hasMoreItems?: boolean;
   isLoadingMoreItems?: boolean;
   onLoadMoreItems?: () => void;
-  contentProviders?: ContentProviderRegistry;
+  contentProviders: ContentProviderRegistry;
 }
 
 type DynamicViewerLoadState =
@@ -224,7 +224,7 @@ export const DynamicViewer = memo(function DynamicViewer({
   const ViewerComponent = loadState.component;
 
   return (
-    <ContentProviderRegistryContext.Provider value={contentProviders ?? null}>
+    <ContentProviderRegistryContext.Provider value={contentProviders}>
       <ViewerComponent
         connectionId={connectionId}
         path={viewInfo.path}

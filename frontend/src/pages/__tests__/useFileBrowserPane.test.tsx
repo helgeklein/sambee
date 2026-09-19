@@ -5,10 +5,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import api from "../../services/api";
 import { authSession } from "../../services/authSession";
 import { resetCurrentUserSettingsStoreForTests } from "../../services/userSettingsStore";
-import { type ApiMock, setupSuccessfulApiMocks } from "../../test/helpers";
+import {
+  type ApiMock,
+  createFakeContentProviderRegistry,
+  createStorageBackedTestContentProviderRegistry,
+  setupSuccessfulApiMocks,
+} from "../../test/helpers";
 import { SambeeThemeProvider } from "../../theme/ThemeContext";
 import { FileType, type LocalLinkTargetListing } from "../../types";
-import { shouldLoadNextVirtualPage, useFileBrowserPane } from "../FileBrowser/useFileBrowserPane";
+import type { ContentProviderRegistry } from "../FileBrowser/contentProviders";
+import type { UseFileBrowserPaneConfig } from "../FileBrowser/types";
+import { shouldLoadNextVirtualPage, useFileBrowserPane as useFileBrowserPaneImplementation } from "../FileBrowser/useFileBrowserPane";
 import { getPreferredViewerId, setPreferredViewerId } from "../FileBrowser/viewerPreferences";
 import { mockConnections, mockDirectoryListing, mockEmptyDirectory, mockNestedDirectory } from "./FileBrowser.test.utils";
 
@@ -17,6 +24,13 @@ vi.mock("../FileBrowser/viewerPreferences", () => ({
   getPreferredViewerId: vi.fn(),
   setPreferredViewerId: vi.fn(),
 }));
+
+const paneContentProviders = createStorageBackedTestContentProviderRegistry(mockConnections);
+
+function useFileBrowserPane(config: Omit<UseFileBrowserPaneConfig, "contentProviders"> & { contentProviders?: ContentProviderRegistry }) {
+  const { contentProviders = paneContentProviders, ...rest } = config;
+  return useFileBrowserPaneImplementation({ ...rest, contentProviders });
+}
 
 function deferred<T>() {
   let resolve: (value: T) => void;
@@ -115,6 +129,61 @@ describe("useFileBrowserPane", () => {
         viewportIsUnderfilled: false,
       })
     ).toBe(false);
+  });
+
+  it("routes archive activation through the injected virtual-provider catalog", async () => {
+    const capabilities = {
+      browse: true,
+      read: true,
+      download: true,
+      extract: false,
+      mutate: true,
+      openInNativeApp: true,
+    };
+    const list = vi.fn().mockResolvedValue({ items: [], total: 0, nextCursor: null });
+    const physicalProvider = {
+      id: "physical" as const,
+      list,
+      getCapabilities: () => capabilities,
+      read: vi.fn(),
+      beginEdit: vi.fn(),
+      invalidatePdfDerivative: vi.fn(),
+    };
+    const virtualProvider = {
+      ...physicalProvider,
+      id: "bundle" as const,
+      sourceExtensions: [".bundle"],
+    };
+    const providerRegistry = createFakeContentProviderRegistry([physicalProvider, virtualProvider]);
+    const archive = {
+      name: "project.bundle",
+      path: "project.bundle",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+
+    const { result } = renderHook(
+      () => useFileBrowserPane({ rowHeight: 40, connections: mockConnections, contentProviders: providerRegistry }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("conn-1", "");
+    });
+
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-1");
+    });
+
+    act(() => {
+      result.current.handleFileClick(archive);
+    });
+
+    await waitFor(() => {
+      expect(result.current.archiveLocation).toEqual({ providerId: "bundle", archivePath: "project.bundle", virtualPath: "" });
+    });
+    expect(providerRegistry.getVirtualProviderIdForFilename("project.bundle")).toBe("bundle");
   });
 
   it("ignores a stale route replay after starting a local directory navigation", async () => {

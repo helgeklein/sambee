@@ -1,14 +1,26 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render as renderBase, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useCallback, useEffect, useRef } from "react";
+import { type ReactNode, useCallback, useEffect, useRef } from "react";
 import type { Mock } from "vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ContentProviderRegistryContext } from "../../../pages/FileBrowser/contentProviders";
 import apiService from "../../../services/api";
 import * as logger from "../../../services/logger";
+import { createStorageBackedTestContentProviderRegistry } from "../../../test/helpers";
 import { SambeeThemeProvider } from "../../../theme";
 import { DOM_TEXT_SEARCH_CURRENT_MATCH_ATTRIBUTE, DOM_TEXT_SEARCH_HIGHLIGHT_SELECTOR } from "../../../utils/domTextSearch";
 import PDFViewer from "../PDFViewer";
 import { createViewerSearchTestDriver } from "./viewerSearchTestUtils";
+
+const contentProviders = createStorageBackedTestContentProviderRegistry();
+
+function ContentProviderTestWrapper({ children }: { children: ReactNode }) {
+  return <ContentProviderRegistryContext.Provider value={contentProviders}>{children}</ContentProviderRegistryContext.Provider>;
+}
+
+function render(ui: ReactNode) {
+  return renderBase(ui, { wrapper: ContentProviderTestWrapper });
+}
 
 // Mock react-pdf components
 vi.mock("react-pdf", () => ({
@@ -554,7 +566,7 @@ describe("PDFViewer", () => {
           fireEvent.click(screen.getByLabelText("Download"));
           await Promise.resolve();
         });
-        expect(apiService.getOriginalFileBlob).toHaveBeenCalledWith("test-conn-id", "/test/document.pdf", { signal: undefined });
+        expect(apiService.getOriginalFileBlob).toHaveBeenCalledWith("test-conn-id", "/test/document.pdf", { download: true });
 
         await act(async () => {
           await vi.advanceTimersByTimeAsync(6000);

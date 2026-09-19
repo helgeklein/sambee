@@ -4,6 +4,7 @@
  */
 
 export * from "../viewer-mocks";
+export * from "./contentProviders";
 export * from "./lazyMocks";
 export * from "./mockFactories";
 export * from "./websocketMock";

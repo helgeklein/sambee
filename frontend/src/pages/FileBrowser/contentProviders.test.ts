@@ -1,16 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import api from "../../services/api";
 import { PreviewUnavailableError } from "../../services/previewPolicy";
+import { createStorageBackedTestContentProviderRegistry } from "../../test/helpers";
 import { FileType } from "../../types";
 import { getArchiveExtractionAvailability, startArchiveExtraction } from "./contentOperations";
 import {
   beginViewerTextEdit,
-  createContentProviderRegistry,
   createStorageBackedContentProviderRegistry,
-  getContentCapabilities,
-  getContentProvider,
-  getVirtualContentProviderIdForFilename,
   invalidateViewerPdfDerivative,
+  physicalItem,
   physicalLocation,
   readContent,
   readViewerContent,
@@ -112,8 +110,9 @@ describe("content providers", () => {
   const archiveLocation = virtualLocation("zip", "conn-1", physicalLocation("conn-1", "archives/one.zip"), "images");
 
   it("gives physical and virtual locations distinct capability profiles", () => {
-    expect(getContentCapabilities(physicalLocation("conn-1", "photos")).mutate).toBe(true);
-    expect(getContentCapabilities(archiveLocation)).toMatchObject({
+    const providers = createStorageBackedTestContentProviderRegistry();
+    expect(providers.getCapabilities(physicalLocation("conn-1", "photos")).mutate).toBe(true);
+    expect(providers.getCapabilities(archiveLocation)).toMatchObject({
       browse: true,
       read: true,
       download: true,
@@ -124,6 +123,7 @@ describe("content providers", () => {
   });
 
   it("selects ZIP providers by source filename and lists normalized virtual entries", async () => {
+    const providers = createStorageBackedTestContentProviderRegistry();
     vi.mocked(api.listArchiveDirectory).mockResolvedValueOnce({
       archive: { path: "archives/one.zip", size: 1 },
       path: "images",
@@ -132,10 +132,10 @@ describe("content providers", () => {
       page_size: 100,
     });
 
-    expect(getVirtualContentProviderIdForFilename("one.zip")).toBe("zip");
-    expect(getVirtualContentProviderIdForFilename("one.img")).toBeNull();
+    expect(providers.getVirtualProviderIdForFilename("one.zip")).toBe("zip");
+    expect(providers.getVirtualProviderIdForFilename("one.img")).toBeNull();
 
-    const listing = await getContentProvider(archiveLocation).list(archiveLocation, { pageSize: 100 });
+    const listing = await providers.get(archiveLocation).list(archiveLocation, { pageSize: 100 });
 
     expect(api.listArchiveDirectory).toHaveBeenCalledWith("conn-1", "archives/one.zip", "images", {
       cursor: undefined,
@@ -149,6 +149,7 @@ describe("content providers", () => {
   });
 
   it("keeps readable archive directories enabled for navigation", async () => {
+    const providers = createStorageBackedTestContentProviderRegistry();
     vi.mocked(api.listArchiveDirectory).mockResolvedValueOnce({
       archive: { path: "archives/one.zip", size: 1 },
       path: "images",
@@ -157,7 +158,7 @@ describe("content providers", () => {
       page_size: 100,
     });
 
-    const listing = await getContentProvider(archiveLocation).list(archiveLocation, { pageSize: 100 });
+    const listing = await providers.get(archiveLocation).list(archiveLocation, { pageSize: 100 });
 
     expect(listing.items[0]).toMatchObject({
       entry: { path: "images/nested", type: FileType.DIRECTORY, is_readable: true, archive_entry_state: "readable" },
@@ -186,6 +187,44 @@ describe("content providers", () => {
     expect(listDirectory).toHaveBeenCalledWith(expect.anything(), "images", { cursor: "page-1" });
   });
 
+  it("lists an unresolved local drive through the catalog-refresh compatibility path", async () => {
+    const location = physicalLocation("local-drive:c", "docs");
+    const registry = {
+      resolveDirectory: vi.fn(() => {
+        throw new Error("Local drive c is unavailable");
+      }),
+    };
+    vi.mocked(api.listDirectory).mockResolvedValueOnce({
+      items: [{ name: "readme.md", path: "docs/readme.md", type: FileType.FILE }],
+      total: 1,
+    });
+
+    const listing = await createStorageBackedContentProviderRegistry(registry as never)
+      .get(location)
+      .list(location);
+
+    expect(api.listDirectory).toHaveBeenCalledWith("local-drive:c", "docs", { signal: undefined });
+    expect(listing.items).toEqual([physicalItem(location, { name: "readme.md", path: "docs/readme.md", type: FileType.FILE })]);
+  });
+
+  it("does not use the local-drive compatibility path when SMB directory resolution fails", async () => {
+    const location = physicalLocation("conn-1", "docs");
+    const resolutionError = new Error("Storage connection conn-1 is unavailable");
+    const registry = {
+      resolveDirectory: vi.fn(() => {
+        throw resolutionError;
+      }),
+    };
+
+    await expect(
+      createStorageBackedContentProviderRegistry(registry as never)
+        .get(location)
+        .list(location)
+    ).rejects.toBe(resolutionError);
+
+    expect(api.listDirectory).not.toHaveBeenCalled();
+  });
+
   it("uses source identity in virtual item keys", () => {
     const entry = {
       name: "same.png",
@@ -200,12 +239,13 @@ describe("content providers", () => {
   });
 
   it("reads a virtual item through its provider rather than a physical path", async () => {
+    const providers = createStorageBackedTestContentProviderRegistry();
     const blob = new Blob(["image"]);
     vi.mocked(api.getArchiveMember).mockResolvedValueOnce(blob);
 
-    await expect(readContent(virtualItemHandle(archiveLocation, "images/photo.png"), { kind: "image", viewportWidth: 800 })).resolves.toBe(
-      blob
-    );
+    await expect(
+      readContent(virtualItemHandle(archiveLocation, "images/photo.png"), { kind: "image", viewportWidth: 800 }, undefined, providers)
+    ).resolves.toBe(blob);
     expect(api.getArchiveMember).toHaveBeenCalledWith("conn-1", "archives/one.zip", "images/photo.png", {
       download: undefined,
       request: { kind: "image", viewportWidth: 800 },
@@ -213,8 +253,9 @@ describe("content providers", () => {
     });
   });
 
-  it("rejects transformation-dependent local preview reads before fallback transport", () => {
+  it("rejects transformation-dependent local preview reads before fallback transport", async () => {
     vi.clearAllMocks();
+    const providers = createStorageBackedTestContentProviderRegistry();
     const localArchiveLocation = virtualLocation(
       "zip",
       "local-drive:c",
@@ -222,12 +263,17 @@ describe("content providers", () => {
       "images"
     );
 
-    expect(() =>
-      readContent({ kind: "physical", location: physicalLocation("local-drive:c", "photos"), path: "photos/photo.jxl" }, { kind: "image" })
-    ).toThrow(PreviewUnavailableError);
-    expect(() => readContent(virtualItemHandle(localArchiveLocation, "images/photo.jxl"), { kind: "image" })).toThrow(
-      PreviewUnavailableError
-    );
+    await expect(
+      readContent(
+        { kind: "physical", location: physicalLocation("local-drive:c", "photos"), path: "photos/photo.jxl" },
+        { kind: "image" },
+        undefined,
+        providers
+      )
+    ).rejects.toBeInstanceOf(PreviewUnavailableError);
+    await expect(
+      readContent(virtualItemHandle(localArchiveLocation, "images/photo.jxl"), { kind: "image" }, undefined, providers)
+    ).rejects.toBeInstanceOf(PreviewUnavailableError);
     expect(api.getImageBlob).not.toHaveBeenCalled();
     expect(api.getArchiveMember).not.toHaveBeenCalled();
   });
@@ -262,7 +308,7 @@ describe("content providers", () => {
       return completed;
     });
 
-    const execution = startArchiveExtraction(createContentProviderRegistry(), {
+    const execution = startArchiveExtraction(createStorageBackedTestContentProviderRegistry(), {
       source: localArchiveLocation,
       destination: physicalLocation("local-drive:c", "archives/one"),
     });
@@ -315,7 +361,7 @@ describe("content providers", () => {
     });
 
     await expect(
-      startArchiveExtraction(createContentProviderRegistry(), {
+      startArchiveExtraction(createStorageBackedTestContentProviderRegistry(), {
         source: localArchiveLocation,
         destination: physicalLocation("local-drive:d", "output"),
       }).result
@@ -332,9 +378,11 @@ describe("content providers", () => {
     } as never);
     const destination = physicalLocation("conn-1", "archives/one");
 
-    expect(getArchiveExtractionAvailability(createContentProviderRegistry(), archiveLocation, destination)).toEqual({ available: true });
+    expect(getArchiveExtractionAvailability(createStorageBackedTestContentProviderRegistry(), archiveLocation, destination)).toEqual({
+      available: true,
+    });
     await expect(
-      startArchiveExtraction(createContentProviderRegistry(), {
+      startArchiveExtraction(createStorageBackedTestContentProviderRegistry(), {
         source: archiveLocation,
         destination,
       }).result
@@ -351,7 +399,7 @@ describe("content providers", () => {
     const destination = physicalLocation("conn-1", "output");
 
     await expect(
-      startArchiveExtraction(createContentProviderRegistry(), {
+      startArchiveExtraction(createStorageBackedTestContentProviderRegistry(), {
         source: archiveLocation,
         destination,
         selectedMemberPaths: ["docs", "docs/readme.txt"],
@@ -407,7 +455,7 @@ describe("content providers", () => {
       cancellation_requested: false,
     });
 
-    const execution = startArchiveExtraction(createContentProviderRegistry(), {
+    const execution = startArchiveExtraction(createStorageBackedTestContentProviderRegistry(), {
       source: localArchiveLocation,
       destination: physicalLocation("local-drive:c", "archives/one"),
     });
@@ -477,7 +525,7 @@ describe("content providers", () => {
       cancellation_requested: false,
     });
 
-    const execution = startArchiveExtraction(createContentProviderRegistry(), {
+    const execution = startArchiveExtraction(createStorageBackedTestContentProviderRegistry(), {
       source: localArchiveLocation,
       destination: physicalLocation("local-drive:c", "archives/one"),
     });
@@ -530,7 +578,7 @@ describe("content providers", () => {
       cancellation_requested: true,
     });
 
-    const execution = startArchiveExtraction(createContentProviderRegistry(), {
+    const execution = startArchiveExtraction(createStorageBackedTestContentProviderRegistry(), {
       source: localArchiveLocation,
       destination: physicalLocation("local-drive:c", "archives/one"),
     });
@@ -551,7 +599,7 @@ describe("content providers", () => {
     vi.mocked(api.decideArchiveExtraction).mockRejectedValueOnce({ isAxiosError: true, response: { status: 409 } });
     vi.mocked(api.cancelArchiveOperation).mockResolvedValueOnce({ phase: "streaming" } as never);
 
-    const execution = startArchiveExtraction(createContentProviderRegistry(), {
+    const execution = startArchiveExtraction(createStorageBackedTestContentProviderRegistry(), {
       source: archiveLocation,
       destination: physicalLocation("conn-1", "output"),
     });
@@ -588,7 +636,7 @@ describe("content providers", () => {
       cancellation_requested: true,
     });
 
-    const execution = startArchiveExtraction(createContentProviderRegistry(), {
+    const execution = startArchiveExtraction(createStorageBackedTestContentProviderRegistry(), {
       source: localArchiveLocation,
       destination: physicalLocation("local-drive:c", "archives/one"),
     });
@@ -603,7 +651,7 @@ describe("content providers", () => {
     vi.mocked(api.prepareArchiveOperation).mockResolvedValueOnce({ id: "extract-1" } as never);
     vi.mocked(api.extractLocalArchiveToSmb).mockResolvedValueOnce(extractionAggregate() as never);
 
-    const execution = startArchiveExtraction(createContentProviderRegistry(), {
+    const execution = startArchiveExtraction(createStorageBackedTestContentProviderRegistry(), {
       source: localArchiveLocation,
       destination: physicalLocation("conn-1", "output"),
       selectedMemberPaths: ["docs/readme.txt"],
@@ -647,7 +695,7 @@ describe("content providers", () => {
       ...extractionAggregate(1, 1, 5),
     } as never);
 
-    const execution = startArchiveExtraction(createContentProviderRegistry(), {
+    const execution = startArchiveExtraction(createStorageBackedTestContentProviderRegistry(), {
       source: localArchiveLocation,
       destination: physicalLocation("conn-1", "output"),
       selectedMemberPaths: ["readme.txt"],
@@ -678,7 +726,7 @@ describe("content providers", () => {
     vi.mocked(api.getArchiveCompanionSession).mockResolvedValueOnce({ token: "session-token" } as never);
     vi.mocked(api.extractSmbArchiveToLocal).mockResolvedValueOnce(extractionAggregate() as never);
 
-    const execution = startArchiveExtraction(createContentProviderRegistry(), {
+    const execution = startArchiveExtraction(createStorageBackedTestContentProviderRegistry(), {
       source: archiveLocation,
       destination: physicalLocation("local-drive:c", "output"),
       selectedMemberPaths: ["docs/readme.txt"],
@@ -707,7 +755,7 @@ describe("content providers", () => {
     );
     vi.mocked(api.decideArchiveExtraction).mockResolvedValueOnce({ phase: "streaming" } as never);
 
-    const execution = startArchiveExtraction(createContentProviderRegistry(), {
+    const execution = startArchiveExtraction(createStorageBackedTestContentProviderRegistry(), {
       source: archiveLocation,
       destination: physicalLocation("local-drive:c", "output"),
     });
@@ -750,7 +798,7 @@ describe("content providers", () => {
     });
 
     await expect(
-      startArchiveExtraction(createContentProviderRegistry(), {
+      startArchiveExtraction(createStorageBackedTestContentProviderRegistry(), {
         source: localArchiveLocation,
         destination: physicalLocation("local-drive:d", "output"),
       }).result
@@ -762,7 +810,7 @@ describe("content providers", () => {
       checkpoint_json: JSON.stringify({ version: 2, aggregate_counters: extractionAggregate(1, 1, 5) }),
     } as never);
     await expect(
-      startArchiveExtraction(createContentProviderRegistry(), {
+      startArchiveExtraction(createStorageBackedTestContentProviderRegistry(), {
         source: otherSmbArchiveLocation,
         destination: physicalLocation("conn-2", "output"),
       }).result
@@ -796,7 +844,7 @@ describe("content providers", () => {
       .mockResolvedValueOnce({ phase: "streaming" } as never)
       .mockResolvedValueOnce({ phase: "streaming" } as never);
 
-    const execution = startArchiveExtraction(createContentProviderRegistry(), {
+    const execution = startArchiveExtraction(createStorageBackedTestContentProviderRegistry(), {
       source: archiveLocation,
       destination: physicalLocation("conn-1", "output"),
     });
@@ -854,7 +902,7 @@ describe("content providers", () => {
     );
     vi.mocked(api.decideArchiveExtraction).mockResolvedValueOnce({ phase: "streaming" } as never);
 
-    const execution = startArchiveExtraction(createContentProviderRegistry(), {
+    const execution = startArchiveExtraction(createStorageBackedTestContentProviderRegistry(), {
       source: archiveLocation,
       destination: physicalLocation("conn-1", "output"),
     });
@@ -882,23 +930,30 @@ describe("content providers", () => {
   });
 
   it("reads physical raw content from the original-byte endpoint", async () => {
+    const providers = createStorageBackedTestContentProviderRegistry();
     const blob = new Blob(["original"]);
     vi.mocked(api.getOriginalFileBlob).mockResolvedValueOnce(blob);
 
     await expect(
-      readContent({ kind: "physical", location: physicalLocation("conn-1", "photos"), path: "photos/photo.jxl" }, { kind: "raw" })
+      readContent(
+        { kind: "physical", location: physicalLocation("conn-1", "photos"), path: "photos/photo.jxl" },
+        { kind: "raw" },
+        undefined,
+        providers
+      )
     ).resolves.toBe(blob);
 
-    expect(api.getOriginalFileBlob).toHaveBeenCalledWith("conn-1", "photos/photo.jxl", { signal: undefined });
+    expect(api.getOriginalFileBlob).toHaveBeenCalledWith("conn-1", "photos/photo.jxl", undefined);
     expect(api.getFileBlob).not.toHaveBeenCalled();
   });
 
   it("reuses a virtual source for another member in the same provider", async () => {
+    const providers = createStorageBackedTestContentProviderRegistry();
     const blob = new Blob(["document"]);
     vi.mocked(api.getArchiveMember).mockResolvedValueOnce(blob);
 
     await expect(
-      readVirtualContent(virtualItemHandle(archiveLocation, "images/photo.png"), "docs/readme.md", { download: true })
+      readVirtualContent(virtualItemHandle(archiveLocation, "images/photo.png"), "docs/readme.md", { download: true }, providers)
     ).resolves.toBe(blob);
     expect(api.getArchiveMember).toHaveBeenCalledWith("conn-1", "archives/one.zip", "docs/readme.md", {
       download: true,
@@ -908,15 +963,22 @@ describe("content providers", () => {
   });
 
   it("uses the same image request for physical and virtual viewer sources", async () => {
+    const providers = createStorageBackedTestContentProviderRegistry();
     const physicalBlob = new Blob(["physical"]);
     const archiveBlob = new Blob(["archive"]);
     vi.mocked(api.getImageBlob).mockResolvedValueOnce(physicalBlob);
     vi.mocked(api.getArchiveMember).mockResolvedValueOnce(archiveBlob);
     const request = { kind: "image", viewportWidth: 1280, viewportHeight: 720 } as const;
 
-    await expect(readViewerContent("conn-1", "photos/photo.jxl", request)).resolves.toBe(physicalBlob);
+    await expect(readViewerContent("conn-1", "photos/photo.jxl", request, undefined, providers)).resolves.toBe(physicalBlob);
     await expect(
-      readViewerContent("conn-1", "images/photo.jxl", request, { virtualSource: virtualItemHandle(archiveLocation, "images/photo.jxl") })
+      readViewerContent(
+        "conn-1",
+        "images/photo.jxl",
+        request,
+        { virtualSource: virtualItemHandle(archiveLocation, "images/photo.jxl") },
+        providers
+      )
     ).resolves.toBe(archiveBlob);
 
     expect(api.getImageBlob).toHaveBeenCalledWith("conn-1", "photos/photo.jxl", {
@@ -954,10 +1016,17 @@ describe("content providers", () => {
   });
 
   it("invalidates physical and virtual PDF derivatives through their providers", async () => {
+    const providers = createStorageBackedTestContentProviderRegistry();
     const screenProfile = { width: 1280, height: 720, zoomPercent: 200 };
 
-    await invalidateViewerPdfDerivative("conn-1", "docs/physical.pdf", screenProfile);
-    await invalidateViewerPdfDerivative("conn-1", "docs/inside.pdf", screenProfile, virtualItemHandle(archiveLocation, "docs/inside.pdf"));
+    await invalidateViewerPdfDerivative("conn-1", "docs/physical.pdf", screenProfile, undefined, providers);
+    await invalidateViewerPdfDerivative(
+      "conn-1",
+      "docs/inside.pdf",
+      screenProfile,
+      virtualItemHandle(archiveLocation, "docs/inside.pdf"),
+      providers
+    );
 
     expect(api.invalidatePdfDerivative).toHaveBeenCalledWith("conn-1", "docs/physical.pdf", screenProfile);
     expect(api.invalidateArchiveMemberPdfDerivative).toHaveBeenCalledWith("conn-1", "archives/one.zip", "docs/inside.pdf", screenProfile);

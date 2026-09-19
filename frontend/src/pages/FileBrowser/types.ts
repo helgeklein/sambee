@@ -145,7 +145,7 @@ export interface UseFileBrowserPaneConfig {
   connections?: Connection[];
 
   /** Browser-file providers composed at the page boundary. */
-  contentProviders?: ContentProviderRegistry;
+  contentProviders: ContentProviderRegistry;
 
   /** Browser storage target resolver composed at the page boundary. */
   storageRegistry?: StorageBackendRegistry;

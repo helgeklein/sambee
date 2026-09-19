@@ -1,7 +1,20 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render as renderBase, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ContentProviderRegistryContext } from "../../../pages/FileBrowser/contentProviders";
+import { createStorageBackedTestContentProviderRegistry } from "../../../test/helpers";
 import { SambeeThemeProvider } from "../../../theme";
 import ImageViewer from "../ImageViewer";
+
+const contentProviders = createStorageBackedTestContentProviderRegistry();
+
+function ContentProviderTestWrapper({ children }: { children: ReactNode }) {
+  return <ContentProviderRegistryContext.Provider value={contentProviders}>{children}</ContentProviderRegistryContext.Provider>;
+}
+
+function render(ui: ReactNode) {
+  return renderBase(ui, { wrapper: ContentProviderTestWrapper });
+}
 
 vi.mock("yet-another-react-lightbox", () => ({
   __esModule: true,

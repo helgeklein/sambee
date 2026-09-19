@@ -1,7 +1,6 @@
 import { createContext, useContext } from "react";
 import api from "../../services/api";
 import { isLocalDrive } from "../../services/backendRouter";
-import { assertLocalPreviewSupported } from "../../services/previewPolicy";
 import type {
   ResolvedStorageDirectoryLocation,
   StorageBackendRegistry,
@@ -250,131 +249,6 @@ function toArchiveEntry(entry: ArchiveEntryInfo): FileEntry {
   };
 }
 
-const physicalContentProvider: ContentProvider = {
-  id: "physical",
-  async list(location, options) {
-    if (location.kind !== "physical") {
-      throw new Error("Physical provider requires a physical location");
-    }
-    const listing = await api.listDirectory(location.connectionId, location.path, { signal: options?.signal });
-    return {
-      items: listing.items.map((entry) => physicalItem(location, entry)),
-      total: listing.total,
-      nextCursor: null,
-    };
-  },
-  getCapabilities: () => PHYSICAL_CAPABILITIES,
-  read(item, request, options) {
-    if (item.kind !== "physical") {
-      throw new Error("Physical provider requires a physical item");
-    }
-    if (isLocalDrive(item.location.connectionId)) assertLocalPreviewSupported(item.path, request, options);
-
-    if (options?.download || request.kind === "raw") {
-      return api.getOriginalFileBlob(item.location.connectionId, item.path, { signal: options?.signal });
-    }
-
-    if (request.kind === "text") {
-      return api.getFileContent(item.location.connectionId, item.path).then((content) => new Blob([content], { type: "text/plain" }));
-    }
-
-    if (request.kind === "image") {
-      return api.getImageBlob(item.location.connectionId, item.path, {
-        signal: options?.signal,
-        viewportWidth: request.viewportWidth,
-        viewportHeight: request.viewportHeight,
-        no_resizing: request.noResizing,
-      });
-    }
-
-    return api.getPdfBlob(item.location.connectionId, item.path, {
-      signal: options?.signal,
-      pdfVariant: request.variant,
-      screenProfile: request.screenProfile,
-    });
-  },
-  async beginEdit(item) {
-    if (item.kind !== "physical") {
-      throw new Error("Physical provider requires a physical item");
-    }
-    if (!api.supportsEditLocks(item.location.connectionId)) return { kind: "unsupported" };
-    const lockInfo = await api.acquireEditLock(item.location.connectionId, item.path);
-    if (!lockInfo.lock_capability || !lockInfo.operation_id) throw new Error("Edit lock context is incomplete");
-    let released = false;
-    return {
-      kind: "acquired",
-      session: {
-        heartbeat: () => api.heartbeatEditLock(item.location.connectionId, item.path, lockInfo),
-        writeText: (content, options) =>
-          api.writeTextWithEditLock(
-            item.location.connectionId,
-            item.path,
-            content,
-            { lock_id: lockInfo.lock_id, lock_capability: lockInfo.lock_capability, operation_id: lockInfo.operation_id },
-            { mimeType: options?.mimeType }
-          ),
-        release: async () => {
-          if (released) return;
-          released = true;
-          await api.releaseEditLock(item.location.connectionId, item.path, lockInfo);
-        },
-      },
-    };
-  },
-  invalidatePdfDerivative(item, screenProfile) {
-    if (item.kind !== "physical") {
-      throw new Error("Physical provider requires a physical item");
-    }
-    return api.invalidatePdfDerivative(item.location.connectionId, item.path, screenProfile);
-  },
-};
-
-const zipContentProvider: VirtualContentProvider = {
-  id: "zip",
-  sourceExtensions: [".zip"],
-  async list(location, options) {
-    if (location.kind !== "virtual" || location.providerId !== "zip") {
-      throw new Error("ZIP provider requires a ZIP virtual location");
-    }
-    const listing = await api.listArchiveDirectory(location.connectionId, location.source.path, location.path, {
-      cursor: options?.cursor,
-      pageSize: options?.pageSize,
-      signal: options?.signal,
-    });
-    return {
-      items: listing.items.map((entry) => virtualItem(location, toArchiveEntry(entry))),
-      total: listing.items.length,
-      nextCursor: listing.next_cursor ?? null,
-    };
-  },
-  getCapabilities: () => VIRTUAL_READ_ONLY_CAPABILITIES,
-  read(item, request, options) {
-    if (item.kind !== "virtual" || item.location.providerId !== "zip") {
-      throw new Error("ZIP provider cannot read a different virtual content type");
-    }
-    if (isLocalDrive(item.location.source.connectionId)) assertLocalPreviewSupported(item.path, request, options);
-    return api.getArchiveMember(item.location.connectionId, item.location.source.path, item.path, {
-      download: options?.download,
-      request,
-      signal: options?.signal,
-    });
-  },
-  async beginEdit() {
-    return { kind: "unsupported" };
-  },
-  invalidatePdfDerivative(item, screenProfile) {
-    if (item.kind !== "virtual" || item.location.providerId !== "zip") {
-      throw new Error("ZIP provider cannot invalidate a different virtual content type");
-    }
-    return api.invalidateArchiveMemberPdfDerivative(item.location.connectionId, item.location.source.path, item.path, screenProfile);
-  },
-};
-
-const providers = new Map<string, ContentProvider>([
-  [physicalContentProvider.id, physicalContentProvider],
-  [zipContentProvider.id, zipContentProvider],
-]);
-
 function isVirtualContentProvider(provider: ContentProvider): provider is VirtualContentProvider {
   return "sourceExtensions" in provider && Array.isArray(provider.sourceExtensions);
 }
@@ -412,7 +286,10 @@ export function createStorageBackedContentProviderRegistry(registry: StorageBack
       let resolved: ResolvedStorageDirectoryLocation;
       try {
         resolved = registry.resolveDirectory(location);
-      } catch {
+      } catch (error) {
+        if (!isLocalDrive(location.connectionId)) {
+          throw error;
+        }
         // Direct local routes can load before Companion detection has refreshed its drive catalog.
         const listing = await api.listDirectory(location.connectionId, location.path, { signal: options?.signal });
         return { items: listing.items.map((entry) => physicalItem(location, entry)), total: listing.total, nextCursor: null };
@@ -485,10 +362,10 @@ export function createStorageBackedContentProviderRegistry(registry: StorageBack
       await registry.getBackend(source.target).archive?.invalidateMemberPdfDerivative(source, item.path, screenProfile);
     },
   };
-  return createContentProviderRegistry([physical, zip]);
+  return createRegistry([physical, zip]);
 }
 
-export function createContentProviderRegistry(providerEntries: Iterable<ContentProvider> = providers.values()): ContentProviderRegistry {
+function createRegistry(providerEntries: Iterable<ContentProvider>): ContentProviderRegistry {
   const registry = new Map(Array.from(providerEntries, (provider) => [provider.id, provider]));
   const get = (location: ContentLocation): ContentProvider => {
     const providerId = location.kind === "physical" ? "physical" : location.providerId;
@@ -513,37 +390,19 @@ export function createContentProviderRegistry(providerEntries: Iterable<ContentP
   };
 }
 
-const defaultProviderRegistry = createContentProviderRegistry();
-
 export function useContentProviderRegistry(): ContentProviderRegistry {
-  return useContext(ContentProviderRegistryContext) ?? defaultProviderRegistry;
-}
-
-export function getContentProvider(location: ContentLocation): ContentProvider {
-  return defaultProviderRegistry.get(location);
-}
-
-export function getContentCapabilities(location: ContentLocation): ContentCapabilities {
-  return defaultProviderRegistry.getCapabilities(location);
-}
-
-export function getVirtualContentProvider(location: VirtualLocation): VirtualContentProvider {
-  const provider = getContentProvider(location);
-  if (!isVirtualContentProvider(provider)) {
-    throw new Error(`Content provider ${location.providerId} cannot read virtual items`);
+  const registry = useContext(ContentProviderRegistryContext);
+  if (!registry) {
+    throw new Error("useContentProviderRegistry must be used within a ContentProviderRegistryContext.Provider");
   }
-  return provider;
-}
-
-export function getVirtualContentProviderIdForFilename(filename: string): VirtualContentProviderId | null {
-  return defaultProviderRegistry.getVirtualProviderIdForFilename(filename);
+  return registry;
 }
 
 export function readVirtualContent(
   source: VirtualItemHandle,
   path = source.path,
-  options?: { download?: boolean; signal?: AbortSignal },
-  registry: ContentProviderRegistry = defaultProviderRegistry
+  options: { download?: boolean; signal?: AbortSignal } | undefined,
+  registry: ContentProviderRegistry
 ): Promise<Blob> {
   return readContent(virtualItemHandle(source.location, path), { kind: "raw" }, options, registry);
 }
@@ -551,8 +410,8 @@ export function readVirtualContent(
 export function readContent(
   item: ContentItemHandle,
   request: ContentReadRequest,
-  options?: ContentReadOptions,
-  registry: ContentProviderRegistry = defaultProviderRegistry
+  options: ContentReadOptions | undefined,
+  registry: ContentProviderRegistry
 ): Promise<Blob> {
   return registry.get(item.location).read(item, request, options);
 }
@@ -561,8 +420,8 @@ export function readViewerContent(
   connectionId: string,
   path: string,
   request: ContentReadRequest,
-  options?: ContentReadOptions & { virtualSource?: VirtualItemHandle },
-  registry: ContentProviderRegistry = defaultProviderRegistry
+  options: (ContentReadOptions & { virtualSource?: VirtualItemHandle }) | undefined,
+  registry: ContentProviderRegistry
 ): Promise<Blob> {
   const item = options?.virtualSource ? virtualItemHandle(options.virtualSource.location, path) : physicalItemHandle(connectionId, path);
   return readContent(item, request, options, registry);
@@ -571,7 +430,7 @@ export function readViewerContent(
 export async function beginViewerTextEdit(
   connectionId: string,
   path: string,
-  registry: ContentProviderRegistry = defaultProviderRegistry
+  registry: ContentProviderRegistry
 ): Promise<ContentEditStartResult> {
   const item = physicalItemHandle(connectionId, path);
   return registry.get(item.location).beginEdit(item);
@@ -580,9 +439,9 @@ export async function beginViewerTextEdit(
 export function invalidateViewerPdfDerivative(
   connectionId: string,
   path: string,
-  screenProfile?: PdfScreenProfile,
-  virtualSource?: VirtualItemHandle,
-  registry: ContentProviderRegistry = defaultProviderRegistry
+  screenProfile: PdfScreenProfile | undefined,
+  virtualSource: VirtualItemHandle | undefined,
+  registry: ContentProviderRegistry
 ): Promise<void> {
   const item = virtualSource ? virtualItemHandle(virtualSource.location, path) : physicalItemHandle(connectionId, path);
   return registry.get(item.location).invalidatePdfDerivative(item, screenProfile);

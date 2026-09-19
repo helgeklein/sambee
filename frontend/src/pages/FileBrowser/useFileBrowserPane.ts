@@ -46,8 +46,6 @@ import {
   type ContentCapabilities,
   type ContentItemHandle,
   type ContentLocation,
-  createContentProviderRegistry,
-  getVirtualContentProviderIdForFilename,
   isVirtualItem,
   physicalItem,
   physicalItemHandle,
@@ -283,8 +281,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     onNavigateVirtualLocation,
     onResolveRouteLocation,
   } = config;
-  const fallbackContentProviders = useMemo(() => createContentProviderRegistry(), []);
-  const providerRegistry = contentProviders ?? fallbackContentProviders;
+  const providerRegistry = contentProviders;
 
   const { currentTheme } = useSambeeTheme();
 
@@ -2008,7 +2005,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
   const openArchive = useCallback(
     (archivePath: string) => {
-      const providerId = getVirtualContentProviderIdForFilename(archivePath);
+      const providerId = providerRegistry.getVirtualProviderIdForFilename(archivePath);
       if (!providerId) {
         setError(ARCHIVE_LOAD_ERROR);
         return;
@@ -2024,7 +2021,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       updateFocus(0, { immediate: true });
       onNavigateVirtualLocation?.({ providerId, sourcePath: archivePath, virtualPath: "" });
     },
-    [onNavigateVirtualLocation, transitionListingLocation, updateFocus]
+    [onNavigateVirtualLocation, providerRegistry, transitionListingLocation, updateFocus]
   );
 
   const navigateArchiveToPath = useCallback(
@@ -2104,7 +2101,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       }
 
       // Nested archives cannot be listed from a virtual member source yet.
-      if (file.type === FileType.FILE && getVirtualContentProviderIdForFilename(file.name)) {
+      if (file.type === FileType.FILE && providerRegistry.getVirtualProviderIdForFilename(file.name)) {
         return;
       }
 
@@ -2135,7 +2132,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
       openFileWithAssociatedViewer(file, file.path, mimeType, connectionIdRef.current, isActivationCurrent, item.handle, activationId);
     },
-    [getItemForEntry, openBrowserViewerPicker, openFileWithAssociatedViewer]
+    [getItemForEntry, openBrowserViewerPicker, openFileWithAssociatedViewer, providerRegistry]
   );
 
   const handleFileClick = useCallback(
@@ -2154,7 +2151,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       }
 
       const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
-      if (file.type === "file" && getVirtualContentProviderIdForFilename(file.name)) {
+      if (file.type === "file" && providerRegistry.getVirtualProviderIdForFilename(file.name)) {
         openArchive(filePath);
         return;
       }
@@ -2193,6 +2190,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       openArchive,
       openArchiveMember,
       openFileWithAssociatedViewer,
+      providerRegistry,
       resolveAndActivateLocalEntry,
     ]
   );
@@ -2209,7 +2207,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       }
 
       const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
-      if (file.type === "file" && getVirtualContentProviderIdForFilename(file.name)) {
+      if (file.type === "file" && providerRegistry.getVirtualProviderIdForFilename(file.name)) {
         openArchive(filePath);
         return;
       }
@@ -2250,6 +2248,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       openNativeFile,
       openBrowserViewerPicker,
       openFileWithAssociatedViewer,
+      providerRegistry,
       resolveAndActivateLocalEntry,
     ]
   );
@@ -3266,7 +3265,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       for (let index = 0; index < segments.length; index += 1) {
         const segment = segments[index];
         const candidatePath = joinRoutePath(physicalPath, segment);
-        const providerId = getVirtualContentProviderIdForFilename(candidatePath);
+        const providerId = providerRegistry.getVirtualProviderIdForFilename(candidatePath);
         if (!providerId) {
           physicalPath = candidatePath;
           continue;
@@ -3314,7 +3313,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
       return { physicalPath: targetPath, archiveLocation: null, canonicalPath: targetPath };
     },
-    [resolveArchiveRouteLocation, storageRegistry]
+    [providerRegistry, resolveArchiveRouteLocation, storageRegistry]
   );
 
   const applyLocation = useCallback(
@@ -3334,7 +3333,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       const hasArchiveCandidate = normalizedPath
         .split("/")
         .filter(Boolean)
-        .some((_, index, segments) => getVirtualContentProviderIdForFilename(segments.slice(0, index + 1).join("/")) !== null);
+        .some((_, index, segments) => providerRegistry.getVirtualProviderIdForFilename(segments.slice(0, index + 1).join("/")) !== null);
       if (!hasArchiveCandidate) {
         applyResolvedLocation(nextConnectionId, normalizedPath, null);
         return;
@@ -3362,7 +3361,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
           setError(DIRECTORY_LOAD_GENERIC_ERROR);
         });
     },
-    [applyResolvedLocation, resolveRouteLocation]
+    [applyResolvedLocation, providerRegistry, resolveRouteLocation]
   );
 
   // ──────────────────────────────────────────────────────────────────────────

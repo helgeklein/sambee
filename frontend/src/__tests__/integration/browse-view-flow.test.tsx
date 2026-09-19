@@ -38,9 +38,13 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { forwardRef, useImperativeHandle } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MarkdownViewer from "../../components/Viewer/MarkdownViewer";
+import { ContentProviderRegistryContext } from "../../pages/FileBrowser/contentProviders";
 import apiService from "../../services/api";
 import { authSession } from "../../services/authSession";
+import { createStorageBackedTestContentProviderRegistry } from "../../test/helpers";
 import { SambeeThemeProvider } from "../../theme";
+
+const contentProviders = createStorageBackedTestContentProviderRegistry();
 
 vi.mock("../../components/Viewer/MarkdownRichEditor", () => {
   const MockMarkdownRichEditor = forwardRef<
@@ -95,9 +99,11 @@ describe("Browse → View Flow", () => {
 
   const renderMarkdownViewer = (props: { connectionId: string; path: string; onClose: () => void }) => {
     return render(
-      <SambeeThemeProvider>
-        <MarkdownViewer {...props} />
-      </SambeeThemeProvider>
+      <ContentProviderRegistryContext.Provider value={contentProviders}>
+        <SambeeThemeProvider>
+          <MarkdownViewer {...props} />
+        </SambeeThemeProvider>
+      </ContentProviderRegistryContext.Provider>
     );
   };
 
