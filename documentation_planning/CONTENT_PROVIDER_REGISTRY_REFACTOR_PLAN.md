@@ -30,9 +30,9 @@ The legacy physical provider has a separate edit session implementation and does
 
 ### Local-drive catalog-refresh compatibility
 
-The storage-backed physical provider currently uses `api.listDirectory()` only when `StorageBackendRegistry.resolveDirectory()` cannot resolve a direct local-drive route before the Companion drive catalog has refreshed. Retain this narrowly scoped listing fallback during this refactor so direct local routes preserve their current behavior.
+Restrict the storage-backed physical provider's `api.listDirectory()` compatibility path to direct local-drive routes for which `StorageBackendRegistry.resolveDirectory()` cannot resolve the drive before the Companion catalog refreshes. When directory resolution fails for a non-local location, rethrow the original error rather than falling back to `api`.
 
-This is not a second registry and must not become a general read, edit, or provider-selection fallback. Keep the API import needed for this branch, document its catalog-refresh purpose in the implementation, and add a focused test that exercises it. Moving this transition behavior into `StorageBackendRegistry` is out of scope for this dependency-boundary refactor.
+This is not a second registry and must not become a general read, edit, or provider-selection fallback. Guard the compatibility branch with `isLocalDrive(location.connectionId)`, keep the API import needed for this branch, document its catalog-refresh purpose in the implementation, and add focused positive and negative tests. Moving this transition behavior into `StorageBackendRegistry` is out of scope for this dependency-boundary refactor.
 
 ### Explicit dependencies, no silent fallback
 
@@ -85,9 +85,7 @@ Update every test and direct component invocation to pass an explicit registry.
 
 ### 3. Make the context invariant explicit
 
-Change `ContentProviderRegistryContext` to represent a missing provider distinctly.
-
-Change `useContentProviderRegistry()` so it throws a precise developer-facing error when no provider is available. A missing registry is an integration error, not a user-facing recovery condition.
+Keep `ContentProviderRegistryContext` as `ContentProviderRegistry | null` with `null` as its missing-provider sentinel. Change `useContentProviderRegistry()` so it throws a precise developer-facing error when it reads that sentinel. A missing registry is an integration error, not a user-facing recovery condition.
 
 Keep `DynamicViewer` as the production context boundary and require its registry prop. Direct viewer tests must wrap the viewer with `ContentProviderRegistryContext.Provider` or use `DynamicViewer` with an explicit registry.
 
@@ -117,6 +115,8 @@ After all callers compile with an explicit registry, remove from `contentProvide
 
 Retain a private registry builder that accepts explicit provider entries and has no default entries or default registry. `createStorageBackedContentProviderRegistry()` uses this builder to assemble its physical and virtual providers. Test fixtures construct minimal fake registries directly rather than depending on this production implementation detail.
 
+In the storage-backed physical provider, handle `resolveDirectory()` failures by calling `api.listDirectory()` only when `isLocalDrive(location.connectionId)` is true; rethrow the failure for SMB and every other non-local target.
+
 Retain:
 
 - Content location and item-handle types/helpers.
@@ -132,6 +132,7 @@ Add or update focused tests for:
 - Context propagation: `DynamicViewer` passes its explicit registry to a rendered viewer.
 - Pane routing: virtual-provider ID lookup uses the injected registry, including a registry whose virtual provider catalog differs from the prior default.
 - Local-drive catalog-refresh compatibility: storage-backed physical listing falls back only when local directory resolution is unavailable and maps the resulting entries to physical items.
+- Non-local resolution failures: storage-backed physical listing rejects the original resolution error and never calls `api.listDirectory()`.
 
 Keep the existing SMB and local lock-recovery tests in `storageBackends.test.ts`; they already prove one reacquisition, retry with renewed credentials, and renewed-lock heartbeat and release behavior. Keep existing provider and archive tests, but make their chosen registry explicit. Add an adapter-level test only if the current `beginViewerTextEdit()` delegation test does not cover the changed provider boundary. The goal is stronger boundary coverage, not merely adapting assertions to compile.
 
@@ -162,7 +163,7 @@ Run validation in this order:
 2. Frontend typecheck and Biome lint.
 3. Full frontend test suite.
 4. Frontend production build.
-5. Search for removed symbols and confirm no references remain:
+5. Within `frontend/src`, search for removed symbols and confirm no references remain:
    - `defaultProviderRegistry`
    - `createContentProviderRegistry`
    - `physicalContentProvider`
@@ -176,7 +177,7 @@ Run validation in this order:
 - All production FileBrowser panes and viewers receive the same storage-backed registry instance.
 - Virtual-provider lookup is performed through the active registry.
 - No duplicate API-backed text-edit session remains.
-- The documented local-drive catalog-refresh listing fallback remains narrowly scoped and covered by a focused test.
+- The documented local-drive catalog-refresh listing fallback is guarded to local targets, rethrows non-local resolution failures, and has focused positive and negative coverage.
 - Local and SMB Markdown saves retain the existing one-time lock reacquisition behavior.
 - Tests use explicit real or fake registries according to the behavior under test.
 - Typecheck, lint, focused tests, full frontend tests, and production build pass.
