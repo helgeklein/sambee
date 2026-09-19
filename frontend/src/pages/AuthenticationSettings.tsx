@@ -18,7 +18,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { adminDialogActionButtonSx, adminDialogEndActionRowSx } from "../components/Admin/dialogActionStyles";
 import { DialogNotice } from "../components/Dialog/DialogNotice";
@@ -81,6 +81,36 @@ const parseList = (value: string) =>
     .split(",")
     .map((entry) => entry.trim())
     .filter(Boolean);
+type OidcGroupDrafts = {
+  admission: string;
+  admin: string;
+  editor: string;
+  viewer: string;
+};
+type OidcGroupDraftField = keyof OidcGroupDrafts;
+const groupDraftsFor = (candidate: OidcConfigurationCandidate): OidcGroupDrafts => ({
+  admission: listValue(candidate.admission_groups),
+  admin: listValue(candidate.role_mappings.admin),
+  editor: listValue(candidate.role_mappings.editor),
+  viewer: listValue(candidate.role_mappings.viewer),
+});
+const candidateWithGroupDrafts = (candidate: OidcConfigurationCandidate, drafts: OidcGroupDrafts): OidcConfigurationCandidate => ({
+  ...candidate,
+  admission_groups: parseList(drafts.admission),
+  role_mappings: {
+    ...candidate.role_mappings,
+    admin: parseList(drafts.admin),
+    editor: parseList(drafts.editor),
+    viewer: parseList(drafts.viewer),
+  },
+});
+const sameStringList = (left: string[], right: string[]) =>
+  left.length === right.length && left.every((value, index) => value === right[index]);
+const sameGroupConfiguration = (left: OidcConfigurationCandidate, right: OidcConfigurationCandidate) =>
+  sameStringList(left.admission_groups, right.admission_groups) &&
+  sameStringList(left.role_mappings.admin, right.role_mappings.admin) &&
+  sameStringList(left.role_mappings.editor, right.role_mappings.editor) &&
+  sameStringList(left.role_mappings.viewer, right.role_mappings.viewer);
 const optionalClaim = (value: string) => value.trim() || null;
 const OIDC_SETUP_FLOW_STORAGE_KEY = "sambee.oidc.setupFlowId";
 const OIDC_REVIEWED_POLICY_STORAGE_KEY = "sambee.oidc.reviewedPolicy";
@@ -265,6 +295,7 @@ export function AuthenticationSettings() {
   const providerFieldSx = [formOutlinedControlSx, { width: { md: PROVIDER_DESKTOP_FIELD_WIDTH_PX } }];
   const providerIntervalFieldSx = [formOutlinedControlSx, { width: { md: PROVIDER_INTERVAL_DESKTOP_FIELD_WIDTH_PX } }];
   const [candidate, setCandidate] = useState<OidcConfigurationCandidate>(DEFAULT_CANDIDATE);
+  const [groupDrafts, setGroupDrafts] = useState<OidcGroupDrafts>(() => groupDraftsFor(DEFAULT_CANDIDATE));
   const [configuration, setConfiguration] = useState<OidcAdminConfigurationRead | null>(() =>
     getCachedAsyncData<OidcAdminConfigurationRead>(SETTINGS_DATA_CACHE_KEYS.adminAuthentication)
   );
@@ -296,6 +327,19 @@ export function AuthenticationSettings() {
   }, [candidate.scopes]);
 
   const previewRequestSequence = useRef(0);
+  const initializeOidcDraft = useCallback((nextCandidate: OidcConfigurationCandidate) => {
+    setCandidate(nextCandidate);
+    setGroupDrafts(groupDraftsFor(nextCandidate));
+    setScopesInput(listValue(nextCandidate.scopes));
+  }, []);
+  const applyOidcPreviewResult = (identity: OidcTestedIdentity) => {
+    setCandidate(editableCandidate(identity.candidate));
+    setTestedIdentity(identity);
+    setMappingErrors({});
+    setMappingReview(mappingReviewFor(identity));
+    setReviewPending(false);
+  };
+  const effectiveCandidate = candidateWithGroupDrafts(candidate, groupDrafts);
   const selectedMappings = testedIdentity?.replacement_mappings.filter((mapping) => mappingReview[mapping.target_user_id]?.selected) ?? [];
   const replacementUsernames = selectedMappings.map((mapping) => mappingReview[mapping.target_user_id]?.expectedUsername.trim() ?? "");
   const requiredOmissions =
@@ -317,18 +361,18 @@ export function AuthenticationSettings() {
     replacementUsernames.some((username) => !username || username === testedIdentity?.username.trim()) ||
     new Set(replacementUsernames).size !== replacementUsernames.length ||
     requiredOmissions.length > 0;
-  const duplicateAdmissionGroups = duplicateGroupKeys(candidate.admission_groups);
-  const duplicateAdminGroups = duplicateGroupKeys(candidate.role_mappings.admin);
-  const duplicateEditorGroups = duplicateGroupKeys(candidate.role_mappings.editor);
-  const duplicateViewerGroups = duplicateGroupKeys(candidate.role_mappings.viewer);
-  const adminGroupKeys = new Set(candidate.role_mappings.admin.map(normalizedGroupKey));
-  const editorGroupKeys = new Set(candidate.role_mappings.editor.map(normalizedGroupKey));
-  const viewerGroupKeys = new Set(candidate.role_mappings.viewer.map(normalizedGroupKey));
+  const duplicateAdmissionGroups = duplicateGroupKeys(effectiveCandidate.admission_groups);
+  const duplicateAdminGroups = duplicateGroupKeys(effectiveCandidate.role_mappings.admin);
+  const duplicateEditorGroups = duplicateGroupKeys(effectiveCandidate.role_mappings.editor);
+  const duplicateViewerGroups = duplicateGroupKeys(effectiveCandidate.role_mappings.viewer);
+  const adminGroupKeys = new Set(effectiveCandidate.role_mappings.admin.map(normalizedGroupKey));
+  const editorGroupKeys = new Set(effectiveCandidate.role_mappings.editor.map(normalizedGroupKey));
+  const viewerGroupKeys = new Set(effectiveCandidate.role_mappings.viewer.map(normalizedGroupKey));
   const allRoleGroupKeys = [...adminGroupKeys, ...editorGroupKeys, ...viewerGroupKeys];
   const crossRoleGroupKeys = new Set(allRoleGroupKeys.filter((key, index) => allRoleGroupKeys.indexOf(key) !== index));
-  const usesGroupBasedRoleAssignment = candidate.role_assignment_mode === "group_based";
+  const usesGroupBasedRoleAssignment = effectiveCandidate.role_assignment_mode === "group_based";
   const admissionGroupError =
-    candidate.admission_mode === "selected_groups" && candidate.admission_groups.length === 0
+    effectiveCandidate.admission_mode === "selected_groups" && effectiveCandidate.admission_groups.length === 0
       ? "Members of these groups can sign in. Enter at least one group name. Separate multiple groups by commas."
       : duplicateAdmissionGroups.size > 0
         ? "Admission groups must be unique after normalization."
@@ -476,14 +520,14 @@ export function AuthenticationSettings() {
       if (!active) return;
       setConfiguration(response);
       setAuthMode(response.auth_mode);
-      if (response.configuration) setCandidate(editableCandidate(response.configuration));
+      if (response.configuration) initializeOidcDraft(editableCandidate(response.configuration));
       if (recoveredFinalization || replayFailure === "configuration_changed") return;
       const flowId = fragmentFlowId ?? sessionStorage.getItem(OIDC_SETUP_FLOW_STORAGE_KEY);
       if (!flowId) return;
       try {
         const identity = await api.getOidcTestResult(flowId, storedReviewedPolicy());
         if (!active) return;
-        setCandidate(editableCandidate(identity.candidate));
+        initializeOidcDraft(editableCandidate(identity.candidate));
         setAuthMode(identity.candidate.sign_in_mode);
         setTestedIdentity(identity);
         setOidcDialogOpen(true);
@@ -519,17 +563,13 @@ export function AuthenticationSettings() {
     return () => {
       active = false;
     };
-  }, [navigate]);
+  }, [navigate, initializeOidcDraft]);
 
-  const update = <Key extends keyof OidcConfigurationCandidate>(key: Key, value: OidcConfigurationCandidate[Key]) => {
+  const applyCandidateUpdate = (nextCandidate: OidcConfigurationCandidate, changedField: keyof OidcConfigurationCandidate) => {
     if (finalizationUnresolved) return;
-    const nextCandidate = {
-      ...candidate,
-      [key]: value,
-    };
     setCandidate(nextCandidate);
     setTestError("");
-    if (testedIdentity && REVIEWABLE_POLICY_KEYS.has(key)) {
+    if (testedIdentity && REVIEWABLE_POLICY_KEYS.has(changedField)) {
       const requestSequence = ++previewRequestSequence.current;
       const reviewedPolicy = reviewedPolicyFor(nextCandidate);
       sessionStorage.setItem(OIDC_REVIEWED_POLICY_STORAGE_KEY, JSON.stringify(reviewedPolicy));
@@ -540,11 +580,7 @@ export function AuthenticationSettings() {
         .getOidcTestResult(testedIdentity.flow_id, reviewedPolicy)
         .then((identity) => {
           if (requestSequence !== previewRequestSequence.current) return;
-          setCandidate(editableCandidate(identity.candidate));
-          setTestedIdentity(identity);
-          setMappingErrors({});
-          setMappingReview(mappingReviewFor(identity));
-          setReviewPending(false);
+          applyOidcPreviewResult(identity);
         })
         .catch((caught: unknown) => {
           if (requestSequence !== previewRequestSequence.current) return;
@@ -581,13 +617,26 @@ export function AuthenticationSettings() {
     setNotice("");
   };
 
+  const update = <Key extends keyof OidcConfigurationCandidate>(key: Key, value: OidcConfigurationCandidate[Key]) => {
+    applyCandidateUpdate({ ...candidate, [key]: value }, key);
+  };
+
+  const updateGroupDraft = (field: OidcGroupDraftField, rawValue: string) => {
+    if (finalizationUnresolved) return;
+    const nextDrafts = { ...groupDrafts, [field]: rawValue };
+    const nextCandidate = candidateWithGroupDrafts(candidate, nextDrafts);
+    setGroupDrafts(nextDrafts);
+    if (!sameGroupConfiguration(candidate, nextCandidate)) {
+      applyCandidateUpdate(nextCandidate, field === "admission" ? "admission_groups" : "role_mappings");
+    }
+  };
+
   const resetOidcDraft = () => {
     const nextCandidate = configuration?.configuration
       ? editableCandidate(configuration.configuration)
       : { ...DEFAULT_CANDIDATE, sign_in_mode: isOidcMode ? authMode : DEFAULT_CANDIDATE.sign_in_mode };
 
-    setCandidate(nextCandidate);
-    setScopesInput(listValue(nextCandidate.scopes));
+    initializeOidcDraft(nextCandidate);
     setClientSecret("");
     setShowClientSecret(false);
     setTestError("");
@@ -602,7 +651,7 @@ export function AuthenticationSettings() {
     setOidcDialogOpen(true);
   };
 
-  const startTest = async (candidateToTest: OidcConfigurationCandidate = candidate, clientSecretToTest = clientSecret) => {
+  const startTest = async (candidateToTest: OidcConfigurationCandidate = effectiveCandidate, clientSecretToTest = clientSecret) => {
     if (finalizationUnresolved) return;
     setBusy(true);
     setError("");
@@ -629,7 +678,7 @@ export function AuthenticationSettings() {
     setReviewActionError("");
     const finalizationRequest: PendingOidcFinalization = {
       flow_id: testedIdentity.flow_id,
-      reviewed_policy: reviewedPolicyFor(candidate),
+      reviewed_policy: reviewedPolicyFor(effectiveCandidate),
       replacement_mappings: selectedMappings.map(({ target_user_id }) => ({
         target_user_id,
         expected_username: mappingReview[target_user_id]?.expectedUsername.trim() ?? "",
@@ -658,11 +707,8 @@ export function AuthenticationSettings() {
       const validationErrors = getOidcMappingValidationErrors(caught);
       if (failureKind === "mapping_stale") {
         try {
-          const refreshedIdentity = await api.getOidcTestResult(testedIdentity.flow_id, reviewedPolicyFor(candidate));
-          setCandidate(editableCandidate(refreshedIdentity.candidate));
-          setTestedIdentity(refreshedIdentity);
-          setMappingErrors({});
-          setMappingReview(mappingReviewFor(refreshedIdentity));
+          const refreshedIdentity = await api.getOidcTestResult(testedIdentity.flow_id, reviewedPolicyFor(effectiveCandidate));
+          applyOidcPreviewResult(refreshedIdentity);
           setReviewActionError("The account mapping review changed. Review the refreshed mappings before activating.");
         } catch (refreshError: unknown) {
           if (isApiError(refreshError) && refreshError.response?.status === 404) {
@@ -721,7 +767,7 @@ export function AuthenticationSettings() {
     try {
       const refreshed = await primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAuthentication, loadAuthenticationSettingsData, true);
       setConfiguration(refreshed);
-      if (refreshed.configuration) setCandidate(editableCandidate(refreshed.configuration));
+      if (refreshed.configuration) initializeOidcDraft(editableCandidate(refreshed.configuration));
     } catch {
       setError("Authentication was activated, but the current settings could not be reloaded. Reload this page to refresh them.");
     } finally {
@@ -792,7 +838,7 @@ export function AuthenticationSettings() {
         try {
           const refreshed = await primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAuthentication, loadAuthenticationSettingsData, true);
           setConfiguration(refreshed);
-          if (refreshed.configuration) setCandidate(editableCandidate(refreshed.configuration));
+          if (refreshed.configuration) initializeOidcDraft(editableCandidate(refreshed.configuration));
           setError("Authentication settings changed. Review the current Password-only impact and confirm again.");
         } catch {
           setError("Authentication settings changed and could not be refreshed. Reload this page before trying again.");
@@ -1037,7 +1083,7 @@ export function AuthenticationSettings() {
                       Cancel
                     </Button>
                     <Button
-                      onClick={() => (testedIdentity ? setOidcReviewOpen(true) : void startTest())}
+                      onClick={() => (testedIdentity ? setOidcReviewOpen(true) : void startTest(effectiveCandidate))}
                       disabled={
                         busy ||
                         finalizationUnresolved ||
@@ -1323,8 +1369,8 @@ export function AuthenticationSettings() {
                             fullWidth={!usesDesktopFormLayout}
                             size={formFieldSize}
                             label={usesDesktopFormLayout ? undefined : "Admission groups"}
-                            value={listValue(candidate.admission_groups)}
-                            onChange={(event) => update("admission_groups", parseList(event.target.value))}
+                            value={groupDrafts.admission}
+                            onChange={(event) => updateGroupDraft("admission", event.target.value)}
                             disabled={finalizationUnresolved}
                             error={Boolean(admissionGroupError)}
                             helperText={
@@ -1409,10 +1455,8 @@ export function AuthenticationSettings() {
                               fullWidth={!usesDesktopFormLayout}
                               size={formFieldSize}
                               label={usesDesktopFormLayout ? undefined : "Administrator groups"}
-                              value={listValue(candidate.role_mappings.admin)}
-                              onChange={(event) =>
-                                update("role_mappings", { ...candidate.role_mappings, admin: parseList(event.target.value) })
-                              }
+                              value={groupDrafts.admin}
+                              onChange={(event) => updateGroupDraft("admin", event.target.value)}
                               disabled={finalizationUnresolved}
                               error={Boolean(adminGroupError)}
                               helperText={
@@ -1440,10 +1484,8 @@ export function AuthenticationSettings() {
                               fullWidth={!usesDesktopFormLayout}
                               size={formFieldSize}
                               label={usesDesktopFormLayout ? undefined : "Editor groups"}
-                              value={listValue(candidate.role_mappings.editor)}
-                              onChange={(event) =>
-                                update("role_mappings", { ...candidate.role_mappings, editor: parseList(event.target.value) })
-                              }
+                              value={groupDrafts.editor}
+                              onChange={(event) => updateGroupDraft("editor", event.target.value)}
                               disabled={finalizationUnresolved}
                               error={Boolean(editorGroupError)}
                               helperText={
@@ -1469,10 +1511,8 @@ export function AuthenticationSettings() {
                               fullWidth={!usesDesktopFormLayout}
                               size={formFieldSize}
                               label={usesDesktopFormLayout ? undefined : "Viewer groups"}
-                              value={listValue(candidate.role_mappings.viewer)}
-                              onChange={(event) =>
-                                update("role_mappings", { ...candidate.role_mappings, viewer: parseList(event.target.value) })
-                              }
+                              value={groupDrafts.viewer}
+                              onChange={(event) => updateGroupDraft("viewer", event.target.value)}
                               disabled={finalizationUnresolved}
                               error={Boolean(viewerGroupError)}
                               helperText={

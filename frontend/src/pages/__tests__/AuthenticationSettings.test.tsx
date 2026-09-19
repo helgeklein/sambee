@@ -1152,6 +1152,91 @@ describe("Authentication settings", () => {
     expect(scopes).toHaveValue("openid, profile, groups,email");
   });
 
+  it("preserves comma-separated group drafts and submits parsed group arrays", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.startOidcTest).mockRejectedValue(new Error("Test request stopped"));
+    window.location.hash = "";
+    renderSettings();
+
+    await openOidcConfiguration(user);
+    const admissionGroups = await screen.findByRole("textbox", { name: "Admission groups" });
+    const administratorGroups = screen.getByRole("textbox", { name: "Administrator groups" });
+    const editorGroups = screen.getByRole("textbox", { name: "Editor groups" });
+    const viewerGroups = screen.getByRole("textbox", { name: "Viewer groups" });
+
+    await user.click(admissionGroups);
+    await user.keyboard("{End}, Engineering Team");
+    await user.click(administratorGroups);
+    await user.keyboard("{End}, Platform Admins");
+    await user.type(editorGroups, "Content Editors, Release Editors");
+    await user.type(viewerGroups, "Read Only, Support Team");
+
+    expect(admissionGroups).toHaveValue("sambee-users, Engineering Team");
+    expect(administratorGroups).toHaveValue("sambee-admins, Platform Admins");
+    expect(editorGroups).toHaveValue("Content Editors, Release Editors");
+    expect(viewerGroups).toHaveValue("Read Only, Support Team");
+
+    await user.click(screen.getByRole("button", { name: "Connect and test" }));
+
+    expect(api.startOidcTest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        admission_groups: ["sambee-users", "Engineering Team"],
+        role_mappings: {
+          admin: ["sambee-admins", "Platform Admins"],
+          editor: ["Content Editors", "Release Editors"],
+          viewer: ["Read Only", "Support Team"],
+        },
+      })
+    );
+  });
+
+  it("does not re-evaluate a tested policy for a separator-only group edit", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity());
+    window.location.hash = "flow=test-flow";
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Back" }));
+    const admissionGroups = await screen.findByRole("textbox", { name: "Admission groups" });
+    await user.click(admissionGroups);
+    await user.keyboard("{End},");
+
+    expect(admissionGroups).toHaveValue("sambee-users,");
+    expect(api.getOidcTestResult).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps active group drafts unchanged when a policy preview resolves", async () => {
+    const user = userEvent.setup();
+    let resolvePreview: (identity: OidcTestedIdentity) => void;
+    const previewResult = new Promise<OidcTestedIdentity>((resolve) => {
+      resolvePreview = resolve;
+    });
+    const reviewedCandidate = {
+      ...configuration("Tested Provider"),
+      admission_groups: ["sambee-users", "Engineering Team"],
+    };
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult)
+      .mockResolvedValueOnce(testedIdentity())
+      .mockImplementation(() => previewResult);
+    window.location.hash = "flow=test-flow";
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Back" }));
+    const admissionGroups = await screen.findByRole("textbox", { name: "Admission groups" });
+    await user.click(admissionGroups);
+    await user.keyboard("{End}, Engineering Team");
+    const requestsBeforeResolution = vi.mocked(api.getOidcTestResult).mock.calls.length;
+
+    resolvePreview(testedIdentity({ candidate: reviewedCandidate }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Review test" })).toBeEnabled());
+    expect(admissionGroups).toHaveValue("sambee-users, Engineering Team");
+    expect(api.getOidcTestResult).toHaveBeenCalledTimes(requestsBeforeResolution);
+  });
+
   it("requires the openid scope before testing", async () => {
     const user = userEvent.setup();
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
