@@ -1,5 +1,12 @@
 # TODO
 
+## Issues:
+
+- Text and markdown editors: changes are now summarized in a top row and visualized in a row on the left.
+   - This creates a visual shift when the first change is made.
+   - Can we move the summary from the top row to the top bar, right below the filename. Use a small font size.
+   - I don't remember: do we strictly need the change visualization row on the left?
+
 ## Misc. commands
 
 - Add a command to open the current file list location in a new browser tab (which keyboard shortcut to assign? Ctrl+(Shift)+Tab is needed by the browser)
