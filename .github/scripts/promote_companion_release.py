@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -49,6 +50,9 @@ RELEASE_MANIFEST_ASSET_NAME = "companion-release-manifest.json"
 UNSAFE_RELEASE_ASSET_CHARACTER = re.compile(r"[^A-Za-z0-9._-]+")
 PROMOTED_RELEASES_SCHEMA_VERSION = 1
 PROMOTED_RELEASES_FILE = Path("companion") / "promoted.json"
+ASSET_DOWNLOAD_MAX_ATTEMPTS = 3
+ASSET_DOWNLOAD_INITIAL_RETRY_DELAY_SECONDS = 1
+RETRYABLE_ASSET_DOWNLOAD_STATUS_CODES = {408, 429}
 PROMOTION_FEED_SOURCES = (
     (
         "test",
@@ -147,6 +151,15 @@ def request_bytes(url: str) -> bytes:
         return response.read()
 
 
+def is_retryable_asset_download_error(error: urllib.error.URLError) -> bool:
+    if isinstance(error, urllib.error.HTTPError):
+        return (
+            error.code in RETRYABLE_ASSET_DOWNLOAD_STATUS_CODES
+            or 500 <= error.code < 600
+        )
+    return isinstance(error.reason, OSError)
+
+
 def request_asset_bytes(asset: dict, token: str | None = None) -> bytes:
     if token and isinstance(asset.get("url"), str):
         request = urllib.request.Request(
@@ -158,8 +171,20 @@ def request_asset_bytes(asset: dict, token: str | None = None) -> bytes:
                 "X-GitHub-Api-Version": "2022-11-28",
             },
         )
-        with urllib.request.urlopen(request) as response:
-            return response.read()
+        for attempt in range(ASSET_DOWNLOAD_MAX_ATTEMPTS):
+            try:
+                with urllib.request.urlopen(request) as response:
+                    return response.read()
+            except urllib.error.URLError as error:
+                if (
+                    not is_retryable_asset_download_error(error)
+                    or attempt == ASSET_DOWNLOAD_MAX_ATTEMPTS - 1
+                ):
+                    fail(
+                        f"Unable to read release asset {asset.get('name')} after "
+                        f"{attempt + 1} attempt(s): {error}"
+                    )
+                time.sleep(ASSET_DOWNLOAD_INITIAL_RETRY_DELAY_SECONDS * (2**attempt))
     return request_bytes(asset["browser_download_url"])
 
 

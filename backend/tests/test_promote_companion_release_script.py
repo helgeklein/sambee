@@ -1,6 +1,8 @@
 import hashlib
+import io
 import json
 import sys
+import urllib.error
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
@@ -117,6 +119,56 @@ def test_verify_release_integrity_authenticates_asset_downloads(monkeypatch: pyt
 
     assert received_tokens
     assert set(received_tokens) == {"release-token"}
+
+
+def test_request_asset_bytes_retries_transient_connection_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asset = {"name": "manifest.json", "url": "https://api.github.test/asset"}
+    responses = [
+        urllib.error.URLError(ConnectionResetError(104, "Connection reset by peer")),
+        io.BytesIO(b"asset contents"),
+    ]
+    retry_delays: list[int] = []
+
+    def urlopen(_request: object) -> io.BytesIO:
+        response = responses.pop(0)
+        if isinstance(response, urllib.error.URLError):
+            raise response
+        return response
+
+    monkeypatch.setattr(MODULE.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(MODULE.time, "sleep", retry_delays.append)
+
+    assert MODULE.request_asset_bytes(asset, "release-token") == b"asset contents"
+    assert retry_delays == [MODULE.ASSET_DOWNLOAD_INITIAL_RETRY_DELAY_SECONDS]
+
+
+def test_request_asset_bytes_does_not_retry_permanent_http_failure(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    asset = {"name": "manifest.json", "url": "https://api.github.test/asset"}
+    request_count = 0
+
+    def urlopen(_request: object) -> io.BytesIO:
+        nonlocal request_count
+        request_count += 1
+        raise urllib.error.HTTPError(
+            asset["url"], 404, "Not Found", None, io.BytesIO(b"not found")
+        )
+
+    monkeypatch.setattr(MODULE.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(
+        MODULE.time,
+        "sleep",
+        lambda _delay: pytest.fail("Permanent HTTP errors must not be retried"),
+    )
+
+    with pytest.raises(SystemExit):
+        MODULE.request_asset_bytes(asset, "release-token")
+
+    assert request_count == 1
+    assert "after 1 attempt(s)" in capsys.readouterr().err
 
 
 def test_verify_release_integrity_rejects_tampered_asset(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
