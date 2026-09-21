@@ -1,5 +1,5 @@
 fastapi==0.141.1
-uvicorn[standard]==0.52.4
+uvicorn[standard]==0.53.0
 python-multipart==0.0.32
 sqlmodel==0.0.42
 Authlib==1.8.0
@@ -13,4 +13,4 @@ pydantic-settings==2.15.0
 python-magic==0.4.27
 aiofiles==25.1.0
 pyvips==3.2.0
-pypdf==6.18.0
+pypdf==6.19.0
