@@ -22,7 +22,7 @@
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-dialog": "^2.7.3",
     "@tauri-apps/plugin-shell": "^2.3.6",
-    "@tauri-apps/plugin-store": "^2.4.4",
+    "@tauri-apps/plugin-store": "^2.4.5",
     "@tauri-apps/plugin-updater": "^2.11.0",
     "i18next": "^26.3.1",
     "preact": "^10.29.1"
