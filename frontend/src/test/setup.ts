@@ -8,6 +8,12 @@ const TEST_EVENT_TARGET_MAX_LISTENERS = 0;
 
 events.setMaxListeners(TEST_EVENT_TARGET_MAX_LISTENERS);
 
+// React can report the document as a focus event's related target in jsdom.
+// MUI restores focus to that target while unmounting overlays.
+if (typeof (document as Document & { focus?: () => void }).focus !== "function") {
+  Object.defineProperty(document, "focus", { configurable: true, value: () => {} });
+}
+
 const mockLocation = {
   href: "http://localhost:3000/",
   origin: "http://localhost:3000",
