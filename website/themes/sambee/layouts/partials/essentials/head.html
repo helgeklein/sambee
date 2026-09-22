@@ -15,8 +15,7 @@
 
 {{ if not $socialCard }}
   {{ errorf "Missing social card asset %q. Run website/scripts/generate-social-assets.py before building." $socialCardAssetPath }}
-{{ end }}
-{{ if or (ne $socialCard.Width 1200) (ne $socialCard.Height 630) }}
+{{ else if or (ne $socialCard.Width 1200) (ne $socialCard.Height 630) }}
   {{ errorf "Social card asset %q must be 1200x630, got %dx%d" $socialCardAssetPath $socialCard.Width $socialCard.Height }}
 {{ end }}
 {{ $socialCard = $socialCard | fingerprint }}

@@ -57,7 +57,7 @@
     {
       "label": "Website: Generate WebP Images",
       "type": "shell",
-      "command": "python3 scripts/generate-webp.py",
+      "command": "python3 scripts/generate-webp.py && python3 scripts/generate-social-assets.py",
       "options": {
         "cwd": "${workspaceFolder}/website"
       },
