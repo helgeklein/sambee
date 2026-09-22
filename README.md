@@ -1,14 +1,14 @@
-# Sambee: Browser-Based File Manager
+# Sambee Turns Your Storage Into a Modern Workspace
 
-Sambee is a browser-based viewer and manager for files on SMB network shares and on your computer's local drives. It supports single-pane and dual-pane views and can replace Total Commander-style tools in your browser and on your phone.
+[Sambee](https://sambee.net/) enables organizations and individuals to provide **access to internal file resources** from any device with a browser. Sambee replaces legacy tools like Windows File Explorer with a secure browser-based workspace from which to view and manage files on **SMB shares** and **local drives**.
 
-### Supports SMB Shares and Local Drives
+### SMB Shares & Local Drives
 
-SMB shares are accessed through Sambee's server component, which translates between HTTP(S), which your browser understands, and SMB, which a file server understands. Local drive access is provided by Sambee Companion, a helper app that can be installed on your computer and acts as a small service your browser can talk to.
+SMB shares are accessed through Sambee's Docker-based backend, which translates between HTTP(S), which your browser understands, and SMB, which a file server understands. Local drive access is provided by Sambee Companion, a helper app that can be installed on your computer and acts as a small service your browser can talk to.
 
 All of this means that Sambee brings your files and folders into the browser and makes them accessible from your phone in much the same way as from your PC or Mac.
 
-## Image and PDF Viewer, Markdown Editor
+## Image & PDF Viewers, Markdown and Text Editors
 
 Sambee is more than a file manager. It is built for speed and includes a fast image browser with broad file type support, a Markdown editor, and a PDF viewer. All of these work directly in the browser and do not require additional software, except Companion for local-drive access.
 
