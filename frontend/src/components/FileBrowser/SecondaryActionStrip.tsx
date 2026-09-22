@@ -19,12 +19,23 @@
  * @see SortControls — sort field/direction pill button
  */
 
-import { Box } from "@mui/material";
+import VerticalSplitIcon from "@mui/icons-material/VerticalSplit";
+import { Box, Button, Tooltip, Typography } from "@mui/material";
 import type React from "react";
+import { PANE_SHORTCUTS } from "../../config/keyboardShortcuts";
 import type { CompanionStatus } from "../../hooks/useCompanion";
+import { withShortcut } from "../../hooks/useKeyboardShortcuts";
+import { translate } from "../../i18n";
 import type { SortField, ViewMode } from "../../pages/FileBrowser/types";
-import { secondaryActionStripSx } from "../../theme/commonStyles";
+import {
+  secondaryActionStripSx,
+  secondaryStripButtonContentSx,
+  secondaryStripButtonIconSx,
+  secondaryStripButtonLabelSx,
+  secondaryStripButtonSx,
+} from "../../theme/commonStyles";
 import type { Connection } from "../../types";
+import { createEscapeHandler } from "../../utils/keyboardUtils";
 import { ConnectionSelector } from "./ConnectionSelector";
 import { SortControls } from "./SortControls";
 import { ViewModeSelector } from "./ViewModeSelector";
@@ -44,6 +55,10 @@ interface SecondaryActionStripProps {
   viewMode: ViewMode;
   /** Callback to change the active pane's view mode. */
   onViewModeChange: (mode: ViewMode) => void;
+  /** Whether the browser is displaying both panes. */
+  isDualPane: boolean;
+  /** Callback to toggle between single and dual-pane layouts. */
+  onToggleDualPane: () => void;
   /** Current sort field of the active pane. */
   sortBy: SortField;
   /** Callback to change the active pane's sort field. */
@@ -80,6 +95,8 @@ export function SecondaryActionStrip({
   onConnectionChange,
   viewMode,
   onViewModeChange,
+  isDualPane,
+  onToggleDualPane,
   sortBy,
   onSortChange,
   sortDirection,
@@ -125,24 +142,45 @@ export function SecondaryActionStrip({
           buttonRef={connectionButtonRef}
         />
       </Box>
-      {hasFiles && (
-        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1, flex: "0 0 auto", ml: "auto" }}>
-          <ViewModeSelector
-            viewMode={viewMode}
-            onViewModeChange={onViewModeChange}
-            onAfterChange={onBlurToFileList}
-            disableTabFocus={disableTabFocus}
-          />
-          <SortControls
-            sortBy={sortBy}
-            onSortChange={onSortChange}
-            sortDirection={sortDirection}
-            onDirectionChange={onDirectionChange}
-            onAfterChange={onBlurToFileList}
-            disableTabFocus={disableTabFocus}
-          />
-        </Box>
-      )}
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1, flex: "0 0 auto", ml: "auto" }}>
+        <Tooltip title={withShortcut(PANE_SHORTCUTS.TOGGLE_DUAL_PANE)}>
+          <Button
+            onClick={onToggleDualPane}
+            onKeyDown={createEscapeHandler(onBlurToFileList)}
+            size="small"
+            tabIndex={disableTabFocus ? -1 : undefined}
+            aria-label={translate("fileBrowser.chrome.dualPaneToggle.ariaLabel")}
+            aria-pressed={isDualPane}
+            sx={{
+              ...secondaryStripButtonSx,
+              color: "text.secondary",
+            }}
+          >
+            <Box sx={secondaryStripButtonContentSx}>
+              <VerticalSplitIcon sx={secondaryStripButtonIconSx} />
+              <Typography sx={secondaryStripButtonLabelSx}>{translate("fileBrowser.chrome.dualPaneToggle.label")}</Typography>
+            </Box>
+          </Button>
+        </Tooltip>
+        {hasFiles && (
+          <>
+            <ViewModeSelector
+              viewMode={viewMode}
+              onViewModeChange={onViewModeChange}
+              onAfterChange={onBlurToFileList}
+              disableTabFocus={disableTabFocus}
+            />
+            <SortControls
+              sortBy={sortBy}
+              onSortChange={onSortChange}
+              sortDirection={sortDirection}
+              onDirectionChange={onDirectionChange}
+              onAfterChange={onBlurToFileList}
+              disableTabFocus={disableTabFocus}
+            />
+          </>
+        )}
+      </Box>
     </Box>
   );
 }

@@ -1,5 +1,10 @@
 # TODO
 
+## Audio & video players
+
+- MP3 files should be easy
+- Videos probably need more dependencies
+
 ## Misc. commands
 
 - Add a command to open the current file list location in a new browser tab (which keyboard shortcut to assign? Ctrl+(Shift)+Tab is needed by the browser)

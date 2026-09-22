@@ -58,6 +58,7 @@ const noResultsProvider: SearchProvider = {
   id: "no-results-provider",
   modeId: "navigate",
   modeLabel: "Navigate",
+  shortcutHint: "Ctrl+K",
   placeholder: "Search",
   debounceMs: 0,
   minQueryLength: 0,
@@ -505,6 +506,16 @@ describe("UnifiedSearchBar", () => {
     await waitFor(() => {
       expect(searchInput).toHaveFocus();
     });
+  });
+
+  it("describes the quick-bar mode selector", async () => {
+    const user = userEvent.setup();
+
+    renderWithProvider(<UnifiedSearchBar provider={noResultsProvider} modeOptions={modeOptions} />);
+
+    await user.hover(screen.getByRole("button", { name: "Switch quick bar mode" }));
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Switch quick bar mode");
   });
 
   it("supports arrow navigation in the mode menu after clicking from File Search with typed input", async () => {

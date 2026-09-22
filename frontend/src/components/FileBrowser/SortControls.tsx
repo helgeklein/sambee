@@ -10,6 +10,7 @@ import {
   secondaryStripButtonLabelSx,
   secondaryStripButtonSx,
 } from "../../theme/commonStyles";
+import { PillButtonTooltip } from "./PillButtonTooltip";
 import { SORT_CONTROLS_STRINGS } from "./sortControlsStrings";
 
 interface SortControlsProps {
@@ -53,26 +54,28 @@ export function SortControls({
 
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-      <Button
-        onClick={handleClick}
-        onKeyDown={handleKeyDown}
-        onKeyUp={handleKeyUp}
-        size="small"
-        tabIndex={disableTabFocus ? -1 : undefined}
-        sx={{
-          ...secondaryStripButtonSx,
-          color: "text.secondary",
-        }}
-        aria-label={SORT_CONTROLS_STRINGS.ARIA_LABEL}
-        aria-controls={open ? "sort-menu" : undefined}
-        aria-haspopup="true"
-        aria-expanded={open ? "true" : undefined}
-      >
-        <Box sx={secondaryStripButtonContentSx}>
-          {directionIcon}
-          <Typography sx={secondaryStripButtonLabelSx}>{currentLabel}</Typography>
-        </Box>
-      </Button>
+      <PillButtonTooltip label={SORT_CONTROLS_STRINGS.ARIA_LABEL}>
+        <Button
+          onClick={handleClick}
+          onKeyDown={handleKeyDown}
+          onKeyUp={handleKeyUp}
+          size="small"
+          tabIndex={disableTabFocus ? -1 : undefined}
+          sx={{
+            ...secondaryStripButtonSx,
+            color: "text.secondary",
+          }}
+          aria-label={SORT_CONTROLS_STRINGS.ARIA_LABEL}
+          aria-controls={open ? "sort-menu" : undefined}
+          aria-haspopup="true"
+          aria-expanded={open ? "true" : undefined}
+        >
+          <Box sx={secondaryStripButtonContentSx}>
+            {directionIcon}
+            <Typography sx={secondaryStripButtonLabelSx}>{currentLabel}</Typography>
+          </Box>
+        </Button>
+      </PillButtonTooltip>
       <Menu
         id="sort-menu"
         anchorEl={anchorEl}

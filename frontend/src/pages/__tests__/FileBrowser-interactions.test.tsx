@@ -431,6 +431,25 @@ describe("Browser Component - Interactions", () => {
       });
     });
 
+    it("opens dual-pane mode from the pane toggle button", async () => {
+      const user = userEvent.setup();
+      const { container } = renderBrowser("/browse/smb/test-server-1");
+
+      await screen.findAllByText("Documents");
+
+      await user.click(screen.getByRole("button", { name: "Toggle dual-pane view" }));
+
+      await waitFor(() => {
+        expect(api.updateCurrentUserSettings).toHaveBeenCalledWith(
+          { field: "browser.pane_mode", value: "dual" },
+          { signal: expect.any(AbortSignal) }
+        );
+        const rightPaneList = container.querySelector('[data-pane-id="right"] [data-testid="file-list-container"]');
+        expect(rightPaneList).toBeInstanceOf(HTMLElement);
+        expect(rightPaneList).toHaveFocus();
+      });
+    });
+
     it("creates an archive from the active right pane into the opposite pane", async () => {
       const user = userEvent.setup();
       const { container } = renderBrowser("/browse/smb/test-server-1");

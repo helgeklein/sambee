@@ -155,6 +155,7 @@ export const pillButtonStyle: SxProps<Theme> = {
   },
   "&&.Mui-focusVisible": {
     outline: "none",
+    bgcolor: (theme) => getSecondaryToolbarSurfaceColors(theme).pillBackground,
     borderColor: "primary.main",
     boxShadow: (theme) => getPillButtonFocusVisibleBoxShadow(theme),
   },

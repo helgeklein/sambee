@@ -3667,6 +3667,8 @@ const Browser: React.FC = () => {
           onConnectionChange={activePane.handleConnectionChange}
           viewMode={activePane.viewMode}
           onViewModeChange={activePane.setViewMode}
+          isDualPane={isDualMode}
+          onToggleDualPane={handleToggleDualPane}
           sortBy={activePane.sortBy}
           onSortChange={activePane.setSortBy}
           sortDirection={activePane.sortDirection}

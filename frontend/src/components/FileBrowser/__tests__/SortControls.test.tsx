@@ -23,6 +23,20 @@ describe("SortControls", () => {
     expect(screen.getByText("[Šížé]")).toBeInTheDocument();
   });
 
+  it("describes the sort menu trigger", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SambeeThemeProvider>
+        <SortControls sortBy="name" onSortChange={vi.fn()} sortDirection="asc" onDirectionChange={vi.fn()} />
+      </SambeeThemeProvider>
+    );
+
+    await user.hover(screen.getByRole("button", { name: "Sort options" }));
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Sort options");
+  });
+
   it.each([
     ["Enter", "{Enter}"],
     ["Space", " "],

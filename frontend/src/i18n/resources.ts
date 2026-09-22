@@ -959,6 +959,10 @@ export const EN_TRANSLATIONS = {
           details: "Details",
         },
       },
+      dualPaneToggle: {
+        ariaLabel: "Toggle dual-pane view",
+        label: "Panes",
+      },
       statusBar: {
         noSelection: "No selection",
         itemCount_one: "{{count}} item",

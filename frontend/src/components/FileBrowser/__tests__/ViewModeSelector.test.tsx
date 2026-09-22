@@ -23,6 +23,38 @@ describe("ViewModeSelector", () => {
     expect(screen.getByText("[Ďéťåíĺš]")).toBeInTheDocument();
   });
 
+  it("keeps the pill background while keyboard-focused", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SambeeThemeProvider>
+        <ViewModeSelector viewMode="list" onViewModeChange={vi.fn()} />
+      </SambeeThemeProvider>
+    );
+
+    const trigger = screen.getByRole("button", { name: "View mode options" });
+    const backgroundBeforeFocus = window.getComputedStyle(trigger).backgroundColor;
+
+    await user.tab();
+
+    expect(trigger).toHaveClass("Mui-focusVisible");
+    expect(window.getComputedStyle(trigger).backgroundColor).toBe(backgroundBeforeFocus);
+  });
+
+  it("describes the view-mode menu trigger", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SambeeThemeProvider>
+        <ViewModeSelector viewMode="list" onViewModeChange={vi.fn()} />
+      </SambeeThemeProvider>
+    );
+
+    await user.hover(screen.getByRole("button", { name: "View mode options" }));
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("View mode options");
+  });
+
   it.each([
     ["Enter", "{Enter}"],
     ["Space", " "],
