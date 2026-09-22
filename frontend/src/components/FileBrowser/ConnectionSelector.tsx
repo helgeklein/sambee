@@ -2,6 +2,7 @@ import ComputerIcon from "@mui/icons-material/Computer";
 import LanIcon from "@mui/icons-material/Lan";
 import { Box, Button, Divider, ListItemIcon, ListItemText, Menu, MenuItem, Typography } from "@mui/material";
 import { useTranslation } from "react-i18next";
+import { BROWSER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import type { CompanionStatus } from "../../hooks/useCompanion";
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import { CONNECTION_TYPE_LOCAL, isLocalDrive } from "../../services/backendRouter";
@@ -14,6 +15,7 @@ import {
 } from "../../theme/commonStyles";
 import type { Connection } from "../../types";
 import { LOCAL_DRIVES_MENU_ACTION_LABEL } from "../Settings/localDrivesCopy";
+import { PillButtonTooltip } from "./PillButtonTooltip";
 
 interface ConnectionSelectorProps {
   connections: Connection[];
@@ -53,6 +55,7 @@ export function ConnectionSelector({
 
   const selectedConnection = connections.find((conn) => conn.id === selectedConnectionId);
   const isSelectedLocal = selectedConnection ? isLocalDrive(selectedConnection.id) : false;
+  const connectionSelectorLabel = t("fileBrowser.chrome.mobileMenu.selectConnectionAriaLabel");
 
   /** Icon for the pill button — reflects whether the active connection is local or SMB. */
   const ActiveIcon = isSelectedLocal ? ComputerIcon : LanIcon;
@@ -74,30 +77,32 @@ export function ConnectionSelector({
 
   return (
     <>
-      <Button
-        ref={buttonRef}
-        onClick={handleClick}
-        onKeyDown={handleKeyDown}
-        onKeyUp={handleKeyUp}
-        role="combobox"
-        size="small"
-        aria-label={t("fileBrowser.chrome.mobileMenu.selectConnectionAriaLabel")}
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        aria-controls={open ? "connection-menu" : undefined}
-        tabIndex={disableTabFocus ? -1 : undefined}
-        sx={{
-          ...secondaryStripButtonSx,
-          color: "text.secondary",
-        }}
-      >
-        <Box sx={secondaryStripButtonContentSx}>
-          <ActiveIcon sx={secondaryStripButtonIconSx} />
-          <Typography sx={secondaryStripButtonLabelSx}>
-            {selectedConnection?.name || t("fileBrowser.chrome.connectionSelector.placeholder")}
-          </Typography>
-        </Box>
-      </Button>
+      <PillButtonTooltip label={connectionSelectorLabel} shortcut={BROWSER_SHORTCUTS.FOCUS_CONNECTION_SELECTOR}>
+        <Button
+          ref={buttonRef}
+          onClick={handleClick}
+          onKeyDown={handleKeyDown}
+          onKeyUp={handleKeyUp}
+          role="combobox"
+          size="small"
+          aria-label={connectionSelectorLabel}
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          aria-controls={open ? "connection-menu" : undefined}
+          tabIndex={disableTabFocus ? -1 : undefined}
+          sx={{
+            ...secondaryStripButtonSx,
+            color: "text.secondary",
+          }}
+        >
+          <Box sx={secondaryStripButtonContentSx}>
+            <ActiveIcon sx={secondaryStripButtonIconSx} />
+            <Typography sx={secondaryStripButtonLabelSx}>
+              {selectedConnection?.name || t("fileBrowser.chrome.connectionSelector.placeholder")}
+            </Typography>
+          </Box>
+        </Button>
+      </PillButtonTooltip>
       <Menu
         id="connection-menu"
         anchorEl={anchorEl}

@@ -84,6 +84,7 @@ On phones and other small screen devices, file size and modification time are no
 
 ### Other Changes
 
+- Added a toolbar button to switch between single-pane and dual-pane modes.
 - When keyboard shortcuts are ignored Sambee now shows a toast message to make the user unobtrusively aware of the fact.
 - Keyboard navigation: removed delay after entering a new directory
 - Typeahead buffer: cleared when <kbd>Esc</kbd> is pressed

@@ -47,6 +47,7 @@ import { useTranslation } from "react-i18next";
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import { getSecondaryToolbarMenuPaperStyle, pillButtonStyle } from "../../theme/commonStyles";
 import { COMPACT_LAYOUT_SIZE } from "../../theme/constants";
+import { PillButtonTooltip } from "./PillButtonTooltip";
 import {
   getQuickBarResultRowHeight,
   QUICK_BAR_RESULT_ITEM_HEIGHT,
@@ -314,27 +315,31 @@ export function UnifiedSearchBar({
       return null;
     }
 
+    const modeSelectorLabel = modeSelectorAriaLabel ?? t("fileBrowser.search.modeSelectorAriaLabel");
+
     return (
       <>
-        <Button
-          onClick={handleModeMenuClick}
-          onKeyDown={handleModeTriggerKeyDown}
-          onKeyUp={handleModeMenuKeyUp}
-          size="small"
-          tabIndex={disableTabFocus ? -1 : undefined}
-          aria-label={modeSelectorAriaLabel ?? t("fileBrowser.search.modeSelectorAriaLabel")}
-          aria-controls={isModeMenuOpen ? "quick-bar-mode-menu" : undefined}
-          aria-haspopup="true"
-          aria-expanded={isModeMenuOpen ? "true" : undefined}
-          sx={QUICK_BAR_MODE_BUTTON_SX}
-        >
-          <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.125, whiteSpace: "nowrap" }}>
-            <Typography variant="body2" sx={getQuickBarModeLabelSx(useCompactLayout)}>
-              {provider.modeLabel}
-            </Typography>
-            <ArrowDropDownIcon sx={{ fontSize: "1rem" }} />
-          </Box>
-        </Button>
+        <PillButtonTooltip label={modeSelectorLabel}>
+          <Button
+            onClick={handleModeMenuClick}
+            onKeyDown={handleModeTriggerKeyDown}
+            onKeyUp={handleModeMenuKeyUp}
+            size="small"
+            tabIndex={disableTabFocus ? -1 : undefined}
+            aria-label={modeSelectorLabel}
+            aria-controls={isModeMenuOpen ? "quick-bar-mode-menu" : undefined}
+            aria-haspopup="true"
+            aria-expanded={isModeMenuOpen ? "true" : undefined}
+            sx={QUICK_BAR_MODE_BUTTON_SX}
+          >
+            <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.125, whiteSpace: "nowrap" }}>
+              <Typography variant="body2" sx={getQuickBarModeLabelSx(useCompactLayout)}>
+                {provider.modeLabel}
+              </Typography>
+              <ArrowDropDownIcon sx={{ fontSize: "1rem" }} />
+            </Box>
+          </Button>
+        </PillButtonTooltip>
         <Menu
           id="quick-bar-mode-menu"
           anchorEl={modeMenuAnchorEl}
@@ -394,6 +399,7 @@ export function UnifiedSearchBar({
     modeSelectorAriaLabel,
     provider.modeId,
     provider.modeLabel,
+    provider.shortcutHint,
     t,
     useCompactLayout,
   ]);

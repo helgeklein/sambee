@@ -10,6 +10,7 @@ import {
   secondaryStripButtonLabelSx,
   secondaryStripButtonSx,
 } from "../../theme/commonStyles";
+import { PillButtonTooltip } from "./PillButtonTooltip";
 import { VIEW_MODE_SELECTOR_STRINGS } from "./viewModeSelectorStrings";
 
 interface ViewModeSelectorProps {
@@ -38,26 +39,28 @@ export function ViewModeSelector({ viewMode, onViewModeChange, onAfterChange, di
 
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-      <Button
-        onClick={handleClick}
-        onKeyDown={handleKeyDown}
-        onKeyUp={handleKeyUp}
-        size="small"
-        tabIndex={disableTabFocus ? -1 : undefined}
-        sx={{
-          ...secondaryStripButtonSx,
-          color: "text.secondary",
-        }}
-        aria-label={VIEW_MODE_SELECTOR_STRINGS.ARIA_LABEL}
-        aria-controls={open ? "view-mode-menu" : undefined}
-        aria-haspopup="true"
-        aria-expanded={open ? "true" : undefined}
-      >
-        <Box sx={secondaryStripButtonContentSx}>
-          {icon}
-          <Typography sx={secondaryStripButtonLabelSx}>{currentLabel}</Typography>
-        </Box>
-      </Button>
+      <PillButtonTooltip label={VIEW_MODE_SELECTOR_STRINGS.ARIA_LABEL}>
+        <Button
+          onClick={handleClick}
+          onKeyDown={handleKeyDown}
+          onKeyUp={handleKeyUp}
+          size="small"
+          tabIndex={disableTabFocus ? -1 : undefined}
+          sx={{
+            ...secondaryStripButtonSx,
+            color: "text.secondary",
+          }}
+          aria-label={VIEW_MODE_SELECTOR_STRINGS.ARIA_LABEL}
+          aria-controls={open ? "view-mode-menu" : undefined}
+          aria-haspopup="true"
+          aria-expanded={open ? "true" : undefined}
+        >
+          <Box sx={secondaryStripButtonContentSx}>
+            {icon}
+            <Typography sx={secondaryStripButtonLabelSx}>{currentLabel}</Typography>
+          </Box>
+        </Button>
+      </PillButtonTooltip>
       <Menu
         id="view-mode-menu"
         anchorEl={anchorEl}
