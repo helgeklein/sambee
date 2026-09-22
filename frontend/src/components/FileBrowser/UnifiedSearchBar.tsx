@@ -399,7 +399,6 @@ export function UnifiedSearchBar({
     modeSelectorAriaLabel,
     provider.modeId,
     provider.modeLabel,
-    provider.shortcutHint,
     t,
     useCompactLayout,
   ]);
