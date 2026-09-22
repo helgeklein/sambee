@@ -11,6 +11,11 @@ HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 remote_name=${1:-unknown}
 remote_url=${2:-unknown}
 
+push_refs_file=$(mktemp)
+trap 'rm -f "$push_refs_file"' EXIT HUP INT TERM
+
+cat > "$push_refs_file"
+
 while read -r local_ref local_sha remote_ref remote_sha; do
     branch_ref=""
 
@@ -29,6 +34,6 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         echo "Remote: $remote_name ($remote_url)" >&2
         exit 1
     fi
-done
+done < "$push_refs_file"
 
-"$HOOK_DIR/_git-lfs-hook" pre-push "$@"
+"$HOOK_DIR/_git-lfs-hook" pre-push "$@" < "$push_refs_file"
