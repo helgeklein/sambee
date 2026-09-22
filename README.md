@@ -1,6 +1,8 @@
 # Sambee Turns Your Storage Into a Modern Workspace
 
-[Sambee](https://sambee.net/) enables organizations and individuals to provide **access to internal file resources** from any device with a browser. Sambee replaces legacy tools like Windows File Explorer with a secure browser-based workspace from which to view and manage files on **SMB shares** and **local drives**.
+Sambee enables organizations and individuals to provide **access to internal file resources** from any device with a browser. Sambee replaces legacy tools like Windows File Explorer with a secure browser-based workspace from which to view and manage files on **SMB shares** and **local drives**.
+
+[**See the website for details.**](https://sambee.net/)
 
 ### SMB Shares & Local Drives
 
