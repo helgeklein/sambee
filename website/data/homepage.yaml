@@ -43,6 +43,7 @@ ui_screenshot:
   enabled: true
   preview_image:
     src: images/home/sambee-screenshot.png
+    dark_src: images/home/sambee-screenshot-dark.png
     alt: Screenshot of the Sambee main web interface
 
 benefits:

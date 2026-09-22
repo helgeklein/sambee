@@ -153,6 +153,18 @@ UI Screenshot
   @apply block w-full max-w-full;
 }
 
+.home-ui-screenshot--theme-aware .home-ui-screenshot-image--dark {
+  display: none;
+}
+
+.dark .home-ui-screenshot--theme-aware .home-ui-screenshot-image--light {
+  display: none;
+}
+
+.dark .home-ui-screenshot--theme-aware .home-ui-screenshot-image--dark {
+  display: block;
+}
+
 /*
 ==============================
 Benefits
