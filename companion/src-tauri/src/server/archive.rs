@@ -2328,7 +2328,10 @@ fn create_private_temporary_directory(prefix: &str) -> Result<tempfile::TempDir,
 
 fn prepare_temporary_archive_store() -> Result<PathBuf, std::io::Error> {
     let store = std::env::temp_dir().join(TEMPORARY_ARCHIVE_DIRECTORY);
+    #[cfg(unix)]
     let mut builder = fs::DirBuilder::new();
+    #[cfg(not(unix))]
+    let builder = fs::DirBuilder::new();
     #[cfg(unix)]
     builder.mode(0o700);
     match builder.create(&store) {
