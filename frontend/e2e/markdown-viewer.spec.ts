@@ -406,8 +406,9 @@ test(`${layout} upload picker publishes two files in order`, async ({ page }) =>
     { name: "first.txt", mimeType: "text/plain", buffer: Buffer.from("first") },
     { name: "second.txt", mimeType: "text/plain", buffer: Buffer.from("second") },
   ]);
-  await expect(page.getByText(/Uploaded 2, skipped 0, failed 0, unknown 0, cancelled 0/)).toBeVisible();
+  await expect(page.getByText("Uploaded 2 files")).toBeVisible();
   expect(uploadedPaths).toEqual(["first.txt", "second.txt"]);
+  await expect(page.getByText("Uploaded 2 files")).toBeHidden({ timeout: 8_000 });
 });
 
 test(`${layout} upload reports a failed file and continues the queue`, async ({ page }) => {
@@ -437,7 +438,7 @@ test(`${layout} upload reports a failed file and continues the queue`, async ({ 
     { name: "first.txt", mimeType: "text/plain", buffer: Buffer.from("first") },
     { name: "second.txt", mimeType: "text/plain", buffer: Buffer.from("second") },
   ]);
-  await expect(page.getByText(/Uploaded 1, skipped 0, failed 1, unknown 0, cancelled 0/)).toBeVisible();
+  await expect(page.getByText("Uploaded 1 file · 1 failed")).toBeVisible();
   expect(uploadedPaths).toEqual(["first.txt", "second.txt"]);
 });
 
@@ -473,7 +474,7 @@ test(`${layout} upload resolves a conflict before publishing the next file`, asy
   ]);
   await page.getByRole("radio", { name: "Overwrite", exact: true }).check();
   await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByText(/Uploaded 2, skipped 0, failed 0, unknown 0, cancelled 0/)).toBeVisible();
+  await expect(page.getByText("Uploaded 2 files")).toBeVisible();
   expect(attempts).toEqual(["first.txt:ask", "first.txt:replace", "second.txt:ask"]);
 });
 
@@ -506,9 +507,10 @@ test(`${layout} upload cancellation stops the queue and reports an uncertain cur
     { name: "second.txt", mimeType: "text/plain", buffer: Buffer.from("second") },
   ]);
   await firstUpload;
+  await expect(page.getByText(/Uploading first\.txt \(1\/2\) · (?:0 B|5 B) \/ 5 B/)).toBeVisible();
   await page.getByRole("button", { name: "Cancel" }).click();
   releaseResponse();
-  await expect(page.getByText(/Uploaded 0, skipped 0, failed 0, unknown 1, cancelled 1/)).toBeVisible();
+  await expect(page.getByText("Uploaded 0 files · 1 outcome uncertain, 1 cancelled")).toBeVisible();
   expect(attempts).toEqual(["first.txt"]);
 });
 }

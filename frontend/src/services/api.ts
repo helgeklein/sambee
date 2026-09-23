@@ -1668,16 +1668,38 @@ class ApiService {
       is_readable: true,
       is_hidden: file.name.startsWith("."),
     };
-    return this.publishTransferStream(
-      file.stream(),
-      file.size,
-      sourceInfo.modified_at,
-      sourceInfo,
-      destinationConnectionId,
-      destinationPath,
-      targetResolutionPolicy,
-      options
-    );
+    const startedAt = performance.now();
+    let sourceConsumedAt: number | null = null;
+    try {
+      return await this.publishTransferStream(
+        file.stream(),
+        file.size,
+        sourceInfo.modified_at,
+        sourceInfo,
+        destinationConnectionId,
+        destinationPath,
+        targetResolutionPolicy,
+        {
+          ...options,
+          onProgress: (bytes, total) => {
+            if (bytes === total) sourceConsumedAt = performance.now();
+            options.onProgress?.(bytes, total);
+          },
+        }
+      );
+    } finally {
+      const finishedAt = performance.now();
+      logger.debug(
+        "Browser file upload timing",
+        {
+          bytes: file.size,
+          totalMs: Math.round(finishedAt - startedAt),
+          sourceConsumedMs: sourceConsumedAt === null ? null : Math.round(sourceConsumedAt - startedAt),
+          responseAfterSourceConsumedMs: sourceConsumedAt === null ? null : Math.round(finishedAt - sourceConsumedAt),
+        },
+        "file-browser"
+      );
+    }
   }
 
   private async publishTransferStream(

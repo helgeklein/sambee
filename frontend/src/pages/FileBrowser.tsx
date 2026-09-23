@@ -129,6 +129,7 @@ import {
   type FileOperationPolicyContext,
   type FileOperationSurface,
 } from "./FileBrowser/fileOperationActions";
+import { formatFileSize } from "./FileBrowser/formatters";
 import { getItemActionAvailability } from "./FileBrowser/itemActionAvailability";
 import {
   readFileBrowserPaneModePreference,
@@ -159,6 +160,7 @@ const FULL_ARCHIVE_EXTRACTION_SCOPE: ArchiveExtractionScope = { kind: "archive" 
 const SERVER_WEBSOCKET_RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 5_000] as const;
 const COMPANION_WEBSOCKET_RECONNECT_DELAY_MS = 5_000;
 const COMPANION_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
+const TRANSFER_NOTICE_AUTOHIDE_MS = 6_000;
 
 const COMPANION_STATUS_QUERY_PARAM = "companion_status";
 const IGNORED_REALTIME_MESSAGE_TYPES = new Set(["subscribed", "unsubscribed", "pong"]);
@@ -2927,14 +2929,18 @@ const Browser: React.FC = () => {
       picker.onchange = () => {
         const files = Array.from(picker.files ?? []);
         if (!files.length) return;
+        setTransferNotice("");
         const abortController = new AbortController();
         uploadAbortRef.current = abortController;
         void (async () => {
           const counts = { completed: 0, skipped: 0, failed: 0, unknown: 0 };
-          const issues: string[] = [];
           for (const [index, file] of files.entries()) {
             if (abortController.signal.aborted) break;
-            const updateProgress = (bytes: number) =>
+            let lastProgressUpdate = 0;
+            const updateProgress = (bytes: number) => {
+              const now = performance.now();
+              if (bytes > 0 && bytes < file.size && now - lastProgressUpdate < 100) return;
+              lastProgressUpdate = now;
               setUploadProgress({
                 current: index + 1,
                 total: files.length,
@@ -2944,6 +2950,7 @@ const Browser: React.FC = () => {
                 size: file.size,
                 ...counts,
               });
+            };
             updateProgress(0);
             let name = file.name;
             let policy: TargetResolutionPolicy = "ask";
@@ -2958,14 +2965,12 @@ const Browser: React.FC = () => {
                   await pane.reloadCurrentLocation({ forceRefresh: true });
                 } else if (result.status === "skipped") {
                   counts.skipped++;
-                  issues.push(`${file.name} (skipped)`);
                 } else if (result.status === "outcome_unknown") {
                   counts.unknown++;
-                  issues.push(file.name);
                   await pane.reloadCurrentLocation({ forceRefresh: true });
                 } else if (result.status === "failed") {
                   counts.failed++;
-                  issues.push(`${file.name}: ${result.error.code}`);
+                  logger.error("File upload failed", { name: file.name, error: result.error }, "file-browser");
                 }
                 break;
               } catch (error) {
@@ -2983,13 +2988,11 @@ const Browser: React.FC = () => {
                   }
                   if (decision.resolution === "skip") {
                     counts.skipped++;
-                    issues.push(`${file.name} (skipped)`);
                     break;
                   }
                   if (decision.resolution === "rename") {
                     if (!decision.targetName) {
                       counts.failed++;
-                      issues.push(file.name);
                       break;
                     }
                     name = decision.targetName;
@@ -2999,7 +3002,7 @@ const Browser: React.FC = () => {
                 }
                 if (!abortController.signal.aborted) {
                   counts.failed++;
-                  issues.push(file.name);
+                  logger.error("File upload failed", { name: file.name, error }, "file-browser");
                 }
                 break;
               }
@@ -3007,15 +3010,19 @@ const Browser: React.FC = () => {
           }
           setUploadProgress(null);
           uploadAbortRef.current = null;
-          setTransferNotice(
-            t("fileBrowser.transfers.uploadSummary", {
-              ...counts,
-              cancelled: abortController.signal.aborted
-                ? files.length - counts.completed - counts.skipped - counts.failed - counts.unknown
-                : 0,
-              issues: issues.join(", ") || "-",
-            })
-          );
+          const cancelled = abortController.signal.aborted
+            ? files.length - counts.completed - counts.skipped - counts.failed - counts.unknown
+            : 0;
+          const problems = [
+            counts.skipped && t("fileBrowser.transfers.uploadSkipped", { count: counts.skipped }),
+            counts.failed && t("fileBrowser.transfers.uploadFailed", { count: counts.failed }),
+            counts.unknown && t("fileBrowser.transfers.uploadUnknown", { count: counts.unknown }),
+            cancelled && t("fileBrowser.transfers.uploadCancelled", { count: cancelled }),
+          ]
+            .filter(Boolean)
+            .join(", ");
+          const summary = t("fileBrowser.transfers.uploadComplete", { count: counts.completed });
+          setTransferNotice(problems ? t("fileBrowser.transfers.uploadSummaryWithIssues", { summary, issues: problems }) : summary);
         })();
       };
       picker.click();
@@ -4277,10 +4284,16 @@ const Browser: React.FC = () => {
         onCancel={handleConflictCancel}
       />
       <Snackbar
+        key={uploadProgress ? "upload-progress" : preparingDownload ? "download-progress" : transferNotice}
         open={Boolean(uploadProgress || preparingDownload || transferNotice)}
+        autoHideDuration={uploadProgress || preparingDownload ? null : TRANSFER_NOTICE_AUTOHIDE_MS}
         message={
           uploadProgress
-            ? t("fileBrowser.transfers.uploadProgress", uploadProgress)
+            ? t("fileBrowser.transfers.uploadProgress", {
+                ...uploadProgress,
+                bytes: formatFileSize(uploadProgress.bytes),
+                size: formatFileSize(uploadProgress.size),
+              })
             : preparingDownload
               ? t("fileBrowser.transfers.preparingDownload")
               : transferNotice

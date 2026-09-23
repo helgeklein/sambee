@@ -835,10 +835,18 @@ export const EN_TRANSLATIONS = {
       downloadFailed: "Download failed. Try again.",
       downloadSizeLimitExceeded: "The selected ZIP exceeds the temporary download size limit.",
       preparingDownload: "Preparing download",
-      uploadSummary:
-        "Uploaded {{completed}}, skipped {{skipped}}, failed {{failed}}, unknown {{unknown}}, cancelled {{cancelled}}. Check: {{issues}}",
-      uploadProgress:
-        "Uploading {{name}} ({{current}}/{{total}}, {{bytes}}/{{size}} bytes). Completed {{completed}}, skipped {{skipped}}, failed {{failed}}, unknown {{unknown}}.",
+      uploadComplete_one: "Uploaded {{count}} file",
+      uploadComplete_other: "Uploaded {{count}} files",
+      uploadSkipped_one: "{{count}} skipped",
+      uploadSkipped_other: "{{count}} skipped",
+      uploadFailed_one: "{{count}} failed",
+      uploadFailed_other: "{{count}} failed",
+      uploadUnknown_one: "{{count}} outcome uncertain",
+      uploadUnknown_other: "{{count}} outcomes uncertain",
+      uploadCancelled_one: "{{count}} cancelled",
+      uploadCancelled_other: "{{count}} cancelled",
+      uploadSummaryWithIssues: "{{summary}} · {{issues}}",
+      uploadProgress: "Uploading {{name}} ({{current}}/{{total}}) · {{bytes}} / {{size}}",
     },
     compactActions: {
       clearSelection: "Clear selection",
