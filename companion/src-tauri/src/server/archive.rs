@@ -2947,14 +2947,7 @@ mod tests {
     }
 
     fn set_test_path_modified_time(path: &std::path::Path, modified_at: SystemTime) {
-        let file = if path.is_dir() {
-            fs::File::open(path)
-        } else {
-            fs::OpenOptions::new().write(true).open(path)
-        }
-        .expect("test path should open for timestamp updates");
-        file.set_times(fs::FileTimes::new().set_modified(modified_at))
-            .expect("test path timestamp should be set");
+        filetime::set_file_mtime(path, filetime::FileTime::from_system_time(modified_at)).expect("test path timestamp should be set");
     }
 
     #[derive(Deserialize)]

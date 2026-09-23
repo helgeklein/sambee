@@ -4100,6 +4100,7 @@ dependencies = [
  "bzip2",
  "chrono",
  "env_logger",
+ "filetime",
  "flate2",
  "hex",
  "hmac",
