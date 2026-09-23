@@ -19,7 +19,7 @@
  * @see FileBrowserPane — renders a single pane's UI (breadcrumbs, file list, etc.)
  */
 
-import { AppBar, Box, Container, Divider, Snackbar, Toolbar, Typography, useMediaQuery, useTheme } from "@mui/material";
+import { AppBar, Box, Button, Container, Divider, Snackbar, Toolbar, Typography, useMediaQuery, useTheme } from "@mui/material";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
@@ -81,7 +81,7 @@ import type { TargetResolutionPolicy } from "../services/storageContracts";
 import { getConfirmedCurrentUserSetting, refreshCurrentUserSettings } from "../services/userSettingsStore";
 import { FILE_BROWSER_ROW_HEIGHT } from "../theme/constants";
 import { getMobileViewportShellSx, mobileSafeAreaAppBarSx, mobileSafeAreaToolbarSx, SAFE_AREA_INSET } from "../theme/mobileShell";
-import type { ConflictInfo, Connection } from "../types";
+import type { ConflictInfo, Connection, FileEntry } from "../types";
 import { FileType, isApiError } from "../types";
 import { openExternalUrl } from "../utils/externalLinks";
 import { compareLocalizedStrings } from "../utils/localeFormatting";
@@ -91,6 +91,7 @@ import {
   type ContentOperationExecution,
   type ContentOperationReason,
   cancelForegroundArchiveOperationOnPageHide,
+  downloadContentSelection,
   executeTransfer,
   executeTransferTree,
   getArchiveExtractionAvailability,
@@ -100,6 +101,7 @@ import {
   getTransferAvailability,
   hasForegroundArchiveOperationWork,
   isPartialContainerOutputError,
+  publishBrowserFile,
   recoverInterruptedArchiveOperation,
   recoverInterruptedPhysicalTransfer,
   startArchiveExtraction,
@@ -127,6 +129,7 @@ import {
   type FileOperationPolicyContext,
   type FileOperationSurface,
 } from "./FileBrowser/fileOperationActions";
+import { formatFileSize } from "./FileBrowser/formatters";
 import { getItemActionAvailability } from "./FileBrowser/itemActionAvailability";
 import {
   readFileBrowserPaneModePreference,
@@ -157,6 +160,7 @@ const FULL_ARCHIVE_EXTRACTION_SCOPE: ArchiveExtractionScope = { kind: "archive" 
 const SERVER_WEBSOCKET_RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 5_000] as const;
 const COMPANION_WEBSOCKET_RECONNECT_DELAY_MS = 5_000;
 const COMPANION_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
+const TRANSFER_NOTICE_AUTOHIDE_MS = 6_000;
 
 const COMPANION_STATUS_QUERY_PARAM = "companion_status";
 const IGNORED_REALTIME_MESSAGE_TYPES = new Set(["subscribed", "unsubscribed", "pong"]);
@@ -445,6 +449,22 @@ const Browser: React.FC = () => {
   const [quickBarPaneId, setQuickBarPaneId] = useState<PaneId>("left");
   const [companionHintOpen, setCompanionHintOpen] = useState(false);
   const [unavailableShortcutNotice, setUnavailableShortcutNotice] = useState<UnavailableShortcutNotice | null>(null);
+  const [transferNotice, setTransferNotice] = useState("");
+  const [uploadProgress, setUploadProgress] = useState<{
+    current: number;
+    total: number;
+    name: string;
+    connectionId: string;
+    bytes: number;
+    size: number;
+    completed: number;
+    skipped: number;
+    failed: number;
+    unknown: number;
+  } | null>(null);
+  const uploadAbortRef = React.useRef<AbortController | null>(null);
+  const [preparingDownload, setPreparingDownload] = useState(false);
+  const downloadAbortRef = React.useRef<AbortController | null>(null);
   const backendAvailability = useBackendAvailability();
 
   useEffect(() => {
@@ -952,6 +972,54 @@ const Browser: React.FC = () => {
           : unavailableFileListShortcut(mapContentOperationReason(availability.reason));
       }
 
+      if (action === "upload") {
+        if (uploadProgress) return unavailableFileListShortcut("interaction-blocked");
+        if (sourceIsArchive) return unavailableFileListShortcut("archive-content-immutable");
+        if (sourcePaneReadOnly) return unavailableFileListShortcut("read-only-location");
+        if (sourceLocation.kind !== "physical" || !isConnectionWritable(getConnectionById(allConnections, sourceLocation.connectionId)))
+          return unavailableFileListShortcut("unsupported-destination");
+        if (isLocalDrive(sourceLocation.connectionId) && !contentOperationEnvironment.isCompanionPaired)
+          return unavailableFileListShortcut("companion-unavailable");
+        return AVAILABLE_FILE_LIST_SHORTCUT;
+      }
+
+      if (action === "download") {
+        if (preparingDownload) return unavailableFileListShortcut("interaction-blocked");
+        const selected = context.items.length ? context.items : context.focusedItem ? [context.focusedItem] : [];
+        if (!selected.length) return unavailableFileListShortcut("no-selection");
+        if (selected.some((item) => !item.entry.is_readable)) return unavailableFileListShortcut("unsupported-source");
+        if (isLocalDrive(sourceLocation.connectionId) && !contentOperationEnvironment.isCompanionPaired)
+          return unavailableFileListShortcut("companion-unavailable");
+        if (selected.length === 1 && selected[0]!.entry.type === FileType.FILE) {
+          return selected[0]!.handle.kind === "physical" || selected[0]!.handle.location.providerId === "zip"
+            ? AVAILABLE_FILE_LIST_SHORTCUT
+            : unavailableFileListShortcut("unsupported-source");
+        }
+        if (selected.some((item) => item.handle.kind !== sourceLocation.kind)) return unavailableFileListShortcut("unsupported-source");
+        if (sourceLocation.kind === "virtual") {
+          if (
+            sourceLocation.providerId !== "zip" ||
+            selected.some(
+              (item) =>
+                item.handle.kind !== "virtual" ||
+                item.handle.location.providerId !== "zip" ||
+                item.handle.location.source.path !== sourceLocation.source.path ||
+                parentPath(item.handle.path) !== sourceLocation.path
+            )
+          )
+            return unavailableFileListShortcut("unsupported-source");
+          return AVAILABLE_FILE_LIST_SHORTCUT;
+        }
+        if (
+          selected.some(
+            (item) =>
+              item.handle.location.connectionId !== sourceLocation.connectionId || parentPath(item.handle.path) !== sourceLocation.path
+          )
+        )
+          return unavailableFileListShortcut("unsupported-source");
+        return AVAILABLE_FILE_LIST_SHORTCUT;
+      }
+
       if (action === "copy" && sourceLocation.kind === "virtual" && sourceLocation.providerId === "zip") {
         const readableMembers = context.items.filter((item) => item.entry.is_readable);
         if (!isDualMode) return unavailableFileListShortcut("dual-pane-required");
@@ -996,6 +1064,8 @@ const Browser: React.FC = () => {
       getPaneForId,
       isBrowserBrowsing,
       isDualMode,
+      preparingDownload,
+      uploadProgress,
     ]
   );
   const getUnavailableShortcutMessage = useCallback(
@@ -1008,6 +1078,7 @@ const Browser: React.FC = () => {
       if (reason === "no-focused-item")
         return t(`fileBrowser.unavailableShortcuts.${action === "delete" ? "selectItemToDelete" : "selectItemToRename"}`);
       if (reason === "no-selection") {
+        if (action === "download") return t("fileBrowser.unavailableShortcuts.selectItemsToDownload");
         if (action === "create-archive") return t("fileBrowser.unavailableShortcuts.selectItemsToArchive");
         if (action === "extract-archive") return t("fileBrowser.unavailableShortcuts.selectArchiveToExtract");
         return t(`fileBrowser.unavailableShortcuts.${action === "move" ? "selectItemsToMove" : "selectItemsToCopy"}`);
@@ -2811,9 +2882,162 @@ const Browser: React.FC = () => {
     [getCapturedDestination, getOperationPolicyContext, getPaneForId, handleArchiveExtractionRequest, handleOpenCopyMoveDialog]
   );
 
+  const handleDownloadRequest = useCallback(
+    async (context: FileOperationPolicyContext) => {
+      const item = context.items[0] ?? context.focusedItem;
+      if (!item?.entry.is_readable) return;
+      try {
+        const selection = context.items.length ? context.items : [item];
+        if (context.items.length > 1 || item.entry.type === FileType.DIRECTORY) {
+          const controller = new AbortController();
+          downloadAbortRef.current = controller;
+          setPreparingDownload(true);
+          await downloadContentSelection(selection, browserContentServices.providers, controller.signal);
+        } else {
+          await downloadContentSelection(selection, browserContentServices.providers, new AbortController().signal);
+        }
+      } catch (error) {
+        if (!downloadAbortRef.current?.signal.aborted) {
+          logger.error("File download failed", { error, path: item.handle.path }, "file-browser");
+          setTransferNotice(
+            error instanceof Error && error.message === "temporary_archive_size_limit_exceeded"
+              ? t("fileBrowser.transfers.downloadSizeLimitExceeded")
+              : error instanceof Error
+                ? error.message
+                : t("fileBrowser.transfers.downloadFailed")
+          );
+        }
+      } finally {
+        downloadAbortRef.current = null;
+        setPreparingDownload(false);
+      }
+    },
+    [browserContentServices.providers, t]
+  );
+
+  const handleUploadRequest = useCallback(
+    (paneId: PaneId) => {
+      const pane = getPaneForId(paneId);
+      const destination = pane.currentLocation;
+      if (
+        destination.kind !== "physical" ||
+        uploadAbortRef.current ||
+        !pane.contentCapabilities.mutate ||
+        !isConnectionWritable(getConnectionById(allConnections, destination.connectionId))
+      )
+        return;
+      const picker = document.createElement("input");
+      picker.type = "file";
+      picker.multiple = true;
+      picker.onchange = () => {
+        const files = Array.from(picker.files ?? []);
+        if (!files.length) return;
+        setTransferNotice("");
+        const abortController = new AbortController();
+        uploadAbortRef.current = abortController;
+        void (async () => {
+          const counts = { completed: 0, skipped: 0, failed: 0, unknown: 0 };
+          for (const [index, file] of files.entries()) {
+            if (abortController.signal.aborted) break;
+            let lastProgressUpdate = 0;
+            const updateProgress = (bytes: number) => {
+              const now = performance.now();
+              if (bytes > 0 && bytes < file.size && now - lastProgressUpdate < 100) return;
+              lastProgressUpdate = now;
+              setUploadProgress({
+                current: index + 1,
+                total: files.length,
+                name: file.name,
+                connectionId: destination.connectionId,
+                bytes,
+                size: file.size,
+                ...counts,
+              });
+            };
+            updateProgress(0);
+            let name = file.name;
+            let policy: TargetResolutionPolicy = "ask";
+            while (!abortController.signal.aborted) {
+              try {
+                const result = await publishBrowserFile(file, destination.connectionId, joinPath(destination.path, name), policy, {
+                  signal: abortController.signal,
+                  onProgress: (bytes) => updateProgress(bytes),
+                });
+                if (result.status === "completed") {
+                  counts.completed++;
+                  await pane.reloadCurrentLocation({ forceRefresh: true });
+                } else if (result.status === "skipped") {
+                  counts.skipped++;
+                } else if (result.status === "outcome_unknown") {
+                  counts.unknown++;
+                  await pane.reloadCurrentLocation({ forceRefresh: true });
+                } else if (result.status === "failed") {
+                  counts.failed++;
+                  logger.error("File upload failed", { name: file.name, error: result.error }, "file-browser");
+                }
+                break;
+              } catch (error) {
+                const detail = isApiError(error) ? error.response?.data?.detail : null;
+                if (isApiError(error) && error.response?.status === 409 && typeof detail === "object" && detail !== null) {
+                  setConflictInfo(detail as ConflictInfo);
+                  const decision = await new Promise<ConflictDecision | null>((resolve) => {
+                    conflictResolveRef.current = resolve;
+                    setConflictDialogOpen(true);
+                  });
+                  setConflictDialogOpen(false);
+                  if (!decision) {
+                    abortController.abort();
+                    break;
+                  }
+                  if (decision.resolution === "skip") {
+                    counts.skipped++;
+                    break;
+                  }
+                  if (decision.resolution === "rename") {
+                    if (!decision.targetName) {
+                      counts.failed++;
+                      break;
+                    }
+                    name = decision.targetName;
+                  }
+                  policy = targetResolutionPolicyForConflictResolution(decision.resolution);
+                  continue;
+                }
+                if (!abortController.signal.aborted) {
+                  counts.failed++;
+                  logger.error("File upload failed", { name: file.name, error }, "file-browser");
+                }
+                break;
+              }
+            }
+          }
+          setUploadProgress(null);
+          uploadAbortRef.current = null;
+          const cancelled = abortController.signal.aborted
+            ? files.length - counts.completed - counts.skipped - counts.failed - counts.unknown
+            : 0;
+          const problems = [
+            counts.skipped && t("fileBrowser.transfers.uploadSkipped", { count: counts.skipped }),
+            counts.failed && t("fileBrowser.transfers.uploadFailed", { count: counts.failed }),
+            counts.unknown && t("fileBrowser.transfers.uploadUnknown", { count: counts.unknown }),
+            cancelled && t("fileBrowser.transfers.uploadCancelled", { count: cancelled }),
+          ]
+            .filter(Boolean)
+            .join(", ");
+          const summary = t("fileBrowser.transfers.uploadComplete", { count: counts.completed });
+          setTransferNotice(problems ? t("fileBrowser.transfers.uploadSummaryWithIssues", { summary, issues: problems }) : summary);
+        })();
+      };
+      picker.click();
+    },
+    [allConnections, getPaneForId, t]
+  );
+
   const buildFileOperationActions = useCallback(
     (surface: FileOperationSurface, policyContext?: FileOperationPolicyContext): FileOperationAction[] => {
-      const context = policyContext ?? getOperationPolicyContext();
+      const rawContext = policyContext ?? getOperationPolicyContext();
+      const context =
+        surface === "compact-item-menu" && rawContext.focusedItem ? { ...rawContext, items: [rawContext.focusedItem] } : rawContext;
       const createInvocation = (): FileOperationInvocationContext => {
         const actionContext = policyContext ?? getOperationPolicyContext();
         return { ...actionContext, destination: getCapturedDestination(actionContext.paneId) };
@@ -2836,6 +3060,8 @@ const Browser: React.FC = () => {
         move: getFileListShortcutAvailability("move", context),
         "create-archive": getFileListShortcutAvailability("create-archive", context),
         "extract-archive": getFileListShortcutAvailability("extract-archive", context),
+        download: getFileListShortcutAvailability("download", context),
+        upload: getFileListShortcutAvailability("upload", context),
         refresh: getFileListShortcutAvailability("refresh", context),
       };
 
@@ -2860,6 +3086,8 @@ const Browser: React.FC = () => {
           move: t("common.actions.move"),
           "create-archive": t("fileBrowser.toolbar.createArchive"),
           "extract-archive": t("fileBrowser.toolbar.extractArchive"),
+          download: t("common.actions.download"),
+          upload: t("fileBrowser.toolbar.upload"),
           refresh: t("fileBrowser.toolbar.refresh"),
         },
         shortcuts: {
@@ -2871,6 +3099,8 @@ const Browser: React.FC = () => {
           move: COPY_MOVE_SHORTCUTS.MOVE_TO_OTHER_PANE.label,
           "create-archive": BROWSER_SHORTCUTS.CREATE_ARCHIVE.label,
           "extract-archive": BROWSER_SHORTCUTS.EXTRACT_ARCHIVE.label,
+          download: BROWSER_SHORTCUTS.DOWNLOAD.label,
+          upload: BROWSER_SHORTCUTS.UPLOAD.label,
           refresh: BROWSER_SHORTCUTS.REFRESH.label,
         },
         unavailableReasons,
@@ -2905,6 +3135,15 @@ const Browser: React.FC = () => {
           move: () => handleMoveToOtherPane(createInvocation()),
           "create-archive": () => handleCreateArchiveRequest(createInvocation()),
           "extract-archive": () => handleArchiveExtractionForContext(createInvocation()),
+          download: () => {
+            const invocation = createInvocation();
+            void handleDownloadRequest(
+              surface === "compact-item-menu"
+                ? { ...invocation, items: invocation.focusedItem ? [invocation.focusedItem] : [] }
+                : invocation
+            );
+          },
+          upload: () => handleUploadRequest(createInvocation().paneId),
           refresh: () => getPaneForId(createInvocation().paneId).handleRefresh(),
         },
       });
@@ -2920,6 +3159,8 @@ const Browser: React.FC = () => {
       handleCopyToOtherPane,
       handleCreateArchiveRequest,
       handleMoveToOtherPane,
+      handleDownloadRequest,
+      handleUploadRequest,
       isDualMode,
       t,
     ]
@@ -3184,6 +3425,8 @@ const Browser: React.FC = () => {
     const newFileAvailability = getFileListShortcutAvailability("new-file");
     const createArchiveAvailability = getFileListShortcutAvailability("create-archive");
     const extractArchiveAvailability = getFileListShortcutAvailability("extract-archive");
+    const uploadAvailability = getFileListShortcutAvailability("upload");
+    const downloadAvailability = getFileListShortcutAvailability("download");
     const refreshAvailability = getFileListShortcutAvailability("refresh");
 
     return [
@@ -3263,6 +3506,18 @@ const Browser: React.FC = () => {
         ...BROWSER_SHORTCUTS.REFRESH,
         handler: activePane.handleRefresh,
         enabled: refreshAvailability.available,
+      },
+      {
+        ...BROWSER_SHORTCUTS.UPLOAD,
+        handler: () => handleUploadRequest(effectiveActivePaneId),
+        enabled: browsing && noDialogOrCopyMove && uploadAvailability.available,
+        onUnavailable: (event) => handleUnavailableShortcut("upload", event),
+      },
+      {
+        ...BROWSER_SHORTCUTS.DOWNLOAD,
+        handler: () => void handleDownloadRequest(getOperationPolicyContext()),
+        enabled: browsing && noDialogOrCopyMove && downloadAvailability.available,
+        onUnavailable: (event) => handleUnavailableShortcut("download", event),
       },
       // Navigate mode (Ctrl+K) — also focuses the search bar
       {
@@ -3415,8 +3670,12 @@ const Browser: React.FC = () => {
     activePaneCanOpenInApp,
     activePaneIsArchive,
     browserOverlayOpen,
+    effectiveActivePaneId,
     getFileListShortcutAvailability,
+    getOperationPolicyContext,
     handleUnavailableShortcut,
+    handleDownloadRequest,
+    handleUploadRequest,
     handleOpenSettings,
     handleOpenConnectionSelector,
     settingsOpen,
@@ -4016,24 +4275,26 @@ const Browser: React.FC = () => {
       <OverwriteResolutionDialog
         open={conflictDialogOpen}
         conflict={conflictInfo}
-        operation={copyMoveMode}
-        allowedActions={getCopyMoveConflictActions(conflictInfo)}
+        operation={uploadProgress ? "copy" : copyMoveMode}
+        allowedActions={uploadProgress ? ["skip", "overwrite", "rename"] : getCopyMoveConflictActions(conflictInfo)}
         canApplyToAll={treeConflictAllowsApplyToAll ? () => true : undefined}
         progress={conflictProgress}
         sourcePath={
-          conflictInfo && copyMoveItems[0]
-            ? getLocationDisplayName(
-                { kind: "physical", connectionId: copyMoveItems[0].handle.location.connectionId, path: conflictInfo.incoming_file.path },
-                (connectionId) => getConnectionById(allConnections, connectionId)?.name ?? connectionId
-              )
-            : undefined
+          uploadProgress
+            ? uploadProgress.name
+            : conflictInfo && copyMoveItems[0]
+              ? getLocationDisplayName(
+                  { kind: "physical", connectionId: copyMoveItems[0].handle.location.connectionId, path: conflictInfo.incoming_file.path },
+                  (connectionId) => getConnectionById(allConnections, connectionId)?.name ?? connectionId
+                )
+              : undefined
         }
         targetDirectoryPath={
-          conflictInfo && copyMoveDestination
+          conflictInfo && (uploadProgress || copyMoveDestination)
             ? getLocationDisplayName(
                 {
                   kind: "physical",
-                  connectionId: copyMoveDestination.connectionId,
+                  connectionId: uploadProgress ? uploadProgress.connectionId : copyMoveDestination!.connectionId,
                   path: parentPath(conflictInfo.existing_file.path),
                 },
                 (connectionId) => getConnectionById(allConnections, connectionId)?.name ?? connectionId
@@ -4042,6 +4303,40 @@ const Browser: React.FC = () => {
         }
         onResolve={handleConflictResolve}
         onCancel={handleConflictCancel}
+      />
+      <Snackbar
+        key={uploadProgress ? "upload-progress" : preparingDownload ? "download-progress" : transferNotice}
+        open={Boolean(uploadProgress || preparingDownload || transferNotice)}
+        autoHideDuration={uploadProgress || preparingDownload ? null : TRANSFER_NOTICE_AUTOHIDE_MS}
+        message={
+          uploadProgress
+            ? t("fileBrowser.transfers.uploadProgress", {
+                ...uploadProgress,
+                bytes: formatFileSize(uploadProgress.bytes),
+                size: formatFileSize(uploadProgress.size),
+              })
+            : preparingDownload
+              ? t("fileBrowser.transfers.preparingDownload")
+              : transferNotice
+        }
+        action={
+          uploadProgress || preparingDownload ? (
+            <Button
+              color="inherit"
+              onClick={() => {
+                uploadAbortRef.current?.abort();
+                downloadAbortRef.current?.abort();
+                conflictResolveRef.current?.(null);
+                conflictResolveRef.current = null;
+              }}
+            >
+              {t("common.actions.cancel")}
+            </Button>
+          ) : undefined
+        }
+        onClose={() => {
+          if (!uploadProgress && !preparingDownload) setTransferNotice("");
+        }}
       />
     </Box>
   );

@@ -546,6 +546,26 @@ export const BROWSER_SHORTCUTS = {
     helpGroup: "general",
     ctrl: true,
   },
+  UPLOAD: {
+    id: "upload-files",
+    keys: "u",
+    get description() {
+      return translate("fileBrowser.shortcuts.upload");
+    },
+    label: "Ctrl+U",
+    helpGroup: "fileActions",
+    ctrl: true,
+  },
+  DOWNLOAD: {
+    id: "download-items",
+    keys: "d",
+    get description() {
+      return translate("fileBrowser.shortcuts.download");
+    },
+    label: "Ctrl+D",
+    helpGroup: "fileActions",
+    ctrl: true,
+  },
   DELETE_ITEM: {
     id: "delete-item",
     keys: "Delete",

@@ -2,6 +2,8 @@ import { expect, test, type Locator, type Page, type Route } from "@playwright/t
 
 const DEMO_CONNECTION_ID = "85610f49-ab40-4d96-8750-ddab3e8e8764";
 const DEMO_PATH = "note.md";
+const DEMO_DIRECTORY = "Reports";
+const DEMO_ARCHIVE = "sample.zip";
 
 const LINE_BREAK_MARKDOWN = "alpha\n\n| Col 1 | Col 2 |\n| --- | --- |\n| A1 | B1 |\n| A2 | B2 |\n\nomega\n";
 const SEARCH_MARKDOWN = "alpha\n\n| Col 1 | Col 2 |\n| --- | --- |\n| alpha | B1 |\n| A2 | alpha |\n\nomega alpha\n";
@@ -18,6 +20,10 @@ const SCROLLED_SELECTION_MARKDOWN = [
 
 interface MockMarkdownViewerApiOptions {
   initialMarkdown: string;
+  includeDirectory?: boolean;
+  includeZip?: boolean;
+  existingFilePaths?: readonly string[];
+  onTransferStream?: (route: Route) => Promise<void>;
   onUploadBody?: (body: string, setCurrentMarkdown: (markdown: string) => void) => void;
 }
 
@@ -29,7 +35,7 @@ async function fulfillJson(route: Route, json: unknown, status = 200): Promise<v
   });
 }
 
-async function mockMarkdownViewerApi(page: Page, { initialMarkdown, onUploadBody }: MockMarkdownViewerApiOptions): Promise<void> {
+async function mockMarkdownViewerApi(page: Page, { initialMarkdown, includeDirectory, includeZip, existingFilePaths, onTransferStream, onUploadBody }: MockMarkdownViewerApiOptions): Promise<void> {
   let currentMarkdown = initialMarkdown;
 
   await page.route("**/api/**", async (route) => {
@@ -136,12 +142,42 @@ async function mockMarkdownViewerApi(page: Page, { initialMarkdown, onUploadBody
             name: DEMO_PATH,
             path: DEMO_PATH,
             type: "file",
+            is_readable: true,
             size: currentMarkdown.length,
             mime_type: "text/markdown",
             modified_at: "2026-04-12T12:00:00Z",
           },
+          ...(includeDirectory
+            ? [{ name: DEMO_DIRECTORY, path: DEMO_DIRECTORY, type: "directory", is_readable: true, modified_at: "2026-04-12T12:00:00Z" }]
+            : []),
+          ...(includeZip
+            ? [{ name: DEMO_ARCHIVE, path: DEMO_ARCHIVE, type: "file", size: 512, is_readable: true, modified_at: "2026-04-12T12:00:00Z" }]
+            : []),
         ],
       });
+      return;
+    }
+
+    if (pathname === "/api/archive/v2/inspection/directory" && includeZip) {
+      await fulfillJson(route, {
+        archive: { path: DEMO_ARCHIVE, size: 512 },
+        path: "",
+        items: [
+          { name: "member.txt", path: "member.txt", type: "file", size: 6, state: "readable", is_hidden: false },
+          { name: DEMO_DIRECTORY, path: DEMO_DIRECTORY, type: "directory", state: "readable", is_hidden: false },
+        ],
+        next_cursor: null,
+        page_size: 100,
+      });
+      return;
+    }
+
+    if (
+      pathname === `/api/browse/${DEMO_CONNECTION_ID}/info` &&
+      (existingFilePaths?.includes(url.searchParams.get("path") ?? "") || (includeZip && url.searchParams.get("path") === DEMO_ARCHIVE))
+    ) {
+      const path = url.searchParams.get("path")!;
+      await fulfillJson(route, { name: path, path, type: "file", size: path === DEMO_ARCHIVE ? 512 : 5, is_readable: true, modified_at: "2026-04-12T12:00:00Z" });
       return;
     }
 
@@ -190,6 +226,11 @@ async function mockMarkdownViewerApi(page: Page, { initialMarkdown, onUploadBody
       return;
     }
 
+    if (pathname === `/api/browse/${DEMO_CONNECTION_ID}/transfer-stream` && request.method() === "POST" && onTransferStream) {
+      await onTransferStream(route);
+      return;
+    }
+
     await fulfillJson(route, { detail: `Unhandled mocked route: ${request.method()} ${pathname}` }, 404);
   });
 }
@@ -197,6 +238,360 @@ async function mockMarkdownViewerApi(page: Page, { initialMarkdown, onUploadBody
 async function openMarkdownViewer(page: Page): Promise<void> {
   await page.goto("/browse/smb/demo");
   await page.getByRole("button", { name: `File: ${DEMO_PATH}` }).click();
+}
+
+for (const layout of ["desktop", "compact"] as const) {
+  test(`${layout} Ctrl+D downloads the focused file`, async ({ page }) => {
+    if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+    await mockMarkdownViewerApi(page, { initialMarkdown: "hello" });
+    await page.route(`**/api/viewer/${DEMO_CONNECTION_ID}/download?**`, async (route) => {
+      await fulfillJson(route, { detail: "Download intentionally blocked in E2E" }, 503);
+    });
+    await page.goto("/browse/smb/demo");
+    await page.getByTestId("file-list-container").press("ArrowDown");
+    await expect(page.getByRole("button", { name: `File: ${DEMO_PATH}` })).toHaveAttribute("data-selected", "true");
+    const downloadRequest = page.waitForRequest((request) =>
+      request.url().includes(`/api/viewer/${DEMO_CONNECTION_ID}/download?path=${DEMO_PATH}`)
+    );
+    await page.keyboard.press("Control+d");
+    expect((await downloadRequest).method()).toBe("GET");
+  });
+
+  test(`${layout} Ctrl+D downloads the current selection as a ZIP`, async ({ page }) => {
+    if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+    await mockMarkdownViewerApi(page, { initialMarkdown: "hello", includeDirectory: true });
+    await page.route(`**/api/browse/${DEMO_CONNECTION_ID}/download-selection`, async (route) => {
+      await fulfillJson(route, { detail: "Download intentionally blocked in E2E" }, 503);
+    });
+    await page.goto("/browse/smb/demo");
+    await page.getByTestId("file-list-container").focus();
+    await page.keyboard.press("Control+a");
+    const downloadRequest = page.waitForRequest((request) =>
+      request.url().endsWith(`/api/browse/${DEMO_CONNECTION_ID}/download-selection`)
+    );
+    await page.keyboard.press("Control+d");
+    const request = await downloadRequest;
+    expect(request.method()).toBe("POST");
+    expect(request.postDataJSON()).toEqual(expect.arrayContaining([DEMO_PATH, DEMO_DIRECTORY]));
+  });
+
+  test(`${layout} Ctrl+D downloads a focused ZIP member`, async ({ page }) => {
+    if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+    await mockMarkdownViewerApi(page, { initialMarkdown: "hello", includeZip: true });
+    await page.route("**/api/archive/v2/inspection/member?**", async (route) => {
+      await fulfillJson(route, { detail: "Download intentionally blocked in E2E" }, 503);
+    });
+    await page.goto("/browse/smb/demo");
+    await page.getByRole("button", { name: `File: ${DEMO_ARCHIVE}` }).click();
+    await page.getByTestId("file-list-container").press("ArrowDown");
+    await expect(page.getByRole("button", { name: "File: member.txt" })).toHaveAttribute("data-selected", "true");
+    const downloadRequest = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/archive/v2/inspection/member");
+    await page.keyboard.press("Control+d");
+    const params = new URL((await downloadRequest).url()).searchParams;
+    expect(params.get("member_path")).toBe("member.txt");
+    expect(params.get("download")).toBe("true");
+  });
+
+  test(`${layout} Ctrl+D asks for a selection when the file list is empty of selections`, async ({ page }) => {
+    if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+    await mockMarkdownViewerApi(page, { initialMarkdown: "hello" });
+    await page.route(`**/api/browse/${DEMO_CONNECTION_ID}/list**`, async (route) => {
+      await fulfillJson(route, { path: "/", items: [] });
+    });
+    await page.goto("/browse/smb/demo");
+    await page.getByTestId("file-list-container").focus();
+    await page.keyboard.press("Control+d");
+    await expect(page.getByText("Select one or more items to download.")).toBeVisible();
+  });
+
+  test(`${layout} file menu dispatches a physical download request`, async ({ page }) => {
+    if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+    await mockMarkdownViewerApi(page, { initialMarkdown: "hello" });
+    const downloadRequest = page.waitForRequest((request) =>
+      request.url().includes(`/api/viewer/${DEMO_CONNECTION_ID}/download?path=${DEMO_PATH}`)
+    );
+    await page.route(`**/api/viewer/${DEMO_CONNECTION_ID}/download?**`, async (route) => {
+      await fulfillJson(route, { detail: "Download intentionally blocked in E2E" }, 503);
+    });
+    await page.goto("/browse/smb/demo");
+    if (layout === "compact") {
+      await page.getByRole("button", { name: `More actions for ${DEMO_PATH}` }).click();
+      await page.getByRole("menuitem", { name: "Download" }).click();
+    } else {
+      await page.getByRole("button", { name: `File: ${DEMO_PATH}` }).click({ button: "right" });
+      await page.getByRole("button", { name: "Download" }).click();
+    }
+    expect((await downloadRequest).method()).toBe("GET");
+  });
+
+  test(`${layout} directory download requests a temporary ZIP without saving`, async ({ page }) => {
+    if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+    await mockMarkdownViewerApi(page, { initialMarkdown: "hello", includeDirectory: true });
+    const downloadRequest = page.waitForRequest((request) =>
+      request.url().endsWith(`/api/browse/${DEMO_CONNECTION_ID}/download-selection`)
+    );
+    await page.route(`**/api/browse/${DEMO_CONNECTION_ID}/download-selection`, async (route) => {
+      await fulfillJson(route, { detail: "Download intentionally blocked in E2E" }, 503);
+    });
+    await page.goto("/browse/smb/demo");
+    if (layout === "compact") {
+      await page.getByRole("button", { name: `More actions for ${DEMO_DIRECTORY}` }).click();
+      await page.getByRole("menuitem", { name: "Download" }).click();
+    } else {
+      await page.getByRole("button", { name: `Folder: ${DEMO_DIRECTORY}` }).click({ button: "right" });
+      await page.getByRole("button", { name: "Download" }).click();
+    }
+    const request = await downloadRequest;
+    expect(request.method()).toBe("POST");
+    expect(request.postDataJSON()).toEqual([DEMO_DIRECTORY]);
+  });
+
+  test(`${layout} ZIP member directory download requests a temporary archive`, async ({ page }) => {
+    if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+    await mockMarkdownViewerApi(page, { initialMarkdown: "hello", includeZip: true });
+    const downloadRequest = page.waitForRequest((request) =>
+      request.url().endsWith(`/api/browse/${DEMO_CONNECTION_ID}/archive/download-selection`)
+    );
+    await page.route(`**/api/browse/${DEMO_CONNECTION_ID}/archive/download-selection`, async (route) => {
+      await fulfillJson(route, { detail: "Download intentionally blocked in E2E" }, 503);
+    });
+    await page.goto("/browse/smb/demo");
+    await page.getByRole("button", { name: `File: ${DEMO_ARCHIVE}` }).click();
+    if (layout === "compact") {
+      await page.getByRole("button", { name: `More actions for ${DEMO_DIRECTORY}` }).click();
+      await page.getByRole("menuitem", { name: "Download" }).click();
+    } else {
+      await page.getByRole("button", { name: `Folder: ${DEMO_DIRECTORY}` }).click({ button: "right" });
+      await page.getByRole("button", { name: "Download" }).click();
+    }
+    const request = await downloadRequest;
+    expect(request.method()).toBe("POST");
+    expect(request.postDataJSON()).toEqual({ archive_path: DEMO_ARCHIVE, paths: [DEMO_DIRECTORY] });
+  });
+
+  test(`${layout} ZIP file member download requests original content`, async ({ page }) => {
+    if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+    await mockMarkdownViewerApi(page, { initialMarkdown: "hello", includeZip: true });
+    const downloadRequest = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/archive/v2/inspection/member");
+    await page.route("**/api/archive/v2/inspection/member?**", async (route) => {
+      await fulfillJson(route, { detail: "Download intentionally blocked in E2E" }, 503);
+    });
+    await page.goto("/browse/smb/demo");
+    await page.getByRole("button", { name: `File: ${DEMO_ARCHIVE}` }).click();
+    if (layout === "compact") {
+      await page.getByRole("button", { name: "More actions for member.txt" }).click();
+      await page.getByRole("menuitem", { name: "Download" }).click();
+    } else {
+      await page.getByTestId("file-list-container").press("ArrowDown");
+      await expect(page.getByRole("button", { name: "File: member.txt" })).toHaveAttribute("data-selected", "true");
+      await page.getByRole("button", { name: "Download" }).click();
+    }
+    const request = await downloadRequest;
+    const params = new URL(request.url()).searchParams;
+    expect(params.get("archive_path")).toBe(DEMO_ARCHIVE);
+    expect(params.get("member_path")).toBe("member.txt");
+    expect(params.get("download")).toBe("true");
+    expect(params.get("view_kind")).toBe("raw");
+  });
+
+  test(`${layout} directory ZIP preparation reports a size-limit failure`, async ({ page }) => {
+    if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+    await mockMarkdownViewerApi(page, { initialMarkdown: "hello", includeDirectory: true });
+    let releaseResponse: () => void = () => undefined;
+    const responseGate = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+    await page.route(`**/api/browse/${DEMO_CONNECTION_ID}/download-selection`, async (route) => {
+      await responseGate;
+      await fulfillJson(route, { detail: "temporary_archive_size_limit_exceeded" }, 413);
+    });
+    await page.goto("/browse/smb/demo");
+    if (layout === "compact") {
+      await page.getByRole("button", { name: `More actions for ${DEMO_DIRECTORY}` }).click();
+      await page.getByRole("menuitem", { name: "Download" }).click();
+    } else {
+      await page.getByRole("button", { name: `Folder: ${DEMO_DIRECTORY}` }).click({ button: "right" });
+      await page.getByRole("button", { name: "Download" }).click();
+    }
+    await expect(page.getByText("Preparing download")).toBeVisible();
+    releaseResponse();
+    await expect(page.getByText("The selected ZIP exceeds the temporary download size limit.")).toBeVisible();
+  });
+
+  test(`${layout} cancels directory ZIP preparation before any download response`, async ({ page }) => {
+    if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+    await mockMarkdownViewerApi(page, { initialMarkdown: "hello", includeDirectory: true });
+    let releaseResponse: () => void = () => undefined;
+    const responseGate = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+    await page.route(`**/api/browse/${DEMO_CONNECTION_ID}/download-selection`, async (route) => {
+      await responseGate;
+      await route.abort("failed").catch(() => undefined);
+    });
+    await page.goto("/browse/smb/demo");
+    if (layout === "compact") {
+      await page.getByRole("button", { name: `More actions for ${DEMO_DIRECTORY}` }).click();
+      await page.getByRole("menuitem", { name: "Download" }).click();
+    } else {
+      await page.getByRole("button", { name: `Folder: ${DEMO_DIRECTORY}` }).click({ button: "right" });
+      await page.getByRole("button", { name: "Download" }).click();
+    }
+    await expect(page.getByText("Preparing download")).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    releaseResponse();
+    await expect(page.getByText("Preparing download")).toBeHidden();
+  });
+}
+
+for (const layout of ["desktop", "compact"] as const) {
+test(`${layout} Ctrl+U opens the upload picker for the active folder`, async ({ page }) => {
+  if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+  await mockMarkdownViewerApi(page, {
+    initialMarkdown: "hello",
+    onTransferStream: async (route) => {
+      await fulfillJson(route, { status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } });
+    },
+  });
+  await page.goto("/browse/smb/demo");
+  await page.getByTestId("file-list-container").focus();
+  const fileChooser = page.waitForEvent("filechooser");
+  await page.keyboard.press("Control+u");
+  await (await fileChooser).setFiles({ name: "shortcut.txt", mimeType: "text/plain", buffer: Buffer.from("shortcut") });
+  await expect(page.getByText("Uploaded 1 file")).toBeVisible();
+});
+
+test(`${layout} upload picker publishes two files in order`, async ({ page }) => {
+  if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+  const uploadedPaths: string[] = [];
+  await mockMarkdownViewerApi(page, {
+    initialMarkdown: "hello",
+    onTransferStream: async (route) => {
+      const request = route.request();
+      uploadedPaths.push(new URL(request.url()).searchParams.get("path") ?? "");
+      expect(await request.headerValue("content-type")).toBe("application/octet-stream");
+      await fulfillJson(route, { status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } });
+    },
+  });
+  await page.goto("/browse/smb/demo");
+  const fileChooser = page.waitForEvent("filechooser");
+  if (layout === "compact") {
+    await page.getByRole("button", { name: "Create new item" }).click();
+    await page.getByRole("menuitem", { name: "Upload" }).click();
+  } else {
+    await page.getByRole("button", { name: "Upload" }).click();
+  }
+  await (await fileChooser).setFiles([
+    { name: "first.txt", mimeType: "text/plain", buffer: Buffer.from("first") },
+    { name: "second.txt", mimeType: "text/plain", buffer: Buffer.from("second") },
+  ]);
+  await expect(page.getByText("Uploaded 2 files")).toBeVisible();
+  expect(uploadedPaths).toEqual(["first.txt", "second.txt"]);
+  await expect(page.getByText("Uploaded 2 files")).toBeHidden({ timeout: 8_000 });
+});
+
+test(`${layout} upload reports a failed file and continues the queue`, async ({ page }) => {
+  if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+  const uploadedPaths: string[] = [];
+  await mockMarkdownViewerApi(page, {
+    initialMarkdown: "hello",
+    onTransferStream: async (route) => {
+      const path = new URL(route.request().url()).searchParams.get("path") ?? "";
+      uploadedPaths.push(path);
+      if (path === "first.txt") {
+        await fulfillJson(route, { detail: "Temporary server error" }, 503);
+      } else {
+        await fulfillJson(route, { status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } });
+      }
+    },
+  });
+  await page.goto("/browse/smb/demo");
+  const fileChooser = page.waitForEvent("filechooser");
+  if (layout === "compact") {
+    await page.getByRole("button", { name: "Create new item" }).click();
+    await page.getByRole("menuitem", { name: "Upload" }).click();
+  } else {
+    await page.getByRole("button", { name: "Upload" }).click();
+  }
+  await (await fileChooser).setFiles([
+    { name: "first.txt", mimeType: "text/plain", buffer: Buffer.from("first") },
+    { name: "second.txt", mimeType: "text/plain", buffer: Buffer.from("second") },
+  ]);
+  await expect(page.getByText("Uploaded 1 file · 1 failed")).toBeVisible();
+  expect(uploadedPaths).toEqual(["first.txt", "second.txt"]);
+});
+
+test(`${layout} upload resolves a conflict before publishing the next file`, async ({ page }) => {
+  if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+  const attempts: string[] = [];
+  await mockMarkdownViewerApi(page, {
+    initialMarkdown: "hello",
+    existingFilePaths: ["first.txt"],
+    onTransferStream: async (route) => {
+      const url = new URL(route.request().url());
+      const path = url.searchParams.get("path") ?? "";
+      const policy = url.searchParams.get("target_resolution_policy") ?? "";
+      attempts.push(`${path}:${policy}`);
+      if (path === "first.txt" && policy === "ask") {
+        await fulfillJson(route, { detail: "Destination already exists" }, 409);
+      } else {
+        await fulfillJson(route, { status: "completed", replaced: policy === "replace", effects: { source: "unchanged", destination: "mutated" } });
+      }
+    },
+  });
+  await page.goto("/browse/smb/demo");
+  const fileChooser = page.waitForEvent("filechooser");
+  if (layout === "compact") {
+    await page.getByRole("button", { name: "Create new item" }).click();
+    await page.getByRole("menuitem", { name: "Upload" }).click();
+  } else {
+    await page.getByRole("button", { name: "Upload" }).click();
+  }
+  await (await fileChooser).setFiles([
+    { name: "first.txt", mimeType: "text/plain", buffer: Buffer.from("first") },
+    { name: "second.txt", mimeType: "text/plain", buffer: Buffer.from("second") },
+  ]);
+  await page.getByRole("radio", { name: "Overwrite", exact: true }).check();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByText("Uploaded 2 files")).toBeVisible();
+  expect(attempts).toEqual(["first.txt:ask", "first.txt:replace", "second.txt:ask"]);
+});
+
+test(`${layout} upload cancellation stops the queue and reports an uncertain current file`, async ({ page }) => {
+  if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+  const attempts: string[] = [];
+  let releaseResponse: () => void = () => undefined;
+  const responseGate = new Promise<void>((resolve) => {
+    releaseResponse = resolve;
+  });
+  await mockMarkdownViewerApi(page, {
+    initialMarkdown: "hello",
+    onTransferStream: async (route) => {
+      attempts.push(new URL(route.request().url()).searchParams.get("path") ?? "");
+      await responseGate;
+      await route.abort("failed").catch(() => undefined);
+    },
+  });
+  await page.goto("/browse/smb/demo");
+  const firstUpload = page.waitForRequest((request) => request.url().includes(`/api/browse/${DEMO_CONNECTION_ID}/transfer-stream`));
+  const fileChooser = page.waitForEvent("filechooser");
+  if (layout === "compact") {
+    await page.getByRole("button", { name: "Create new item" }).click();
+    await page.getByRole("menuitem", { name: "Upload" }).click();
+  } else {
+    await page.getByRole("button", { name: "Upload" }).click();
+  }
+  await (await fileChooser).setFiles([
+    { name: "first.txt", mimeType: "text/plain", buffer: Buffer.from("first") },
+    { name: "second.txt", mimeType: "text/plain", buffer: Buffer.from("second") },
+  ]);
+  await firstUpload;
+  await expect(page.getByText(/Uploading first\.txt \(1\/2\) · (?:0 B|5 B) \/ 5 B/)).toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  releaseResponse();
+  await expect(page.getByText("Uploaded 0 files · 1 outcome uncertain, 1 cancelled")).toBeVisible();
+  expect(attempts).toEqual(["first.txt"]);
+});
 }
 
 async function enterMarkdownEditMode(page: Page): Promise<void> {

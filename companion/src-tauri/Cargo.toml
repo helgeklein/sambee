@@ -1,6 +1,6 @@
 [package]
 name = "sambee-companion"
-version = "1.0.31"
+version = "1.0.32"
 edition = "2021"
 description = "Sambee Companion — opens files from Sambee in native desktop editors"
 authors = []
@@ -53,6 +53,7 @@ unicode-casefold = "0.2.0"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+filetime = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"

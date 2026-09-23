@@ -118,6 +118,8 @@ async def build_archive_creation_manifest(
     source: ArchiveCreationSource,
     source_paths: list[str],
     target_path: str,
+    *,
+    source_and_target_share_namespace: bool = True,
 ) -> list[ArchiveCreationEntry]:
     if not source_paths:
         raise ArchiveFormatError("Archive creation requires at least one source")
@@ -145,7 +147,7 @@ async def build_archive_creation_manifest(
             return
         if info.type != FileType.DIRECTORY:
             raise ArchiveFormatError("Archive creation supports regular files and directories only")
-        if _is_within_directory(normalized_target, source_path):
+        if source_and_target_share_namespace and _is_within_directory(normalized_target, source_path):
             raise ArchiveFormatError("Archive target cannot be inside a selected source directory")
         add_entry(source_path, archive_path, info)
         listing = await source.list_directory(source_path)
@@ -158,7 +160,7 @@ async def build_archive_creation_manifest(
         normalized_source = source_path.replace("\\", "/").strip("/")
         if not normalized_source:
             raise ArchiveFormatError("Archive creation source path is invalid")
-        if normalized_source == normalized_target:
+        if source_and_target_share_namespace and normalized_source == normalized_target:
             raise ArchiveFormatError("Archive target cannot also be a selected source")
         info = await source.get_file_info(normalized_source)
         await visit(normalized_source, _source_entry_name(normalized_source), info)

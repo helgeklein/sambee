@@ -12,6 +12,18 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+echo -e "${YELLOW}=== Git: Changed Whitespace ===${NC}"
+if ! diff_base=$(git -C "$REPO_ROOT" merge-base HEAD refs/remotes/origin/main); then
+    echo -e "${RED}Cannot find the branch base. Run git fetch origin main and retry.${NC}\n"
+    exit 1
+fi
+if git -C "$REPO_ROOT" diff --check "$diff_base"; then
+    echo -e "${GREEN}✓ Changed whitespace check passed${NC}\n"
+else
+    echo -e "${RED}✗ Changed whitespace check failed${NC}\n"
+    exit 1
+fi
+
 echo -e "${YELLOW}Running linters for backend, frontend, and companion...${NC}\n"
 
 # Backend: Ruff

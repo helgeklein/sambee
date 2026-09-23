@@ -1,10 +1,5 @@
 # TODO
 
-## Audio & video players
-
-- MP3 files should be easy
-- Videos probably need more dependencies
-
 ## Misc. commands
 
 - Add a command to open the current file list location in a new browser tab (which keyboard shortcut to assign? Ctrl+(Shift)+Tab is needed by the browser)
@@ -42,3 +37,8 @@
 - Plugin system to support additional backends like S3 or SFTP
    - Every backend must use the new system.
    - This means we need to move the existing storage support (SMB and local drives) to the new system.
+
+## Audio & video players
+
+- MP3 files should be easy
+- Videos probably need more dependencies

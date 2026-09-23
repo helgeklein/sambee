@@ -10,6 +10,8 @@ export type FileOperationActionId =
   | "move"
   | "create-archive"
   | "extract-archive"
+  | "download"
+  | "upload"
   | "refresh";
 
 export interface FileOperationAvailability {
@@ -131,7 +133,22 @@ const FILE_OPERATION_DEFINITIONS: readonly FileOperationDefinition[] = [
       { surface: "compact-item-menu", scope: "item", priority: 5 },
     ],
   },
-  { id: "refresh", placements: [{ surface: "desktop-toolbar", scope: "pane", priority: 9 }] },
+  {
+    id: "download",
+    placements: [
+      { surface: "desktop-toolbar", scope: "selection", priority: 9 },
+      { surface: "compact-item-menu", scope: "item", priority: 6 },
+      { surface: "compact-selection-menu", scope: "selection", priority: 5 },
+    ],
+  },
+  {
+    id: "upload",
+    placements: [
+      { surface: "desktop-toolbar", scope: "pane", priority: 10 },
+      { surface: "compact-create-menu", scope: "pane", priority: 3 },
+    ],
+  },
+  { id: "refresh", placements: [{ surface: "desktop-toolbar", scope: "pane", priority: 11 }] },
 ];
 
 export function createFileOperationActions({
@@ -161,7 +178,7 @@ export function createFileOperationActions({
         priority: placement.priority,
         label,
         shortcut,
-        tooltip: unavailableReason ? `${label} (${shortcut}): ${unavailableReason}` : `${label} (${shortcut})`,
+        tooltip: `${label}${shortcut ? ` (${shortcut})` : ""}${unavailableReason ? `: ${unavailableReason}` : ""}`,
         enabled: actionAvailability.available,
         unavailableReason,
         onClick: handlers[definition.id],

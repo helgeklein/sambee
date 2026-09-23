@@ -5,9 +5,11 @@ Uses mocked SMB backend to avoid dependency on real SMB server.
 
 import asyncio
 import io
+import json
 import uuid
 import zipfile
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -27,6 +29,10 @@ from app.models.file import ContentTransferEffects, ContentTransferResult, CopyM
 from app.models.transfer_operation import TransferOperation, TransferOperationPhase
 from app.services.content_transfer import SourceDeleteError
 from app.services.preprocessor import PreprocessorFileTooLargeError
+
+PUBLISH_CONTRACT = json.loads(
+    (Path(__file__).resolve().parents[2] / "archive-contract/v2/fixtures/browser-file-publish-scenarios-v2.json").read_text()
+)["staged_publish"]
 
 
 class _MemoryRandomAccessReader:
@@ -173,27 +179,30 @@ def test_cross_provider_stream_destination_stages_before_publishing(
     test_connection: Connection,
 ):
     """A cross-provider body is delegated to the private SMB staging primitive."""
+    scenario = PUBLISH_CONTRACT
+    contents = scenario["contents"].encode()
     with patch("app.api.browser.SMBBackend") as mock_backend:
         mock_instance = AsyncMock()
         mock_backend.return_value = mock_instance
-        mock_instance.get_file_info.side_effect = FileNotFoundError("incoming/report.txt")
+        mock_instance.get_file_info.side_effect = FileNotFoundError(scenario["target_path"])
 
         async def stage_and_commit(path: str, stream, *, before_commit, **_kwargs: object) -> int:
-            assert path == "incoming/report.txt"
-            assert b"".join([chunk async for chunk in stream]) == b"report"
+            assert path == scenario["target_path"]
+            assert b"".join([chunk async for chunk in stream]) == contents
             await before_commit()
-            return 6
+            return len(contents)
 
         mock_instance.stage_and_commit_new_file_from_stream.side_effect = stage_and_commit
         response = client.post(
-            f"/api/browse/{test_connection.id}/transfer-stream?path=incoming/report.txt&expected_size=6",
+            f"/api/browse/{test_connection.id}/transfer-stream",
+            params={"path": scenario["target_path"], "expected_size": scenario["expected_size"]},
             headers=auth_headers_user,
-            content=b"report",
+            content=contents,
         )
 
     assert response.status_code == 200
-    assert response.json()["status"] == "completed"
-    assert response.json()["effects"] == {"source": "unchanged", "destination": "mutated"}
+    assert response.json()["status"] == scenario["expected_status"]
+    assert response.json()["effects"] == scenario["expected_effects"]
     mock_instance.stage_and_commit_new_file_from_stream.assert_awaited_once()
 
 
@@ -427,8 +436,12 @@ def test_cross_provider_stream_destination_requires_expected_size_before_smb_wor
 @pytest.mark.parametrize(
     ("expected_size", "content", "expected_detail"),
     [
-        (6, b"short", "expected 6 bytes but received 5 bytes"),
-        (6, b"too long", "expected 6 bytes but received more"),
+        (
+            PUBLISH_CONTRACT["expected_size"],
+            PUBLISH_CONTRACT["truncated_contents"].encode(),
+            f"expected {PUBLISH_CONTRACT['expected_size']} bytes but received {len(PUBLISH_CONTRACT['truncated_contents'].encode())} bytes",
+        ),
+        (PUBLISH_CONTRACT["expected_size"], b"too long", f"expected {PUBLISH_CONTRACT['expected_size']} bytes but received more"),
     ],
 )
 def test_cross_provider_stream_destination_rejects_size_mismatch_before_commit(

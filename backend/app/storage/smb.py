@@ -5,6 +5,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable
 from datetime import datetime
 from pathlib import PurePosixPath
+from time import monotonic
 from typing import Any, Awaitable, BinaryIO, TypeVar, cast
 
 import smbclient
@@ -1803,6 +1804,9 @@ class SMBBackend(StorageBackend):
         smb_stage_path = self._build_smb_path(stage_path)
         bytes_written = 0
         committed = False
+        started_at = monotonic()
+        write_calls = 0
+        write_seconds = 0.0
 
         async def remove_stage() -> None:
             if committed:
@@ -1847,12 +1851,17 @@ class SMBBackend(StorageBackend):
                         offset = 0
                         while offset < len(chunk):
                             remaining = chunk[offset:]
-                            accepted = await self._run_blocking_smb_operation(
-                                "write transfer stage chunk",
-                                lambda: file_handle.write(remaining),
-                                SMB_WRITE_FILE_TIMEOUT_SECONDS,
-                                smb_path=smb_stage_path,
-                            )
+                            write_started_at = monotonic()
+                            write_calls += 1
+                            try:
+                                accepted = await self._run_blocking_smb_operation(
+                                    "write transfer stage chunk",
+                                    lambda: file_handle.write(remaining),
+                                    SMB_WRITE_FILE_TIMEOUT_SECONDS,
+                                    smb_path=smb_stage_path,
+                                )
+                            finally:
+                                write_seconds += monotonic() - write_started_at
                             if not isinstance(accepted, int) or not 0 < accepted <= len(remaining):
                                 raise OSError(f"SMB write returned an invalid byte count for transfer stage '{path}'")
                             offset += accepted
@@ -1899,3 +1908,11 @@ class SMBBackend(StorageBackend):
             raise
         finally:
             await remove_stage()
+            logger.info(
+                "SMB transfer staging: bytes=%s, write_calls=%s, smb_write_ms=%.0f, total_ms=%.0f, committed=%s",
+                bytes_written,
+                write_calls,
+                write_seconds * 1000,
+                (monotonic() - started_at) * 1000,
+                committed,
+            )

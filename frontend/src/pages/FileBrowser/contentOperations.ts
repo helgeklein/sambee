@@ -3,12 +3,20 @@ import { logger } from "../../services/logger";
 import { publishRecentFilesChanged } from "../../services/recentFilesSync";
 import type { StorageArchiveOperationCoordinator } from "../../services/storageArchiveOperations";
 import type { ContentTransferResult, StorageBackendRegistry, TargetResolutionPolicy } from "../../services/storageContracts";
-import { transferAcrossStorageBackends } from "../../services/storageTransferOperations";
+import {
+  downloadPhysicalFile,
+  downloadPhysicalSelection,
+  downloadZipSelection,
+  publishBrowserFile,
+  saveVirtualDownload,
+  transferAcrossStorageBackends,
+} from "../../services/storageTransferOperations";
 import { type ConflictInfo, type DirectoryListing, type FileInfo, FileType, isApiError } from "../../types";
 import { startZipArchiveExtraction } from "./archiveExtractionExecution";
 import type {
   ArchiveExtractionExecution,
   ArchiveExtractionRequest,
+  BrowserItem,
   ContentItemHandle,
   ContentLocation,
   ContentProviderRegistry,
@@ -17,6 +25,47 @@ import type {
   VirtualLocation,
 } from "./contentProviders";
 import { physicalItemHandle, physicalLocation } from "./contentProviders";
+
+export { publishBrowserFile };
+
+export async function downloadContentSelection(
+  items: readonly BrowserItem[],
+  providers: ContentProviderRegistry,
+  signal: AbortSignal
+): Promise<void> {
+  const item = items[0];
+  if (!item || !items.every((selected) => selected.entry.is_readable)) throw new Error("Select readable items to download");
+  if (items.length > 1 || item.entry.type === FileType.DIRECTORY) {
+    if (item.handle.kind === "physical" && items.every((selected) => selected.handle.kind === "physical")) {
+      await downloadPhysicalSelection(
+        item.handle.location.connectionId,
+        items.map((selected) => selected.handle.path),
+        signal
+      );
+    } else if (
+      item.handle.kind === "virtual" &&
+      item.handle.location.providerId === "zip" &&
+      items.every(
+        (selected) =>
+          selected.handle.kind === "virtual" &&
+          selected.handle.location.providerId === "zip" &&
+          selected.handle.location.source.path === item.handle.location.source.path
+      )
+    ) {
+      await downloadZipSelection(
+        item.handle.location.connectionId,
+        item.handle.location.source.path,
+        items.map((selected) => selected.handle.path),
+        signal
+      );
+    } else throw new Error("Selected download sources are incompatible");
+  } else if (item.handle.kind === "physical") {
+    await downloadPhysicalFile(item.handle.location.connectionId, item.handle.path, item.entry.name);
+  } else {
+    const blob = await providers.get(item.handle.location).read(item.handle, { kind: "raw" }, { download: true, signal });
+    if (!signal.aborted) saveVirtualDownload(blob, item.entry.name);
+  }
+}
 
 export interface ArchiveExtractionAvailability {
   available: boolean;
@@ -655,7 +704,20 @@ export function getCreateContainerAvailability(
   if (request.sources.length === 0) {
     return unavailable("empty-selection");
   }
-  if (!request.sources.every(isPhysicalItem)) {
+  const virtualSource = request.sources[0]!.kind === "virtual" ? request.sources[0] : null;
+  if (
+    virtualSource
+      ? virtualSource.location.providerId !== "zip" ||
+        !request.sources.every(
+          (source) =>
+            source.kind === "virtual" &&
+            source.location.providerId === "zip" &&
+            source.location.connectionId === virtualSource.location.connectionId &&
+            source.location.source.path === virtualSource.location.source.path &&
+            source.location.path === virtualSource.location.path
+        )
+      : !request.sources.every(isPhysicalItem)
+  ) {
     return unavailable("unsupported-source");
   }
   const sourceConnectionId = request.sources[0]!.location.connectionId;
@@ -667,10 +729,20 @@ export function getCreateContainerAvailability(
     return destinationAvailability;
   }
   try {
-    const sourceLocations = request.sources.map((source) =>
-      environment.storageRegistry.resolveItem({ connectionId: source.location.connectionId, path: source.path })
-    );
+    const sourceLocations = virtualSource
+      ? [environment.storageRegistry.resolveItem(virtualSource.location.source)]
+      : request.sources.map((source) =>
+          environment.storageRegistry.resolveItem({ connectionId: source.location.connectionId, path: source.path })
+        );
     const destination = environment.storageRegistry.resolveDirectory(request.destination);
+    if (
+      virtualSource &&
+      (sourceLocations[0]!.target.kind !== "smb" ||
+        destination.target.kind !== "smb" ||
+        virtualSource.location.connectionId !== request.destination.connectionId)
+    ) {
+      return unavailable("unsupported-source");
+    }
     const includesLocal = sourceLocations.some((source) => source.target.kind === "local") || destination.target.kind === "local";
     if (includesLocal && !environment.isCompanionPaired) {
       return unavailable("companion-unavailable");
@@ -689,7 +761,7 @@ export function startCreateContainer(
   environment: ArchiveContentOperationEnvironment
 ): ContentOperationExecution {
   const availability = getCreateContainerAvailability(request, environment);
-  if (!availability.available || !isPhysicalLocation(request.destination) || !request.sources.every(isPhysicalItem)) {
+  if (!availability.available || !isPhysicalLocation(request.destination)) {
     return {
       result: Promise.reject(new Error(`Container creation is unavailable: ${availability.reason ?? "unsupported"}`)),
       cancel: async () => undefined,
@@ -697,12 +769,16 @@ export function startCreateContainer(
     };
   }
 
+  const virtualSource = request.sources[0]!.kind === "virtual" ? request.sources[0] : null;
   const execution = environment.archiveOperations.start({
-    sources: request.sources.map((source) =>
-      environment.storageRegistry.resolveItem({ connectionId: source.location.connectionId, path: source.path })
-    ),
+    sources: virtualSource
+      ? [environment.storageRegistry.resolveItem(virtualSource.location.source)]
+      : request.sources.map((source) =>
+          environment.storageRegistry.resolveItem({ connectionId: source.location.connectionId, path: source.path })
+        ),
     destination: environment.storageRegistry.resolveDirectory(request.destination),
     name: request.name,
+    ...(virtualSource ? { selectedMemberPaths: request.sources.map((source) => source.path) } : {}),
   });
   return {
     result: execution.result.then((result) => {

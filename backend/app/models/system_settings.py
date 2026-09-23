@@ -54,6 +54,7 @@ class PdfAdvancedSettingsRead(SQLModel):
 class AdvancedSystemSettingsRead(SQLModel):
     preprocessors: dict[str, PreprocessorAdvancedSettingsRead]
     pdf: PdfAdvancedSettingsRead
+    temporary_archive_download_size_bytes: IntegerSystemSettingRead
 
 
 class SmbAuthenticationMode(StrEnum):

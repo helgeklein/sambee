@@ -71,6 +71,11 @@ describe("Keyboard Shortcuts Configuration", () => {
       expect(BROWSER_SHORTCUTS.FOCUS_CONNECTION_SELECTOR.keys).toBe("ArrowDown");
       expect(BROWSER_SHORTCUTS.FOCUS_CONNECTION_SELECTOR.allowInInputWithin).toBe('[data-quick-bar-input="true"]');
     });
+
+    it("registers upload and download as file actions", () => {
+      expect(BROWSER_SHORTCUTS.UPLOAD).toMatchObject({ keys: "u", ctrl: true, label: "Ctrl+U", helpGroup: "fileActions" });
+      expect(BROWSER_SHORTCUTS.DOWNLOAD).toMatchObject({ keys: "d", ctrl: true, label: "Ctrl+D", helpGroup: "fileActions" });
+    });
   });
 
   describe("PANE_SHORTCUTS", () => {

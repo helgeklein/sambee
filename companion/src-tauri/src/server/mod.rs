@@ -68,6 +68,7 @@ async fn run_server(
     pairing: Arc<PairingState>,
     localization: Arc<LocalizationState>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    archive::cleanup_stale_temporary_archive_downloads()?;
     let state = Arc::new(AppState {
         app,
         pairing,
@@ -156,6 +157,14 @@ fn build_router(state: Arc<AppState>) -> Router {
             axum::routing::get(handlers::browse_edit_lock_status),
         )
         .route("/api/browse/{drive}/upload", axum::routing::post(handlers::browse_upload))
+        .route(
+            "/api/browse/{drive}/download-selection",
+            axum::routing::post(handlers::browse_download_selection),
+        )
+        .route(
+            "/api/browse/{drive}/archive/download-selection",
+            axum::routing::post(handlers::browse_download_zip_selection),
+        )
         .route(
             "/api/browse/{drive}/archive/v2/relay/creation",
             axum::routing::post(handlers::browse_relay_v2_archive_creation),

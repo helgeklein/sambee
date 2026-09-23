@@ -1,0 +1,18 @@
+{
+  "physical_selection": {
+    "roots": [
+      "parent/folder",
+      "parent/file.txt"
+    ],
+    "expected_paths": [
+      "folder/",
+      "folder/empty/",
+      "file.txt"
+    ],
+    "file_path": "file.txt",
+    "file_contents": "hello",
+    "reject_limit_bytes": 1,
+    "cancel_before_write": true,
+    "expected_artifacts_after_cancel": 0
+  }
+}

@@ -5,6 +5,7 @@ from enum import StrEnum
 
 
 class SystemSettingKey(StrEnum):
+    TEMPORARY_ARCHIVE_DOWNLOAD_SIZE_BYTES = "archive.temporary_download_size_bytes"
     SMB_READ_CHUNK_SIZE_BYTES = "smb.read_chunk_size_bytes"
     SMB_AUTHENTICATION_MODE = "smb.authentication_mode"
     SMB_ENCRYPTION_MODE = "smb.encryption_mode"
@@ -48,6 +49,16 @@ class IntegerSystemSettingDefinition:
 
 
 SYSTEM_SETTING_DEFINITIONS: dict[SystemSettingKey, IntegerSystemSettingDefinition] = {
+    SystemSettingKey.TEMPORARY_ARCHIVE_DOWNLOAD_SIZE_BYTES: IntegerSystemSettingDefinition(
+        key=SystemSettingKey.TEMPORARY_ARCHIVE_DOWNLOAD_SIZE_BYTES,
+        config_attr=None,
+        label="Temporary archive download size limit",
+        description="Largest generated ZIP download artifact stored temporarily on this server.",
+        default_value=250 * 1024 * 1024,
+        min_value=1 * 1024 * 1024,
+        max_value=2 * 1024 * 1024 * 1024,
+        step=1024 * 1024,
+    ),
     SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES: IntegerSystemSettingDefinition(
         key=SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES,
         config_attr=None,

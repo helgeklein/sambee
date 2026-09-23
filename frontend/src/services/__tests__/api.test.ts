@@ -49,6 +49,7 @@ import axios from "axios";
 import apiService, { ExpiredEditLockError, OIDC_FINALIZATION_REQUEST_TIMEOUT_MS } from "../api";
 import { authSession } from "../authSession";
 import { getBackendAvailabilitySnapshot, markBackendUnavailable, resetBackendAvailabilityForTests } from "../backendAvailability";
+import { companionSession } from "../companionSession";
 import * as draftRecovery from "../draftRecovery";
 import { logger } from "../logger";
 
@@ -366,6 +367,111 @@ describe("API Service", () => {
       "http://localhost:3000/api/browse/destination/transfer-stream?path=target.txt&target_resolution_policy=ask&expected_size=0&source_modified_at=2026-09-07T12%3A00%3A00Z",
       expect.objectContaining({ body: expect.anything(), duplex: "half" })
     );
+  });
+
+  it("publishes a browser file through the staged destination endpoint", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } }))
+    );
+    const file = new File(["hello"], "report.txt", { lastModified: Date.UTC(2026, 8, 7, 12) });
+    file.stream = () =>
+      new ReadableStream({
+        start: (controller) => {
+          controller.enqueue(new TextEncoder().encode("hello"));
+          controller.close();
+        },
+      });
+
+    await expect(apiService.publishBrowserFile(file, "destination", "folder/report.txt", "ask")).resolves.toMatchObject({
+      status: "completed",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3000/api/browse/destination/transfer-stream?path=folder%2Freport.txt&target_resolution_policy=ask&expected_size=5&source_modified_at=2026-09-07T12%3A00%3A00.000Z",
+      expect.objectContaining({ method: "POST", duplex: "half", body: expect.anything() })
+    );
+  });
+
+  it("returns conflict metadata for a browser file without implicit replacement", async () => {
+    const file = new File([], "report.txt");
+    file.stream = () => new ReadableStream({ start: (controller) => controller.close() });
+    const existing = { name: "report.txt", path: "folder/report.txt", type: FileType.FILE, size: 4, is_readable: true, is_hidden: false };
+    mockAxiosInstance.get.mockResolvedValueOnce({ data: existing } as AxiosResponse);
+    fetchMock.mockResolvedValueOnce(new Response("Destination already exists", { status: 409 }));
+
+    await expect(apiService.publishBrowserFile(file, "destination", "folder/report.txt")).rejects.toMatchObject({
+      response: { status: 409, data: { detail: { existing_file: existing, incoming_file: { name: "report.txt", size: 0 } } } },
+    });
+    expect(fetchMock.mock.calls[0]?.[0]).toContain("target_resolution_policy=ask");
+  });
+
+  it("reports an interrupted browser-file destination request as outcome unknown", async () => {
+    const file = new File([], "report.txt");
+    file.stream = () => new ReadableStream({ start: (controller) => controller.close() });
+    const controller = new AbortController();
+    fetchMock.mockImplementationOnce(async () => {
+      controller.abort();
+      throw new DOMException("The operation was aborted", "AbortError");
+    });
+
+    await expect(
+      apiService.publishBrowserFile(file, "destination", "report.txt", "ask", { signal: controller.signal })
+    ).resolves.toMatchObject({
+      status: "outcome_unknown",
+      effects: { destination: "unknown" },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("requests a selected-root ZIP without putting authentication in the URL", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(new Blob(["zip"]), { status: 200 }));
+    const save = vi.spyOn(apiService, "saveDownloadBlob").mockImplementation(() => {});
+    await apiService.downloadSelectionArchive("destination", ["folder", "file.txt"]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3000/api/browse/destination/download-selection",
+      expect.objectContaining({ method: "POST", body: '["folder","file.txt"]' })
+    );
+    expect(save).toHaveBeenCalledWith(expect.any(Blob), "Sambee-download.zip");
+  });
+
+  it("authenticates local selection ZIPs with both Companion and backend sessions", async () => {
+    vi.spyOn(companionSession, "getSigningHeaders").mockResolvedValueOnce({
+      "X-Companion-Secret": "signed",
+      "X-Companion-Timestamp": "123",
+    });
+    vi.spyOn(authSession, "getAccessToken").mockReturnValueOnce("backend-token");
+    fetchMock.mockResolvedValueOnce(new Response(new Blob(["zip"]), { status: 200 }));
+    const save = vi.spyOn(apiService, "saveDownloadBlob").mockImplementation(() => {});
+
+    await apiService.downloadSelectionArchive("local-drive:test", ["folder"]);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:21549/api/browse/test/download-selection",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ Authorization: "Bearer backend-token", "X-Companion-Secret": "signed" }),
+      })
+    );
+    expect(save).toHaveBeenCalledWith(expect.any(Blob), "Sambee-download.zip");
+  });
+
+  it("authenticates local ZIP-member selection with both sessions", async () => {
+    vi.spyOn(companionSession, "getSigningHeaders").mockResolvedValueOnce({ "X-Companion-Secret": "signed" });
+    vi.spyOn(authSession, "getAccessToken").mockReturnValueOnce("backend-token");
+    fetchMock.mockResolvedValueOnce(new Response(new Blob(["zip"]), { status: 200 }));
+    const save = vi.spyOn(apiService, "saveDownloadBlob").mockImplementation(() => {});
+
+    await apiService.downloadZipSelectionArchive("local-drive:test", "source.zip", ["folder"]);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:21549/api/browse/test/archive/download-selection",
+      expect.objectContaining({
+        method: "POST",
+        body: '{"archive_path":"source.zip","paths":["folder"]}',
+        headers: expect.objectContaining({ Authorization: "Bearer backend-token", "X-Companion-Secret": "signed" }),
+      })
+    );
+    expect(save).toHaveBeenCalledWith(expect.any(Blob), "Sambee-download.zip");
   });
 
   it("does not begin a cross-provider relay when the source size is unknown", async () => {

@@ -54,6 +54,7 @@ title = "Viewing & Editing Files"
 [pages.user-guide.viewing-and-editing-files]
 items = [
   "view-images-and-read-documents",
+  "download-and-upload-files",
   "edit-markdown",
   "edit-files-in-desktop-apps",
   "file-locking-and-conflict-resolution",

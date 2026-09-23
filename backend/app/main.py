@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import sys
 import threading
@@ -275,6 +276,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("Database initialized")
         system_settings_store.warm_cache()
         logger.info("System settings cache warmed")
+
+        from app.services.archive.temporary_download import cleanup_stale_artifacts
+
+        await asyncio.to_thread(cleanup_stale_artifacts)
 
         logger.info("Checking first-run administrator bootstrap state...")
         with Session(engine) as session:

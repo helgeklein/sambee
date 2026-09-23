@@ -57,6 +57,7 @@ import type {
   SmbSettingsUpdate,
   User,
 } from "../types";
+import { FileType } from "../types";
 import { AuthSessionError, authSession } from "./authSession";
 import {
   getBackendAvailabilitySnapshot,
@@ -1618,22 +1619,114 @@ class ApiService {
         effects: { source: "unknown", destination: "unknown" },
       };
     }
-    const expectedSize = sourceSize;
-    const sourceModifiedAt = sourceInfo.modified_at ? `&source_modified_at=${encodeURIComponent(sourceInfo.modified_at)}` : "";
+    const result = await this.publishTransferStream(
+      sourceResponse.body,
+      sourceSize,
+      sourceInfo.modified_at,
+      sourceInfo,
+      destinationConnectionId,
+      destinationPath,
+      targetResolutionPolicy,
+      options
+    );
+    if (kind !== "move" || result.status !== "completed") {
+      return result;
+    }
+    try {
+      await this.deleteItem(sourceConnectionId, sourcePath);
+      return { ...result, effects: { source: "mutated", destination: "mutated" } };
+    } catch (error) {
+      return {
+        status: "completed_with_source_retained",
+        replaced: result.replaced,
+        effects: { source: "unchanged", destination: "mutated" },
+        error: {
+          code: "source_delete_failed",
+          detail: `Destination was created but the original could not be removed: ${error instanceof Error ? error.message : "unknown error"}`,
+        },
+      };
+    }
+  }
+
+  async publishBrowserFile(
+    file: File,
+    destinationConnectionId: string,
+    destinationPath: string,
+    targetResolutionPolicy: TargetResolutionPolicy = "ask",
+    options: CrossBackendTransferOptions = {}
+  ): Promise<ContentTransferResult> {
+    if (!Number.isSafeInteger(file.size) || file.size < 0) throw new Error("Invalid upload file size");
+    if (!file.name || file.name === "." || file.name === ".." || /[/\\\0]/.test(file.name)) {
+      throw new Error("Invalid upload filename");
+    }
+    const sourceInfo = {
+      name: file.name,
+      path: file.name,
+      type: FileType.FILE,
+      size: file.size,
+      modified_at: new Date(file.lastModified).toISOString(),
+      is_readable: true,
+      is_hidden: file.name.startsWith("."),
+    };
+    const startedAt = performance.now();
+    let sourceConsumedAt: number | null = null;
+    try {
+      return await this.publishTransferStream(
+        file.stream(),
+        file.size,
+        sourceInfo.modified_at,
+        sourceInfo,
+        destinationConnectionId,
+        destinationPath,
+        targetResolutionPolicy,
+        {
+          ...options,
+          onProgress: (bytes, total) => {
+            if (bytes === total) sourceConsumedAt = performance.now();
+            options.onProgress?.(bytes, total);
+          },
+        }
+      );
+    } finally {
+      const finishedAt = performance.now();
+      logger.debug(
+        "Browser file upload timing",
+        {
+          bytes: file.size,
+          totalMs: Math.round(finishedAt - startedAt),
+          sourceConsumedMs: sourceConsumedAt === null ? null : Math.round(sourceConsumedAt - startedAt),
+          responseAfterSourceConsumedMs: sourceConsumedAt === null ? null : Math.round(finishedAt - sourceConsumedAt),
+        },
+        "file-browser"
+      );
+    }
+  }
+
+  private async publishTransferStream(
+    sourceStream: ReadableStream<Uint8Array>,
+    expectedSize: number,
+    modifiedAt: string | undefined,
+    sourceInfo: FileInfo,
+    destinationConnectionId: string,
+    destinationPath: string,
+    targetResolutionPolicy: TargetResolutionPolicy,
+    options: CrossBackendTransferOptions
+  ): Promise<ContentTransferResult> {
+    const sourceModifiedAt = modifiedAt ? `&source_modified_at=${encodeURIComponent(modifiedAt)}` : "";
     const destinationUrl = `${getBaseUrl(destinationConnectionId)}/browse/${getBrowseSegment(destinationConnectionId)}/transfer-stream?path=${encodeURIComponent(destinationPath)}&target_resolution_policy=${encodeURIComponent(targetResolutionPolicy)}&expected_size=${expectedSize}${sourceModifiedAt}`;
     const destinationHeaders = await this.getTransferFetchHeaders(destinationConnectionId);
     let bytesTransferred = 0;
     const relayStream = options.onProgress
-      ? sourceResponse.body.pipeThrough(
+      ? sourceStream.pipeThrough(
           new TransformStream<Uint8Array, Uint8Array>({
             transform: (chunk, controller) => {
               bytesTransferred += chunk.byteLength;
-              options.onProgress?.(bytesTransferred, sourceSize);
+              options.onProgress?.(bytesTransferred, expectedSize);
               controller.enqueue(chunk);
             },
           })
         )
-      : sourceResponse.body;
+      : sourceStream;
     let destinationBody: ReadableStream<Uint8Array> | Blob = relayStream;
     if (!supportsStreamUploadRequestBodies()) {
       let bufferedBody: Blob;
@@ -1702,24 +1795,7 @@ class ApiService {
             : { code: "transport", detail: `Transfer destination failed (${destinationResponse.status}): ${detail}` },
       };
     }
-    const result = this.normalizeTransferResult((await destinationResponse.json()) as ContentTransferResult);
-    if (kind !== "move" || result.status !== "completed") {
-      return result;
-    }
-    try {
-      await this.deleteItem(sourceConnectionId, sourcePath);
-      return { ...result, effects: { source: "mutated", destination: "mutated" } };
-    } catch (error) {
-      return {
-        status: "completed_with_source_retained",
-        replaced: result.replaced,
-        effects: { source: "unchanged", destination: "mutated" },
-        error: {
-          code: "source_delete_failed",
-          detail: `Destination was created but the original could not be removed: ${error instanceof Error ? error.message : "unknown error"}`,
-        },
-      };
-    }
+    return this.normalizeTransferResult((await destinationResponse.json()) as ContentTransferResult);
   }
 
   // ── Transfer routing helpers ────────────────────────────────────────────
@@ -1966,12 +2042,60 @@ class ApiService {
     }
 
     const blob = await response.blob();
+    this.saveDownloadBlob(blob, filename);
+  }
+
+  private async getSelectionDownloadHeaders(connectionId: string): Promise<Record<string, string>> {
+    const headers = await this.getTransferFetchHeaders(connectionId);
+    if (isLocalDrive(connectionId)) {
+      const token = authSession.getAccessToken();
+      if (!token) throw new Error("Authentication is required to download a local selection");
+      headers.Authorization = `Bearer ${token}`;
+    }
+    return headers;
+  }
+
+  async downloadSelectionArchive(connectionId: string, paths: string[], signal?: AbortSignal): Promise<void> {
+    const url = `${getBaseUrl(connectionId)}/browse/${getBrowseSegment(connectionId)}/download-selection`;
+    const headers = await this.getSelectionDownloadHeaders(connectionId);
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify(paths),
+      signal,
+    });
+    if (!response.ok) {
+      const failure = (await response.json().catch(() => null)) as { detail?: string } | null;
+      throw new Error(failure?.detail ?? `Archive download failed (${response.status})`);
+    }
+    const blob = await response.blob();
+    if (!signal?.aborted) this.saveDownloadBlob(blob, "Sambee-download.zip");
+  }
+
+  async downloadZipSelectionArchive(connectionId: string, archivePath: string, paths: string[], signal?: AbortSignal): Promise<void> {
+    const url = `${getBaseUrl(connectionId)}/browse/${getBrowseSegment(connectionId)}/archive/download-selection`;
+    const headers = await this.getSelectionDownloadHeaders(connectionId);
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ archive_path: archivePath, paths }),
+      signal,
+    });
+    if (!response.ok) {
+      const failure = (await response.json().catch(() => null)) as { detail?: string } | null;
+      throw new Error(failure?.detail ?? `Archive download failed (${response.status})`);
+    }
+    const blob = await response.blob();
+    if (!signal?.aborted) this.saveDownloadBlob(blob, "Sambee-download.zip");
+  }
+
+  saveDownloadBlob(blob: Blob, filename: string): void {
     const blobUrl = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = blobUrl;
     link.download = filename;
     link.click();
-    URL.revokeObjectURL(blobUrl);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 0);
   }
 
   async getFileContent(connectionId: string, path: string): Promise<string> {
