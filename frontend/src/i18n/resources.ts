@@ -601,6 +601,7 @@ export const EN_TRANSLATIONS = {
         preprocessors: "Preprocessors",
         imageMagick: "ImageMagick",
         pdfCompatibility: "PDF compatibility",
+        archiveDownloads: "Archive downloads",
       },
       fields: {
         value: "Value",
@@ -824,10 +825,20 @@ export const EN_TRANSLATIONS = {
     toolbar: {
       newFolder: "New folder",
       newFile: "New file",
+      upload: "Upload",
       createArchive: "Create archive",
       extractArchive: "Extract archive",
       refresh: "Refresh",
       more: "More",
+    },
+    transfers: {
+      downloadFailed: "Download failed. Try again.",
+      downloadSizeLimitExceeded: "The selected ZIP exceeds the temporary download size limit.",
+      preparingDownload: "Preparing download",
+      uploadSummary:
+        "Uploaded {{completed}}, skipped {{skipped}}, failed {{failed}}, unknown {{unknown}}, cancelled {{cancelled}}. Check: {{issues}}",
+      uploadProgress:
+        "Uploading {{name}} ({{current}}/{{total}}, {{bytes}}/{{size}} bytes). Completed {{completed}}, skipped {{skipped}}, failed {{failed}}, unknown {{unknown}}.",
     },
     compactActions: {
       clearSelection: "Clear selection",

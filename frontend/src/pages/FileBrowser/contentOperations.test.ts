@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import api from "../../services/api";
 import { browserHistoryService } from "../../services/browserHistoryService";
+import { FileType } from "../../types";
 import {
   createContentItem,
+  downloadContentSelection,
   executeTransfer,
   executeTransferTree,
   getCreateContainerAvailability,
@@ -12,8 +14,7 @@ import {
   openContentInNativeApp,
   startCreateContainer,
 } from "./contentOperations";
-
-import { physicalItemHandle, physicalLocation, virtualItemHandle, virtualLocation } from "./contentProviders";
+import { physicalItem, physicalItemHandle, physicalLocation, virtualItem, virtualItemHandle, virtualLocation } from "./contentProviders";
 
 vi.mock("../../services/api", () => ({
   default: {
@@ -28,6 +29,9 @@ vi.mock("../../services/api", () => ({
     recordRecentFile: vi.fn(),
     removeRecentFile: vi.fn(),
     transferAcrossBackends: vi.fn(),
+    downloadFile: vi.fn(),
+    downloadSelectionArchive: vi.fn(),
+    downloadZipSelectionArchive: vi.fn(),
   },
 }));
 
@@ -44,6 +48,45 @@ describe("content operations", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("routes a regular file directly and a directory through selected-root ZIP creation", async () => {
+    const location = physicalLocation("source", "parent");
+    const file = physicalItem(location, {
+      name: "report.txt",
+      path: "parent/report.txt",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    });
+    const directory = physicalItem(location, {
+      name: "folder",
+      path: "parent/folder",
+      type: FileType.DIRECTORY,
+      is_readable: true,
+      is_hidden: false,
+    });
+    const signal = new AbortController().signal;
+
+    await downloadContentSelection([file], {} as never, signal);
+    await downloadContentSelection([directory], {} as never, signal);
+
+    expect(api.downloadFile).toHaveBeenCalledWith("source", "parent/report.txt", "report.txt");
+    expect(api.downloadSelectionArchive).toHaveBeenCalledWith("source", ["parent/folder"], signal);
+  });
+
+  it("routes ZIP virtual directories to their owning archive", async () => {
+    const location = virtualLocation("zip", "source", physicalLocation("source", "files.zip"), "inner");
+    const directory = virtualItem(location, {
+      name: "folder",
+      path: "inner/folder",
+      type: FileType.DIRECTORY,
+      is_readable: true,
+      is_hidden: false,
+    });
+    const signal = new AbortController().signal;
+    await downloadContentSelection([directory], {} as never, signal);
+    expect(api.downloadZipSelectionArchive).toHaveBeenCalledWith("source", "files.zip", ["inner/folder"], signal);
   });
 
   it("rejects virtual transfer and container destinations before invoking physical transport", async () => {
@@ -1027,6 +1070,42 @@ describe("content operations", () => {
     const execution = startCreateContainer({ sources: [physicalSource, secondSource], destination, name: "archive.zip" }, environment);
     await expect(execution.result).rejects.toThrow("mixed-source-connections");
     expect(api.prepareArchiveOperation).not.toHaveBeenCalled();
+  });
+
+  it("creates a same-SMB archive from selected ZIP members and rejects other destinations", async () => {
+    const zipLocation = virtualLocation("zip", "source", physicalLocation("source", "files.zip"), "inner");
+    const sources = [virtualItemHandle(zipLocation, "inner/one.txt"), virtualItemHandle(zipLocation, "inner/two.txt")];
+    const destination = physicalLocation("source", "output");
+    const target = { kind: "smb" as const, connectionId: "source" };
+    const storageRegistry = {
+      resolveItem: vi.fn(({ path }) => ({ target, path, resolvedTarget: { target } })),
+      resolveDirectory: vi.fn(({ path }) => ({ target, path, resolvedTarget: { target } })),
+      getCapabilities: vi.fn(() => ({ readable: true, writable: true })),
+    };
+    const archiveOperations = {
+      start: vi.fn(() => ({ result: Promise.resolve({ status: "completed" }), cancel: vi.fn(), isCancellationRequested: () => false })),
+    };
+    const context = { ...environment, storageRegistry, archiveOperations } as never;
+
+    expect(getCreateContainerAvailability({ sources, destination }, context)).toEqual({ available: true });
+    await expect(startCreateContainer({ sources, destination, name: "selected.zip" }, context).result).resolves.toBeUndefined();
+    expect(archiveOperations.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sources: [expect.objectContaining({ path: "files.zip" })],
+        selectedMemberPaths: ["inner/one.txt", "inner/two.txt"],
+      })
+    );
+    expect(getCreateContainerAvailability({ sources, destination: physicalLocation("other", "output") }, context)).toEqual({
+      available: false,
+      reason: "unsupported-source",
+    });
+    const localTarget = { kind: "local" as const, connectionId: "local-drive:c" };
+    expect(
+      getCreateContainerAvailability({ sources, destination }, {
+        ...context,
+        storageRegistry: { ...storageRegistry, resolveDirectory: () => ({ target: localTarget }) },
+      } as never)
+    ).toEqual({ available: false, reason: "unsupported-source" });
   });
 
   it("delegates container creation failures to the archive coordinator", async () => {

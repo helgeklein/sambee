@@ -185,6 +185,7 @@ export interface StorageArchiveCreateRequest {
   sources: readonly ResolvedStorageItemLocation[];
   destination: ResolvedStorageDirectoryLocation;
   name: string;
+  selectedMemberPaths?: readonly string[];
 }
 
 export interface StorageArchivePreparation {

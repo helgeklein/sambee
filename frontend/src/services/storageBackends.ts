@@ -269,14 +269,24 @@ export class SambeeSmbBackend extends ApiStorageBackend {
   readonly kind = "smb" as const;
   readonly archiveCreation: ArchiveCreationOperations = {
     prepareCreate: async (request) => {
+      if (
+        request.selectedMemberPaths &&
+        (request.sources.length !== 1 ||
+          request.sources[0]!.target.kind !== "smb" ||
+          request.destination.target.kind !== "smb" ||
+          connectionId(request.sources[0]!.target) !== connectionId(request.destination.target))
+      ) {
+        throw new Error("ZIP member creation requires a same-connection SMB destination");
+      }
       const operation = await api.prepareArchiveOperation({
         contract_version: "v2",
         kind: "create",
         source_connection_id: connectionId(request.sources[0]!.target),
-        source_path: "",
+        source_path: request.selectedMemberPaths ? request.sources[0]!.path : "",
         destination_connection_id: connectionId(request.destination.target),
         destination_path: archiveTargetPath(request),
         plan_json: JSON.stringify({ source_paths: request.sources.map((source) => source.path) }),
+        ...(request.selectedMemberPaths ? { selected_member_paths: [...request.selectedMemberPaths] } : {}),
       });
       return {
         recovery: {

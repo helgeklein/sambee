@@ -11,6 +11,7 @@ vi.mock("./api", () => ({
     getImageBlob: vi.fn(),
     getPdfBlob: vi.fn(),
     heartbeatEditLock: vi.fn(),
+    prepareArchiveOperation: vi.fn(),
     releaseEditLock: vi.fn(),
     writeTextWithEditLock: vi.fn(),
   },
@@ -19,6 +20,36 @@ vi.mock("./api", () => ({
 describe("SambeeSmbBackend archive reads", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("prepares selected ZIP members against their owning same-SMB archive", async () => {
+    vi.mocked(api.prepareArchiveOperation).mockResolvedValueOnce({ id: "operation-1" } as never);
+    const target = { kind: "smb" as const, connectionId: "connection-1" };
+    const resolvedTarget = { target, connection: null, capabilitySnapshot: {} as never };
+    const request = {
+      sources: [{ target, path: "archives/source.zip", resolvedTarget }],
+      destination: { target, path: "archives", resolvedTarget },
+      name: "selected.zip",
+      selectedMemberPaths: ["inner/report.txt"],
+    };
+
+    await new SambeeSmbBackend().archiveCreation?.prepareCreate?.(request);
+    expect(api.prepareArchiveOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source_path: "archives/source.zip",
+        selected_member_paths: ["inner/report.txt"],
+        destination_path: "archives/selected.zip",
+      })
+    );
+    expect(JSON.parse(vi.mocked(api.prepareArchiveOperation).mock.calls[0]![0].plan_json)).toEqual({
+      source_paths: ["archives/source.zip"],
+    });
+    await expect(
+      new SambeeSmbBackend().archiveCreation?.prepareCreate?.({
+        ...request,
+        destination: { ...request.destination, target: { kind: "smb", connectionId: "other" } },
+      })
+    ).rejects.toThrow("same-connection SMB destination");
   });
 
   it("preserves download intent when reading an archive member", async () => {

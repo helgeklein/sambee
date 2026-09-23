@@ -1,9 +1,11 @@
 # TODO
 
-## Audio & video players
+## Version 1.0
 
-- MP3 files should be easy
-- Videos probably need more dependencies
+- Download command in file browser:
+   - Add a download button to the bottom command bar and to the mobile per-item menu
+   - Only one file selected: download immediately
+   - Multiple files/folders selected: create a ZIP archive and download that
 
 ## Misc. commands
 
@@ -42,3 +44,8 @@
 - Plugin system to support additional backends like S3 or SFTP
    - Every backend must use the new system.
    - This means we need to move the existing storage support (SMB and local drives) to the new system.
+
+## Audio & video players
+
+- MP3 files should be easy
+- Videos probably need more dependencies

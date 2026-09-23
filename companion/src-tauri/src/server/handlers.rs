@@ -7,10 +7,12 @@ use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::io::Write;
 use std::path::{Path as FsPath, PathBuf};
+use std::pin::Pin;
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use axum::body::Body;
@@ -26,7 +28,7 @@ use reqwest::{Client, Response as ReqwestResponse};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 use tokio::fs::{File, OpenOptions};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
 use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinSet;
 use tokio_util::io::{ReaderStream, SyncIoBridge};
@@ -35,17 +37,19 @@ use crate::http_client::{classify_proxy_auth_intercept, log_request_error, Sambe
 use crate::{commands, show_pairing_success, show_pairing_window};
 
 use super::archive::{
-    build_local_archive_manifest_for_remote_target, build_local_archive_manifest_with_cancellation,
-    canonicalize_local_archive_member_roots, create_local_archive_relay_writer,
-    create_local_archive_with_execution_plan_progress_and_state, create_local_extraction_root, ensure_local_extraction_directory,
-    local_archive_target_write_policy_from_wire, prepare_local_archive_target_output, project_local_archive_creation_manifest,
-    resolve_companion_archive_inspection_topology_plan, resolve_companion_archive_topology_plan, stream_validated_local_archive_entry,
-    validate_local_extraction_member_path, ArchiveCreationManifest, ArchiveCreationManifestState, ArchiveDirectoryListingPresentation,
-    ArchiveInspectionCoordinator, ArchiveInspectionPlan, ArchiveInspectionPresentation, ArchiveMemberReadDelivery,
-    ArchiveMemberReadPresentation, CompanionArchiveBinding, CompanionArchiveExecutionDriver, CompanionArchiveOperationKind,
-    CompanionArchiveRelayPurpose, CompanionArchiveTopology, CompanionArchiveTopologyPlan, LocalArchiveCreationExecutionPlan,
-    LocalArchiveCreationResult, LocalArchiveDirectoryOutput, LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionDestinationResult,
+    build_local_archive_manifest_for_remote_target, build_local_archive_manifest_for_remote_target_with_cancellation,
+    build_local_archive_manifest_with_cancellation, canonicalize_local_archive_member_roots, create_local_archive_relay_writer,
+    create_local_archive_with_execution_plan_progress_and_state, create_local_extraction_root, create_temporary_local_archive,
+    create_temporary_local_zip_selection, ensure_local_extraction_directory, local_archive_target_write_policy_from_wire,
+    prepare_local_archive_target_output, project_local_archive_creation_manifest, resolve_companion_archive_inspection_topology_plan,
+    resolve_companion_archive_topology_plan, stream_validated_local_archive_entry, validate_local_extraction_member_path,
+    ArchiveCreationManifest, ArchiveCreationManifestState, ArchiveDirectoryListingPresentation, ArchiveInspectionCoordinator,
+    ArchiveInspectionPlan, ArchiveInspectionPresentation, ArchiveMemberReadDelivery, ArchiveMemberReadPresentation,
+    CompanionArchiveBinding, CompanionArchiveExecutionDriver, CompanionArchiveOperationKind, CompanionArchiveRelayPurpose,
+    CompanionArchiveTopology, CompanionArchiveTopologyPlan, LocalArchiveCreationExecutionPlan, LocalArchiveCreationResult,
+    LocalArchiveDirectoryOutput, LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionDestinationResult,
     LocalArchiveInspectionSource, LocalArchiveReadError, LocalArchiveRelayChunk, LocalArchiveTargetOutput, ARCHIVE_COPY_BUFFER_SIZE,
+    TEMPORARY_ARCHIVE_SIZE_LIMIT_EXCEEDED,
 };
 use super::archive_sessions::{
     ArchiveSessionCompletion, ArchiveSessionKind, ArchiveSessionManager, ArchiveSessionProgress, ArchiveSessionStatus, ArchiveSessionWork,
@@ -870,6 +874,175 @@ pub async fn viewer_download(Path(drive): Path<String>, Query(query): Query<View
         .header("Content-Length", content_length)
         .body(body)
         .map_err(|e| ApiError::Internal(format!("Failed to build response: {e}")))
+}
+
+#[derive(Deserialize)]
+struct CompanionDownloadSessionToken {
+    token: String,
+}
+
+#[derive(Deserialize)]
+struct CompanionDownloadSessionLimit {
+    size_limit_bytes: u64,
+}
+
+#[derive(Deserialize)]
+pub struct LocalZipSelectionDownloadRequest {
+    archive_path: String,
+    paths: Vec<String>,
+}
+
+async fn temporary_download_limit(state: &AppState, headers: &HeaderMap, drive: &str) -> Result<u64, ApiError> {
+    let authorization = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| value.starts_with("Bearer ") && value.len() > "Bearer ".len())
+        .ok_or_else(|| ApiError::Forbidden("Browser authentication is required for downloads".to_string()))?;
+    let server_url = normalize_archive_server_url(&extract_origin(headers)?)?;
+    let clients = state
+        .app
+        .try_state::<SambeeHttpClientStore>()
+        .map(|clients| clients.inner().clone())
+        .ok_or_else(|| ApiError::Internal("Companion backend HTTP client is unavailable".to_string()))?;
+    let client = clients.client_for_server_no_redirects(&server_url).map_err(ApiError::Internal)?;
+    let session_url = format!("{server_url}/api/browse/companion-download/session");
+    let session: CompanionDownloadSessionToken = decode_archive_relay_json(
+        client
+            .post(&session_url)
+            .header("authorization", authorization)
+            .json(&serde_json::json!({ "drive": drive }))
+            .send()
+            .await
+            .map_err(|error| ApiError::Internal(log_request_error("Download session issue", "POST", &session_url, &error)))?,
+        "download session",
+    )
+    .await?;
+    let consume_url = format!("{session_url}/{}/consume", session.token);
+    let limit: CompanionDownloadSessionLimit = decode_archive_relay_json(
+        client
+            .post(&consume_url)
+            .header("authorization", authorization)
+            .json(&serde_json::json!({ "drive": drive }))
+            .send()
+            .await
+            .map_err(|error| ApiError::Internal(log_request_error("Download session consume", "POST", &consume_url, &error)))?,
+        "download size limit",
+    )
+    .await?;
+    Ok(limit.size_limit_bytes)
+}
+
+struct TemporaryArchiveReader {
+    file: File,
+    _directory: tempfile::TempDir,
+}
+
+struct DownloadPreparationGuard(Arc<AtomicBool>);
+
+impl Drop for DownloadPreparationGuard {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
+impl AsyncRead for TemporaryArchiveReader {
+    fn poll_read(mut self: Pin<&mut Self>, context: &mut Context<'_>, buffer: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.file).poll_read(context, buffer)
+    }
+}
+
+pub async fn browse_download_selection(
+    State(state): State<Arc<AppState>>,
+    Path(drive): Path<String>,
+    headers: HeaderMap,
+    Json(paths): Json<Vec<String>>,
+) -> Result<Response<Body>, ApiError> {
+    if paths.is_empty() {
+        return Err(ApiError::BadRequest("Download selection cannot be empty".to_string()));
+    }
+    let drive_root = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let sources = paths
+        .iter()
+        .map(|path| resolve_safe_path(&drive_root, &drive, path))
+        .collect::<Result<Vec<_>, _>>()?;
+    let canonical_root = std::fs::canonicalize(&drive_root).map_err(ApiError::Io)?;
+    let parent = sources[0].parent();
+    if parent.is_none_or(|parent| !parent.starts_with(&canonical_root))
+        || sources.iter().any(|source| source.parent() != parent)
+        || sources.iter().collect::<HashSet<_>>().len() != sources.len()
+    {
+        return Err(ApiError::BadRequest(
+            "Download selections must be distinct items in one directory".to_string(),
+        ));
+    }
+    let size_limit = temporary_download_limit(&state, &headers, &drive).await?;
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let _guard = DownloadPreparationGuard(cancelled.clone());
+    let (directory, archive_path) = tokio::task::spawn_blocking(move || {
+        let entries = build_local_archive_manifest_for_remote_target_with_cancellation(&sources, || cancelled.load(Ordering::Relaxed))?;
+        create_temporary_local_archive(&entries, size_limit, || cancelled.load(Ordering::Relaxed))
+    })
+    .await
+    .map_err(|error| ApiError::Internal(format!("Download archive task failed: {error}")))?
+    .map_err(map_temporary_archive_error)?;
+    temporary_archive_response(directory, archive_path).await
+}
+
+pub async fn browse_download_zip_selection(
+    State(state): State<Arc<AppState>>,
+    Path(drive): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<LocalZipSelectionDownloadRequest>,
+) -> Result<Response<Body>, ApiError> {
+    if body.paths.is_empty() {
+        return Err(ApiError::BadRequest("Download selection cannot be empty".to_string()));
+    }
+    let drive_root = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let archive_path = resolve_safe_path(&drive_root, &drive, &body.archive_path)?;
+    let size_limit = temporary_download_limit(&state, &headers, &drive).await?;
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let _guard = DownloadPreparationGuard(cancelled.clone());
+    let (directory, output_path) = tokio::task::spawn_blocking(move || {
+        create_temporary_local_zip_selection(&archive_path, &body.paths, size_limit, || cancelled.load(Ordering::Relaxed))
+    })
+    .await
+    .map_err(|error| ApiError::Internal(format!("ZIP selection download task failed: {error}")))?
+    .map_err(map_temporary_archive_error)?;
+    temporary_archive_response(directory, output_path).await
+}
+
+async fn temporary_archive_response(directory: tempfile::TempDir, archive_path: PathBuf) -> Result<Response<Body>, ApiError> {
+    let file = File::open(&archive_path).await.map_err(ApiError::Io)?;
+    let size = file.metadata().await.map_err(ApiError::Io)?.len();
+    let body = Body::from_stream(ReaderStream::new(TemporaryArchiveReader {
+        file,
+        _directory: directory,
+    }));
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "application/zip")
+        .header("Content-Disposition", "attachment; filename=\"Sambee-download.zip\"")
+        .header("Content-Length", size)
+        .body(body)
+        .map_err(|error| ApiError::Internal(format!("Failed to build download response: {error}")))
+}
+
+fn map_temporary_archive_error(error: LocalArchiveError) -> ApiError {
+    fn exceeds_limit(error: &LocalArchiveError) -> bool {
+        match error {
+            LocalArchiveError::Io(io_error) | LocalArchiveError::Zip(zip::result::ZipError::Io(io_error)) => {
+                io_error.to_string() == TEMPORARY_ARCHIVE_SIZE_LIMIT_EXCEEDED
+            }
+            LocalArchiveError::PartialArchiveOutput(inner) => exceeds_limit(inner),
+            _ => false,
+        }
+    }
+
+    if exceeds_limit(&error) {
+        ApiError::PayloadTooLarge(TEMPORARY_ARCHIVE_SIZE_LIMIT_EXCEEDED.to_string())
+    } else {
+        map_local_archive_error(error)
+    }
 }
 
 /// Shared implementation for a parser-validated archive member stream.
@@ -6343,20 +6516,20 @@ mod tests {
         archive_creation_response, archive_execution_response, browse_list_archive, browse_stream_transfer, build_file_info,
         build_pair_status_response, classify_link_target, complete_transfer_receipt, copy_regular_file_exclusively, execute_archive_relay,
         extract_local_archive_to_smb_destination_live, extract_smb_archive_to_local_live, inspection_resolver_call_count,
-        is_retryable_live_archive_stream_failure, map_local_archive_error, normalize_drive_relative_path, normalize_windows_display_path,
-        replay_transfer_outcome, reserve_transfer_receipt, reset_inspection_resolver_call_count, resolve_companion_archive_topology,
-        resolve_companion_creation_coordinator, resolve_companion_extraction_coordinator, resolve_companion_inspection_coordinator,
-        resolve_drive_relative_source_path, resolve_link_target_metadata, resolve_local_archive_inspection_coordinator,
-        resolve_pair_cancel_origin, resolve_pair_confirm_origin, resolve_pair_status_origin, resolve_safe_path, source_link_kind,
-        transfer_receipt_error, validate_editor_write_target, viewer_archive_member, write_local_archive_member_chunk,
-        ArchiveCreationAdapterBinding, ArchiveCreationMemberCompletion, ArchiveCreationRelay, ArchiveExtractionRelay, ArchiveListQuery,
-        ArchiveMemberQuery, ArchiveRelayBinding, ArchiveRelayFailure, ArchiveRelayTransport, CompanionArchiveCreationPlan,
-        CompanionArchiveExtractionPlan, CopyMoveRequest, FixtureArchiveCreationInvocation, LocalPromotionOutcome, LocalTransferWriteError,
-        StreamTransferQuery, TransferCancellationReservation, TransferReceiptLookup, TransferReceiptOutcome, TransferReceiptReservation,
-        ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS, INSPECTION_RESOLVER_TEST_LOCK,
+        is_retryable_live_archive_stream_failure, map_local_archive_error, map_temporary_archive_error, normalize_drive_relative_path,
+        normalize_windows_display_path, replay_transfer_outcome, reserve_transfer_receipt, reset_inspection_resolver_call_count,
+        resolve_companion_archive_topology, resolve_companion_creation_coordinator, resolve_companion_extraction_coordinator,
+        resolve_companion_inspection_coordinator, resolve_drive_relative_source_path, resolve_link_target_metadata,
+        resolve_local_archive_inspection_coordinator, resolve_pair_cancel_origin, resolve_pair_confirm_origin, resolve_pair_status_origin,
+        resolve_safe_path, source_link_kind, transfer_receipt_error, validate_editor_write_target, viewer_archive_member,
+        write_local_archive_member_chunk, ArchiveCreationAdapterBinding, ArchiveCreationMemberCompletion, ArchiveCreationRelay,
+        ArchiveExtractionRelay, ArchiveListQuery, ArchiveMemberQuery, ArchiveRelayBinding, ArchiveRelayFailure, ArchiveRelayTransport,
+        CompanionArchiveCreationPlan, CompanionArchiveExtractionPlan, CopyMoveRequest, FixtureArchiveCreationInvocation,
+        LocalPromotionOutcome, LocalTransferWriteError, StreamTransferQuery, TransferCancellationReservation, TransferReceiptLookup,
+        TransferReceiptOutcome, TransferReceiptReservation, ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS, INSPECTION_RESOLVER_TEST_LOCK,
     };
     use crate::server::archive::{
-        build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive,
+        build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive, create_temporary_local_archive,
         resolve_companion_archive_inspection_topology_plan, resolve_companion_archive_topology_plan, ArchiveCreationManifest,
         ArchiveCreationManifestMember, ArchiveDirectoryListingPresentation, ArchiveInspectionPlan, ArchiveInspectionPresentation,
         CompanionArchiveBinding, CompanionArchiveExecutionDriver, CompanionArchiveOperationKind, CompanionArchiveTopology,
@@ -6373,6 +6546,15 @@ mod tests {
     };
     use crate::server::pairing::PairingState;
     use crate::server::target_resolution::TargetResolutionPolicy;
+
+    #[test]
+    fn temporary_archive_cap_reports_payload_too_large() {
+        let source = tempfile::tempdir().unwrap();
+        std::fs::write(source.path().join("sample.txt"), b"sample content").unwrap();
+        let entries = build_local_archive_manifest_for_remote_target(&[source.path().join("sample.txt")]).unwrap();
+        let error = create_temporary_local_archive(&entries, 10, || false).unwrap_err();
+        assert!(matches!(map_temporary_archive_error(error), ApiError::PayloadTooLarge(_)));
+    }
     use axum::body::{to_bytes, Body};
     use axum::extract::{Path, Query, State};
     use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
@@ -6639,16 +6821,31 @@ mod tests {
 
     #[tokio::test]
     async fn local_streamed_destination_publishes_only_after_complete_body() {
+        let corpus_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../archive-contract/v2/fixtures/browser-file-publish-scenarios-v2.json");
+        let corpus: serde_json::Value = serde_json::from_slice(&std::fs::read(corpus_path).unwrap()).unwrap();
+        let scenario = &corpus["staged_publish"];
         let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
-        let target = directory.path().join("target.txt");
+        let target = directory.path().join(scenario["target_path"].as_str().unwrap());
+        tokio::fs::create_dir_all(target.parent().unwrap()).await.unwrap();
 
-        let bytes_written = super::stage_local_request_body(&target, Body::from("streamed content"), 16, false)
-            .await
-            .expect("streamed destination should publish");
+        let bytes_written = super::stage_local_request_body(
+            &target,
+            Body::from(scenario["contents"].as_str().unwrap().to_owned()),
+            scenario["expected_size"].as_u64().unwrap(),
+            false,
+        )
+        .await
+        .expect("streamed destination should publish");
 
-        assert_eq!(bytes_written, 16);
-        assert_eq!(tokio::fs::read(&target).await.expect("target should exist"), b"streamed content");
-        let entries = std::fs::read_dir(directory.path()).expect("directory should be readable").count();
+        assert_eq!(bytes_written, scenario["expected_size"].as_u64().unwrap());
+        assert_eq!(
+            tokio::fs::read(&target).await.expect("target should exist"),
+            scenario["contents"].as_str().unwrap().as_bytes()
+        );
+        let entries = std::fs::read_dir(target.parent().unwrap())
+            .expect("directory should be readable")
+            .count();
         assert_eq!(entries, 1);
     }
 
@@ -6807,17 +7004,32 @@ mod tests {
 
     #[tokio::test]
     async fn local_streamed_destination_discards_a_truncated_body() {
+        let corpus_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../archive-contract/v2/fixtures/browser-file-publish-scenarios-v2.json");
+        let corpus: serde_json::Value = serde_json::from_slice(&std::fs::read(corpus_path).unwrap()).unwrap();
+        let scenario = &corpus["staged_publish"];
         let directory = tempfile::tempdir().expect("temporary transfer directory should be created");
-        let target = directory.path().join("target.txt");
+        let target = directory.path().join(scenario["target_path"].as_str().unwrap());
+        tokio::fs::create_dir_all(target.parent().unwrap()).await.unwrap();
 
-        let error = super::stage_local_request_body(&target, Body::from("short"), 16, false)
-            .await
-            .expect_err("truncated body must not publish a destination");
+        let error = super::stage_local_request_body(
+            &target,
+            Body::from(scenario["truncated_contents"].as_str().unwrap().to_owned()),
+            scenario["expected_size"].as_u64().unwrap(),
+            false,
+        )
+        .await
+        .expect_err("truncated body must not publish a destination");
 
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
         assert!(!target.exists());
-        let entries = std::fs::read_dir(directory.path()).expect("directory should be readable").count();
-        assert_eq!(entries, 0);
+        let entries = std::fs::read_dir(target.parent().unwrap())
+            .expect("directory should be readable")
+            .count();
+        assert_eq!(
+            entries,
+            scenario["expected_artifacts_after_size_mismatch"].as_u64().unwrap() as usize
+        );
     }
 
     #[tokio::test]

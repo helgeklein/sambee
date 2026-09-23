@@ -19,6 +19,7 @@ interface AdvancedSettingsProps {
 }
 
 interface AdvancedSettingsFormState {
+  temporaryArchiveDownloadSizeBytes: number | null;
   imagemagickMaxFileSizeBytes: number | null;
   imagemagickTimeoutSeconds: number | null;
   pdfCacheQuotaBytes: number | null;
@@ -72,6 +73,7 @@ function getByteUnitFactor(unitLabel: ByteUnitLabel): number {
 
 function createFormState(settings: AdvancedSystemSettings): AdvancedSettingsFormState {
   return {
+    temporaryArchiveDownloadSizeBytes: settings.temporary_archive_download_size_bytes?.value ?? null,
     imagemagickMaxFileSizeBytes: settings.preprocessors.imagemagick.max_file_size_bytes.value,
     imagemagickTimeoutSeconds: settings.preprocessors.imagemagick.timeout_seconds.value,
     pdfCacheQuotaBytes: settings.pdf?.cache_quota_bytes.value ?? null,
@@ -226,6 +228,7 @@ function SettingField({
 
 function ByteSizeSettingField({
   setting,
+  fixedUnit,
   value,
   onChange,
   onCommit,
@@ -234,6 +237,7 @@ function ByteSizeSettingField({
   saved,
 }: {
   setting: IntegerSystemSetting;
+  fixedUnit?: ByteUnitLabel;
   value: number | null;
   onChange: (value: number | null) => void;
   onCommit: (value: number) => void;
@@ -242,9 +246,9 @@ function ByteSizeSettingField({
   saved: boolean;
 }) {
   const { t } = useTranslation();
-  const [unit, setUnit] = useState<ByteUnitLabel>(() => getPreferredByteUnit(value ?? setting.min_value));
+  const [unit, setUnit] = useState<ByteUnitLabel>(() => fixedUnit ?? getPreferredByteUnit(value ?? setting.min_value));
   const [displayValue, setDisplayValue] = useState<string>(() =>
-    value === null ? "" : String(value / getByteUnitFactor(getPreferredByteUnit(value)))
+    value === null ? "" : String(value / getByteUnitFactor(fixedUnit ?? getPreferredByteUnit(value)))
   );
   const [touched, setTouched] = useState(false);
 
@@ -255,7 +259,7 @@ function ByteSizeSettingField({
     }
 
     const factor = getByteUnitFactor(unit);
-    if (factor > value && value > 0) {
+    if (!fixedUnit && factor > value && value > 0) {
       const nextUnit = getPreferredByteUnit(value);
       setUnit(nextUnit);
       setDisplayValue(String(value / getByteUnitFactor(nextUnit)));
@@ -263,10 +267,12 @@ function ByteSizeSettingField({
     }
 
     setDisplayValue(String(value / factor));
-  }, [unit, value]);
+  }, [fixedUnit, unit, value]);
 
   const factor = getByteUnitFactor(unit);
-  const validationError = validateByteSizeSetting(setting, value);
+  const validationError =
+    validateByteSizeSetting(setting, value) ??
+    (fixedUnit && value !== null && value % setting.step !== 0 ? `${setting.label} must use whole ${fixedUnit} increments` : null);
   const errorText = persistenceError ?? (touched ? validationError : null);
 
   const handleValueChange = (nextValue: string) => {
@@ -293,7 +299,9 @@ function ByteSizeSettingField({
     setUnit(nextUnit);
   };
 
-  const availableUnits = BYTE_UNITS.filter((option) => value === null || value % option.factor === 0 || option.label === unit);
+  const availableUnits = BYTE_UNITS.filter((option) =>
+    fixedUnit ? option.label === fixedUnit : value === null || value % option.factor === 0 || option.label === unit
+  );
   const helperMessage = errorText
     ? errorText
     : t("settings.advanced.helperText.byteSize", {
@@ -342,7 +350,7 @@ function ByteSizeSettingField({
             value={unit}
             onChange={(event) => handleUnitChange(event.target.value as ByteUnitLabel)}
             variant="outlined"
-            disabled={pending}
+            disabled={pending || Boolean(fixedUnit)}
             error={Boolean(errorText)}
             sx={{ width: { xs: "100%", sm: DESKTOP_UNIT_FIELD_WIDTH } }}
           >
@@ -368,6 +376,9 @@ function applyAdvancedSettingUpdate(settings: AdvancedSystemSettings, update: Ad
   const imagemagick = settings.preprocessors.imagemagick;
   return {
     ...settings,
+    temporary_archive_download_size_bytes: settings.temporary_archive_download_size_bytes
+      ? updateSetting(settings.temporary_archive_download_size_bytes)
+      : undefined,
     preprocessors: {
       ...settings.preprocessors,
       imagemagick: {
@@ -481,6 +492,19 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
 
       {settings && formState && (
         <SettingsSectionList>
+          {settings.temporary_archive_download_size_bytes && (
+            <SettingsGroup title={t("settings.advanced.sections.archiveDownloads")}>
+              <ByteSizeSettingField
+                setting={settings.temporary_archive_download_size_bytes}
+                fixedUnit="MiB"
+                value={formState.temporaryArchiveDownloadSizeBytes}
+                onChange={(value) =>
+                  updateFormField("temporaryArchiveDownloadSizeBytes", value, settings.temporary_archive_download_size_bytes!)
+                }
+                {...getFieldPersistenceProps(settings.temporary_archive_download_size_bytes)}
+              />
+            </SettingsGroup>
+          )}
           <SettingsGroup title={t("settings.advanced.sections.preprocessors")}>
             <Stack spacing={3.5}>
               <SettingsGroup title={t("settings.advanced.sections.imageMagick")} level="subsection">

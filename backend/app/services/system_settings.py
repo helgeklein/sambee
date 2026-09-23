@@ -358,6 +358,9 @@ def update_file_search_settings(
 
 def build_advanced_system_settings_read() -> AdvancedSystemSettingsRead:
     return AdvancedSystemSettingsRead(
+        temporary_archive_download_size_bytes=_build_integer_read(
+            SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.TEMPORARY_ARCHIVE_DOWNLOAD_SIZE_BYTES]
+        ),
         preprocessors={
             "imagemagick": PreprocessorAdvancedSettingsRead(
                 max_file_size_bytes=_build_integer_read(

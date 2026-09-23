@@ -1,0 +1,14 @@
+{
+  "staged_publish": {
+    "target_path": "incoming/report.txt",
+    "contents": "report",
+    "expected_size": 6,
+    "truncated_contents": "short",
+    "expected_status": "completed",
+    "expected_effects": {
+      "source": "unchanged",
+      "destination": "mutated"
+    },
+    "expected_artifacts_after_size_mismatch": 0
+  }
+}

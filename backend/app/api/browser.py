@@ -1,14 +1,17 @@
 import asyncio
 import json
+import secrets
 import unicodedata
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
+from time import monotonic
 from typing import Literal, NoReturn, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
@@ -29,6 +32,7 @@ from app.core.security import (
     get_current_user_with_auth_check,
     oauth2_scheme_optional,
 )
+from app.core.system_setting_definitions import SystemSettingKey
 from app.db.database import get_session
 from app.models.archive import ArchiveDirectoryListing, ArchiveEntryInfo, ArchiveIdentity
 from app.models.connection import Connection
@@ -69,6 +73,12 @@ from app.models.transfer_operation import (
 )
 from app.models.user import User
 from app.services.archive.execution import resolve_archive_inspection_topology_plan
+from app.services.archive.temporary_download import (
+    DOWNLOAD_FILENAME,
+    TemporaryArchiveSizeLimitExceeded,
+    create_temporary_download,
+)
+from app.services.archive.zip_creation_source import ZipArchiveCreationSource
 from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.services.content_transfer import (
@@ -105,6 +115,7 @@ from app.services.recent_files import (
     search_recent_files,
     should_record_recent_file,
 )
+from app.services.system_settings import get_integer_setting_value
 from app.services.target_resolution import TargetResolutionDisposition, TargetResolutionPolicy, TargetSnapshot, resolve_target_mutation
 from app.storage.smb import SMBBackend
 
@@ -116,6 +127,8 @@ TRANSFER_RECEIPT_TTL_SECONDS = 5 * 60
 TRANSFER_OPERATION_TTL = timedelta(seconds=TRANSFER_RECEIPT_TTL_SECONDS)
 TRANSFER_OPERATION_PROGRESS_PERSIST_INTERVAL_BYTES = 1024 * 1024
 TRANSFER_UNAVAILABLE_DETAIL = "Transfers are unavailable in this release"
+DOWNLOAD_SESSION_TTL_SECONDS = 90
+MAX_COMPANION_DOWNLOAD_SESSIONS = 1024
 EDIT_LOCK_LOST_CODE: Literal["edit_lock_lost"] = "edit_lock_lost"
 EDIT_LOCK_LOST_MESSAGE = "Lock not found or expired"
 
@@ -149,6 +162,54 @@ _transfer_in_flight: dict[tuple[str, str], tuple[str, asyncio.Future[_InFlightTr
 _transfer_receipt_lock = asyncio.Lock()
 _transfer_cancellations: dict[tuple[str, str], asyncio.Event] = {}
 _transfer_cancellation_lock = asyncio.Lock()
+_download_sessions: dict[str, tuple[float, str, str, int]] = {}
+_download_session_lock = asyncio.Lock()
+
+
+class CompanionDownloadSessionRequest(BaseModel):
+    drive: str
+
+
+class CompanionDownloadSessionResponse(BaseModel):
+    token: str
+
+
+class CompanionDownloadSessionLimit(BaseModel):
+    size_limit_bytes: int
+
+
+@router.post("/companion-download/session", response_model=CompanionDownloadSessionResponse)
+async def issue_companion_download_session(
+    body: CompanionDownloadSessionRequest,
+    current_user: User = Depends(get_current_user_with_auth_check),
+) -> CompanionDownloadSessionResponse:
+    """Issue a short-lived, single-use capability scoped to a local drive."""
+    if not body.drive or len(body.drive) > 128:
+        raise HTTPException(status_code=400, detail="Invalid local drive")
+    token = secrets.token_urlsafe(32)
+    size_limit = get_integer_setting_value(SystemSettingKey.TEMPORARY_ARCHIVE_DOWNLOAD_SIZE_BYTES)
+    async with _download_session_lock:
+        now = monotonic()
+        _download_sessions.update({key: session for key, session in _download_sessions.items() if session[0] > now})
+        if len(_download_sessions) >= MAX_COMPANION_DOWNLOAD_SESSIONS:
+            raise HTTPException(status_code=429, detail="Too many active download sessions")
+        _download_sessions[token] = (now + DOWNLOAD_SESSION_TTL_SECONDS, current_user.username, body.drive, size_limit)
+    return CompanionDownloadSessionResponse(token=token)
+
+
+@router.post("/companion-download/session/{token}/consume", response_model=CompanionDownloadSessionLimit)
+async def consume_companion_download_session(
+    token: str,
+    body: CompanionDownloadSessionRequest,
+    current_user: User = Depends(get_current_user_with_auth_check),
+) -> CompanionDownloadSessionLimit:
+    """Return the configured cap once to the authenticated Companion session."""
+    async with _download_session_lock:
+        session = _download_sessions.get(token)
+        if session is None or session[0] <= monotonic() or session[1:3] != (current_user.username, body.drive):
+            raise HTTPException(status_code=403, detail="Download session expired or invalid")
+        del _download_sessions[token]
+    return CompanionDownloadSessionLimit(size_limit_bytes=session[3])
 
 
 def _transfer_fingerprint(body: CopyMoveRequest) -> str:
@@ -715,6 +776,104 @@ async def list_archive_directory(
             logger=logger,
             context=f"archive listing request: connection_id={connection_id}, archive_path={archive_path!r}",
         )
+
+
+def _temporary_archive_response(artifact: Path) -> StreamingResponse:
+    async def stream_artifact() -> AsyncIterator[bytes]:
+        try:
+            with artifact.open("rb") as handle:
+                while chunk := await asyncio.to_thread(handle.read, 256 * 1024):
+                    yield chunk
+        finally:
+            artifact.unlink(missing_ok=True)
+
+    return StreamingResponse(
+        stream_artifact(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{DOWNLOAD_FILENAME}"'},
+    )
+
+
+class ZipSelectionDownloadRequest(BaseModel):
+    archive_path: str
+    paths: list[str]
+
+
+@router.post("/{connection_id}/archive/download-selection")
+async def download_zip_selection_archive(
+    connection_id: uuid.UUID,
+    body: ZipSelectionDownloadRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> StreamingResponse:
+    """Repackage selected safe ZIP members through the portable creator."""
+    connection = _get_connection_or_404(session, current_user, connection_id)
+    backend = build_smb_backend(connection, backend_factory=SMBBackend)
+    reader = None
+    artifact = None
+    try:
+        await backend.connect()
+        archive_info = await backend.get_file_info(body.archive_path)
+        if archive_info.type != FileType.FILE or archive_info.size is None:
+            raise ArchiveFormatError("Archive source must be a regular file")
+        reader = await backend.open_random_access_reader(body.archive_path)
+        source = ZipArchiveCreationSource(ZipReader(reader, archive_info.size))
+        await source.validate_projection()
+        artifact = await create_temporary_download(
+            source, body.paths, get_integer_setting_value(SystemSettingKey.TEMPORARY_ARCHIVE_DOWNLOAD_SIZE_BYTES), request.is_disconnected
+        )
+        if await request.is_disconnected():
+            raise asyncio.CancelledError()
+    except (ArchiveFormatError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except TemporaryArchiveSizeLimitExceeded as exc:
+        raise HTTPException(status_code=413, detail="temporary_archive_size_limit_exceeded") from exc
+    except BaseException:
+        if artifact is not None:
+            artifact.unlink(missing_ok=True)
+        raise
+    finally:
+        if reader is not None:
+            await reader.close()
+        await disconnect_backend_safely(backend, logger=logger, context=f"ZIP selection download {connection_id}")
+    assert artifact is not None
+    return _temporary_archive_response(artifact)
+
+
+@router.post("/{connection_id}/download-selection")
+async def download_selection_archive(
+    connection_id: uuid.UUID,
+    paths: list[str],
+    request: Request,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> StreamingResponse:
+    """Build a complete selected-root ZIP in private storage before streaming it."""
+    connection = _get_connection_or_404(session, current_user, connection_id)
+    backend = build_smb_backend(connection, backend_factory=SMBBackend)
+    artifact = None
+    try:
+        await backend.connect()
+        artifact = await create_temporary_download(
+            backend, paths, get_integer_setting_value(SystemSettingKey.TEMPORARY_ARCHIVE_DOWNLOAD_SIZE_BYTES), request.is_disconnected
+        )
+        if await request.is_disconnected():
+            raise asyncio.CancelledError()
+    except (ArchiveFormatError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except TemporaryArchiveSizeLimitExceeded as exc:
+        raise HTTPException(status_code=413, detail="temporary_archive_size_limit_exceeded") from exc
+    except BaseException:
+        if artifact is not None:
+            artifact.unlink(missing_ok=True)
+        raise
+    finally:
+        await disconnect_backend_safely(backend, logger=logger, context=f"selection download {connection_id}")
+
+    assert artifact is not None
+
+    return _temporary_archive_response(artifact)
 
 
 #

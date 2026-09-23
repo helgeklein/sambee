@@ -245,6 +245,7 @@ export interface PdfAdvancedSettings {
 export interface AdvancedSystemSettings {
   preprocessors: Record<string, PreprocessorAdvancedSettings>;
   pdf?: PdfAdvancedSettings;
+  temporary_archive_download_size_bytes?: IntegerSystemSetting;
 }
 
 export type AdvancedSystemSettingsUpdate = { field: string; value: number };

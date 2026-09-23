@@ -10,6 +10,8 @@ const actionIds: FileOperationActionId[] = [
   "move",
   "create-archive",
   "extract-archive",
+  "download",
+  "upload",
   "refresh",
 ];
 
@@ -38,9 +40,11 @@ describe("createFileOperationActions", () => {
       "delete",
       "create-archive",
       "extract-archive",
+      "download",
+      "upload",
       "refresh",
     ]);
-    expect(actions.map((action) => action.priority)).toEqual([1, 2, 3, 4, 7, 8, 9]);
+    expect(actions.map((action) => action.priority)).toEqual([1, 2, 3, 4, 7, 8, 9, 10, 11]);
     expect(actions[0]).toMatchObject({ shortcut: "F1" });
   });
 
@@ -62,20 +66,24 @@ describe("createFileOperationActions", () => {
       { id: "rename", scope: "item" },
       { id: "delete", scope: "item" },
       { id: "extract-archive", scope: "item" },
+      { id: "download", scope: "item" },
     ]);
     expect(createActions.map(({ id, scope }) => ({ id, scope }))).toEqual([
       { id: "new-directory", scope: "pane" },
       { id: "new-file", scope: "pane" },
+      { id: "upload", scope: "pane" },
     ]);
     expect(selectionActions.map(({ id, scope }) => ({ id, scope }))).toEqual([
       { id: "copy", scope: "selection" },
       { id: "move", scope: "selection" },
       { id: "create-archive", scope: "selection" },
       { id: "delete", scope: "selection" },
+      { id: "download", scope: "selection" },
     ]);
     expect(createFileOperationActions({ ...createContext(false), surface: "compact-selection-menu" }).map((action) => action.id)).toEqual([
       "create-archive",
       "delete",
+      "download",
     ]);
   });
 });
