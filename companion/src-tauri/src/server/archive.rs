@@ -2295,8 +2295,19 @@ pub fn create_temporary_local_archive(
     size_limit: u64,
     is_cancelled: impl Fn() -> bool,
 ) -> Result<(tempfile::TempDir, PathBuf), LocalArchiveError> {
+    create_temporary_local_archive_with_directory(entries, size_limit, is_cancelled, || {
+        create_private_temporary_directory(TEMPORARY_DOWNLOAD_PREFIX)
+    })
+}
+
+fn create_temporary_local_archive_with_directory(
+    entries: &[LocalArchiveEntry],
+    size_limit: u64,
+    is_cancelled: impl Fn() -> bool,
+    create_directory: impl FnOnce() -> Result<tempfile::TempDir, std::io::Error>,
+) -> Result<(tempfile::TempDir, PathBuf), LocalArchiveError> {
     let execution_plan = LocalArchiveCreationExecutionPlan::from_entries(entries)?;
-    let directory = create_private_temporary_directory(TEMPORARY_DOWNLOAD_PREFIX)?;
+    let directory = create_directory()?;
     let path = directory.path().join("download.zip");
     let output = create_private_temporary_file(&path)?;
     let output = SizeLimitedArchiveWriter::new(output, size_limit);
@@ -2861,22 +2872,26 @@ mod tests {
         let error = create_temporary_local_archive(&entries, scenario["reject_limit_bytes"].as_u64().unwrap(), || false).unwrap_err();
         assert!(error.to_string().contains(TEMPORARY_ARCHIVE_SIZE_LIMIT_EXCEEDED), "{error}");
 
-        let store = prepare_temporary_archive_store().unwrap();
+        let store = tempdir().unwrap();
         let owned_artifact_count = || {
-            fs::read_dir(&store)
+            fs::read_dir(store.path())
                 .unwrap()
                 .filter_map(Result::ok)
                 .filter(|entry| entry.file_name().to_string_lossy().starts_with(TEMPORARY_DOWNLOAD_PREFIX))
                 .count()
         };
-        let before = owned_artifact_count();
         assert!(matches!(
-            create_temporary_local_archive(&entries, 1024 * 1024, || scenario["cancel_before_write"].as_bool().unwrap()),
+            create_temporary_local_archive_with_directory(
+                &entries,
+                1024 * 1024,
+                || scenario["cancel_before_write"].as_bool().unwrap(),
+                || tempfile::Builder::new().prefix(TEMPORARY_DOWNLOAD_PREFIX).tempdir_in(store.path()),
+            ),
             Err(LocalArchiveError::Cancelled)
         ));
         assert_eq!(
             owned_artifact_count(),
-            before + scenario["expected_artifacts_after_cancel"].as_u64().unwrap() as usize
+            scenario["expected_artifacts_after_cancel"].as_u64().unwrap() as usize
         );
     }
 
