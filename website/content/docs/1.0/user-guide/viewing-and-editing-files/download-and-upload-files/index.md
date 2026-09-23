@@ -17,4 +17,3 @@ If a name already exists, choose whether to skip, rename, or replace that file. 
 ## Download Limits
 
 Selected-item ZIPs are prepared in private temporary storage and removed after the download finishes or is cancelled. The default ZIP size limit is 250 MiB; administrators can change it in Advanced Settings. Local ZIP-member downloads also require the selected members' uncompressed data to fit this limit. A download exceeding the limit fails without leaving a partial ZIP in your share or drive. Single-file downloads are separate from this ZIP limit.
-
