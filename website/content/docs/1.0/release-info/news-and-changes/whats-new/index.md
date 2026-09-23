@@ -62,6 +62,10 @@ Sambee lets you navigate seamlessly into ZIP archives the same way you'd navigat
 
 The addition of ZIP archive inspection was the right opportunity to implement storage and content provider abstraction layers. These new abstractions centralize knowledge of storage backends (e.g., SMB, Companion) and how to work with the data on the storage (e.g., regular files, archives), respectively. Introducing these abstractions significantly improves the product's architecture and will greatly simplify adding additional backends or container file types in the future.
 
+### Upload & Download
+
+A product like Sambee needs efficient ways to get files and folders in and out of the system. Uploading accepts multiple files and SMB as well as local drive destinations. Downloading, on the other hand, creates a temporary ZIP archive from the selected files and folders. Sambee allows downloading from all locations: from SMB connections, from local drives, and even from inside ZIP archives.
+
 ### Local Drives: Resolve .LNK Files
 
 Shortcuts (`.lnk` files), symlinks, and junctions on local drives now show the target path (pulled in asynchronously after the directory list has loaded; we don't want to give up on that snappy UI, after all). Paths are sensibly shortened to fit the available row width. When activated, file targets are opened whereas directory targets are navigated to.

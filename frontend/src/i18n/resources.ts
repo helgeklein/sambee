@@ -898,6 +898,7 @@ export const EN_TRANSLATIONS = {
       copyToOtherPane: "Copy to other pane",
       copyToOtherPaneInDualPane: "Copy to other pane (two-pane mode)",
       createArchive: "Create ZIP archive",
+      download: "Download selected items",
       createDirectory: "Create new directory",
       createFile: "Create new file",
       deleteItem: "Delete file or directory",
@@ -928,6 +929,7 @@ export const EN_TRANSLATIONS = {
       switchActivePane: "Switch active pane",
       toggleDualPane: "Toggle dual-pane view",
       toggleSelectionAndMoveDown: "Toggle selection & move down",
+      upload: "Upload files to the current folder",
     },
     unavailableShortcuts: {
       archiveContentImmutable: "Archive contents cannot be modified.",
@@ -942,6 +944,7 @@ export const EN_TRANSLATIONS = {
       selectItemToRename: "Select an item to rename.",
       selectItemsToArchive: "Select items that can be added to an archive.",
       selectItemsToCopy: "Select one or more items to copy.",
+      selectItemsToDownload: "Select one or more items to download.",
       selectItemsToMove: "Select one or more items to move.",
       sourceUnavailable: "This action can't be used with the selected item.",
     },

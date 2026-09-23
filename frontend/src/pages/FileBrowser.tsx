@@ -984,6 +984,7 @@ const Browser: React.FC = () => {
       }
 
       if (action === "download") {
+        if (preparingDownload) return unavailableFileListShortcut("interaction-blocked");
         const selected = context.items.length ? context.items : context.focusedItem ? [context.focusedItem] : [];
         if (!selected.length) return unavailableFileListShortcut("no-selection");
         if (selected.some((item) => !item.entry.is_readable)) return unavailableFileListShortcut("unsupported-source");
@@ -1063,6 +1064,7 @@ const Browser: React.FC = () => {
       getPaneForId,
       isBrowserBrowsing,
       isDualMode,
+      preparingDownload,
       uploadProgress,
     ]
   );
@@ -1076,6 +1078,7 @@ const Browser: React.FC = () => {
       if (reason === "no-focused-item")
         return t(`fileBrowser.unavailableShortcuts.${action === "delete" ? "selectItemToDelete" : "selectItemToRename"}`);
       if (reason === "no-selection") {
+        if (action === "download") return t("fileBrowser.unavailableShortcuts.selectItemsToDownload");
         if (action === "create-archive") return t("fileBrowser.unavailableShortcuts.selectItemsToArchive");
         if (action === "extract-archive") return t("fileBrowser.unavailableShortcuts.selectArchiveToExtract");
         return t(`fileBrowser.unavailableShortcuts.${action === "move" ? "selectItemsToMove" : "selectItemsToCopy"}`);
@@ -3096,8 +3099,8 @@ const Browser: React.FC = () => {
           move: COPY_MOVE_SHORTCUTS.MOVE_TO_OTHER_PANE.label,
           "create-archive": BROWSER_SHORTCUTS.CREATE_ARCHIVE.label,
           "extract-archive": BROWSER_SHORTCUTS.EXTRACT_ARCHIVE.label,
-          download: "",
-          upload: "",
+          download: BROWSER_SHORTCUTS.DOWNLOAD.label,
+          upload: BROWSER_SHORTCUTS.UPLOAD.label,
           refresh: BROWSER_SHORTCUTS.REFRESH.label,
         },
         unavailableReasons,
@@ -3422,6 +3425,8 @@ const Browser: React.FC = () => {
     const newFileAvailability = getFileListShortcutAvailability("new-file");
     const createArchiveAvailability = getFileListShortcutAvailability("create-archive");
     const extractArchiveAvailability = getFileListShortcutAvailability("extract-archive");
+    const uploadAvailability = getFileListShortcutAvailability("upload");
+    const downloadAvailability = getFileListShortcutAvailability("download");
     const refreshAvailability = getFileListShortcutAvailability("refresh");
 
     return [
@@ -3501,6 +3506,18 @@ const Browser: React.FC = () => {
         ...BROWSER_SHORTCUTS.REFRESH,
         handler: activePane.handleRefresh,
         enabled: refreshAvailability.available,
+      },
+      {
+        ...BROWSER_SHORTCUTS.UPLOAD,
+        handler: () => handleUploadRequest(effectiveActivePaneId),
+        enabled: browsing && noDialogOrCopyMove && uploadAvailability.available,
+        onUnavailable: (event) => handleUnavailableShortcut("upload", event),
+      },
+      {
+        ...BROWSER_SHORTCUTS.DOWNLOAD,
+        handler: () => void handleDownloadRequest(getOperationPolicyContext()),
+        enabled: browsing && noDialogOrCopyMove && downloadAvailability.available,
+        onUnavailable: (event) => handleUnavailableShortcut("download", event),
       },
       // Navigate mode (Ctrl+K) — also focuses the search bar
       {
@@ -3653,8 +3670,12 @@ const Browser: React.FC = () => {
     activePaneCanOpenInApp,
     activePaneIsArchive,
     browserOverlayOpen,
+    effectiveActivePaneId,
     getFileListShortcutAvailability,
+    getOperationPolicyContext,
     handleUnavailableShortcut,
+    handleDownloadRequest,
+    handleUploadRequest,
     handleOpenSettings,
     handleOpenConnectionSelector,
     settingsOpen,

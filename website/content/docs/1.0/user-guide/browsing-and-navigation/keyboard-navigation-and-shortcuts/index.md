@@ -33,6 +33,8 @@ Use these shortcuts when the main file list or browser shell has focus.
 | <kbd>Ctrl</kbd> + <kbd>R</kbd> | Refresh the current file list |
 | <kbd>F2</kbd> | Rename the focused item |
 | <kbd>Del</kbd> | Delete the focused item |
+| <kbd>Ctrl</kbd> + <kbd>D</kbd> | Download the selected items, or the focused item if nothing is selected |
+| <kbd>Ctrl</kbd> + <kbd>U</kbd> | Upload files to the current writable folder |
 | <kbd>F7</kbd> | Create a new directory |
 | <kbd>Shift</kbd> + <kbd>F7</kbd> | Create a new file |
 | <kbd>Ctrl</kbd> + <kbd>Enter</kbd> | Open the focused file in the companion app |

@@ -241,6 +241,69 @@ async function openMarkdownViewer(page: Page): Promise<void> {
 }
 
 for (const layout of ["desktop", "compact"] as const) {
+  test(`${layout} Ctrl+D downloads the focused file`, async ({ page }) => {
+    if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+    await mockMarkdownViewerApi(page, { initialMarkdown: "hello" });
+    await page.route(`**/api/viewer/${DEMO_CONNECTION_ID}/download?**`, async (route) => {
+      await fulfillJson(route, { detail: "Download intentionally blocked in E2E" }, 503);
+    });
+    await page.goto("/browse/smb/demo");
+    await page.getByTestId("file-list-container").press("ArrowDown");
+    await expect(page.getByRole("button", { name: `File: ${DEMO_PATH}` })).toHaveAttribute("data-selected", "true");
+    const downloadRequest = page.waitForRequest((request) =>
+      request.url().includes(`/api/viewer/${DEMO_CONNECTION_ID}/download?path=${DEMO_PATH}`)
+    );
+    await page.keyboard.press("Control+d");
+    expect((await downloadRequest).method()).toBe("GET");
+  });
+
+  test(`${layout} Ctrl+D downloads the current selection as a ZIP`, async ({ page }) => {
+    if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+    await mockMarkdownViewerApi(page, { initialMarkdown: "hello", includeDirectory: true });
+    await page.route(`**/api/browse/${DEMO_CONNECTION_ID}/download-selection`, async (route) => {
+      await fulfillJson(route, { detail: "Download intentionally blocked in E2E" }, 503);
+    });
+    await page.goto("/browse/smb/demo");
+    await page.getByTestId("file-list-container").focus();
+    await page.keyboard.press("Control+a");
+    const downloadRequest = page.waitForRequest((request) =>
+      request.url().endsWith(`/api/browse/${DEMO_CONNECTION_ID}/download-selection`)
+    );
+    await page.keyboard.press("Control+d");
+    const request = await downloadRequest;
+    expect(request.method()).toBe("POST");
+    expect(request.postDataJSON()).toEqual(expect.arrayContaining([DEMO_PATH, DEMO_DIRECTORY]));
+  });
+
+  test(`${layout} Ctrl+D downloads a focused ZIP member`, async ({ page }) => {
+    if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+    await mockMarkdownViewerApi(page, { initialMarkdown: "hello", includeZip: true });
+    await page.route("**/api/archive/v2/inspection/member?**", async (route) => {
+      await fulfillJson(route, { detail: "Download intentionally blocked in E2E" }, 503);
+    });
+    await page.goto("/browse/smb/demo");
+    await page.getByRole("button", { name: `File: ${DEMO_ARCHIVE}` }).click();
+    await page.getByTestId("file-list-container").press("ArrowDown");
+    await expect(page.getByRole("button", { name: "File: member.txt" })).toHaveAttribute("data-selected", "true");
+    const downloadRequest = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/archive/v2/inspection/member");
+    await page.keyboard.press("Control+d");
+    const params = new URL((await downloadRequest).url()).searchParams;
+    expect(params.get("member_path")).toBe("member.txt");
+    expect(params.get("download")).toBe("true");
+  });
+
+  test(`${layout} Ctrl+D asks for a selection when the file list is empty of selections`, async ({ page }) => {
+    if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+    await mockMarkdownViewerApi(page, { initialMarkdown: "hello" });
+    await page.route(`**/api/browse/${DEMO_CONNECTION_ID}/list**`, async (route) => {
+      await fulfillJson(route, { path: "/", items: [] });
+    });
+    await page.goto("/browse/smb/demo");
+    await page.getByTestId("file-list-container").focus();
+    await page.keyboard.press("Control+d");
+    await expect(page.getByText("Select one or more items to download.")).toBeVisible();
+  });
+
   test(`${layout} file menu dispatches a physical download request`, async ({ page }) => {
     if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
     await mockMarkdownViewerApi(page, { initialMarkdown: "hello" });
@@ -382,6 +445,22 @@ for (const layout of ["desktop", "compact"] as const) {
 }
 
 for (const layout of ["desktop", "compact"] as const) {
+test(`${layout} Ctrl+U opens the upload picker for the active folder`, async ({ page }) => {
+  if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
+  await mockMarkdownViewerApi(page, {
+    initialMarkdown: "hello",
+    onTransferStream: async (route) => {
+      await fulfillJson(route, { status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } });
+    },
+  });
+  await page.goto("/browse/smb/demo");
+  await page.getByTestId("file-list-container").focus();
+  const fileChooser = page.waitForEvent("filechooser");
+  await page.keyboard.press("Control+u");
+  await (await fileChooser).setFiles({ name: "shortcut.txt", mimeType: "text/plain", buffer: Buffer.from("shortcut") });
+  await expect(page.getByText("Uploaded 1 file")).toBeVisible();
+});
+
 test(`${layout} upload picker publishes two files in order`, async ({ page }) => {
   if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
   const uploadedPaths: string[] = [];

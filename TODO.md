@@ -1,12 +1,5 @@
 # TODO
 
-## Version 1.0
-
-- Download command in file browser:
-   - Add a download button to the bottom command bar and to the mobile per-item menu
-   - Only one file selected: download immediately
-   - Multiple files/folders selected: create a ZIP archive and download that
-
 ## Misc. commands
 
 - Add a command to open the current file list location in a new browser tab (which keyboard shortcut to assign? Ctrl+(Shift)+Tab is needed by the browser)
