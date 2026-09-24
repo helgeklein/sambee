@@ -64,7 +64,7 @@ The addition of ZIP archive inspection was the right opportunity to implement st
 
 ### Upload & Download
 
-A product like Sambee needs efficient ways to get files and folders in and out of the system. Uploading accepts multiple files and SMB as well as local drive destinations. Downloading, on the other hand, creates a temporary ZIP archive from the selected files and folders. Sambee allows downloading from all locations: from SMB connections, from local drives, and even from inside ZIP archives.
+A product like Sambee needs efficient ways to get files and folders in and out of the system. To upload files or folders to SMB or local drive destinations either drag them to Sambee's file browser or select the **Upload** (<kbd>Ctrl+U</kbd>) command in the bottom toolbar. To download files or folders, choose files and/or folders and select the **Download** (<kbd>Ctrl+D</kbd>) command in the bottom toolbar. Downloading creates a temporary ZIP archive from the selected files and folders, which is then streamed to the browser and subsequently deleted. Sambee allows downloading from all locations: from SMB connections, from local drives, and even from inside ZIP archives.
 
 ### Local Drives: Resolve .LNK Files
 
@@ -109,6 +109,10 @@ The settings gained a new category page:
 File browser settings:
 
 - **Touch-friendly file selection:** controls how mobile-style file selection is enabled (auto, always on, off).
+
+System settings:
+
+- **Temporary archive download size limit:** sets the maximum size of the temporary ZIP archive created when multiple items are downloaded.
 
 ### Other Changes
 

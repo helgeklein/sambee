@@ -9,13 +9,19 @@ const BUTTON_GAP_PX = 8;
 interface FileOperationsToolbarProps {
   actions: readonly FileOperationAction[];
   moreLabel: string;
+  onUploadTriggerChange?: (element: HTMLElement | null) => void;
 }
 
 function CommandButton({ action }: { action: FileOperationAction }) {
   return (
     <Tooltip title={action.tooltip}>
       <span>
-        <Button disabled={!action.enabled} onClick={action.onClick} sx={fileOperationsToolbarButtonSx}>
+        <Button
+          data-upload-trigger={action.id === "upload" ? "" : undefined}
+          disabled={!action.enabled}
+          onClick={action.onClick}
+          sx={fileOperationsToolbarButtonSx}
+        >
           {action.label}
         </Button>
       </span>
@@ -23,7 +29,7 @@ function CommandButton({ action }: { action: FileOperationAction }) {
   );
 }
 
-export function FileOperationsToolbar({ actions, moreLabel }: FileOperationsToolbarProps) {
+export function FileOperationsToolbar({ actions, moreLabel, onUploadTriggerChange }: FileOperationsToolbarProps) {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const measurementRef = useRef<HTMLDivElement>(null);
   const [visibleCount, setVisibleCount] = useState(actions.length);
@@ -71,6 +77,13 @@ export function FileOperationsToolbar({ actions, moreLabel }: FileOperationsTool
 
   const visibleActions = actions.slice(0, visibleCount);
   const overflowActions = actions.slice(visibleCount);
+  const uploadVisible = visibleActions.some((action) => action.id === "upload");
+
+  useLayoutEffect(() => {
+    const anchor = toolbarRef.current?.querySelector<HTMLElement>(uploadVisible ? "[data-upload-trigger]" : "[data-more-trigger]") ?? null;
+    onUploadTriggerChange?.(anchor);
+    return () => onUploadTriggerChange?.(null);
+  }, [uploadVisible, onUploadTriggerChange]);
 
   React.useEffect(() => {
     if (overflowActions.length === 0) {
@@ -91,6 +104,7 @@ export function FileOperationsToolbar({ actions, moreLabel }: FileOperationsTool
         {overflowActions.length > 0 && (
           <Tooltip title={moreLabel}>
             <IconButton
+              data-more-trigger=""
               aria-label={moreLabel}
               aria-haspopup="menu"
               aria-expanded={moreAnchor ? "true" : undefined}
@@ -110,8 +124,8 @@ export function FileOperationsToolbar({ actions, moreLabel }: FileOperationsTool
               <MenuItem
                 disabled={!action.enabled}
                 onClick={() => {
-                  action.onClick();
                   setMoreAnchor(null);
+                  action.onClick();
                 }}
               >
                 {action.label}

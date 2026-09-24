@@ -8,11 +8,15 @@ Download is available from the file browser toolbar and the compact item or sele
 
 To keep a new archive in an SMB share instead, open a ZIP in one pane and a writable folder on the same SMB connection in the other pane. Select files or folders inside the ZIP, then choose **Create archive**. Unlike **Download**, this writes a persistent ZIP to the destination folder. Creating an archive from ZIP members isn't available for local-drive or mixed-connection destinations.
 
-## Upload Files
+## Upload Files and Folders
 
-Open a writable folder in an SMB share or paired local drive and choose **Upload**. Select one or more files from your computer. Sambee uploads them one at a time, shows the current file's progress, and reports completed, skipped, failed, and uncertain transfers at the end.
+Open a writable folder in an SMB share or paired local drive. On desktop, choose **Upload** (or press `Ctrl` + `U`), then choose **Files** for one or more files or **Folder** for one folder. On a compact screen, use the **+** menu to choose **Upload files** or **Upload folder** directly. Folder selection depends on your browser; when it isn't supported, **Upload files** remains available. A folder picker may not return an empty folder, but dragging that folder into the browser can preserve it in supported browsers.
 
-If a name already exists, choose whether to skip, rename, or replace that file. You can cancel the remaining uploads; an interrupted upload may have an uncertain outcome, so check the destination before retrying it.
+You can also drag files and folders from your computer onto a file list. The drop cue names the connection and current folder receiving them. In dual-pane mode, drop onto the pane you want; dropping on a file or folder row still targets that pane's current folder, not the row. If drops aren't supported by your browser or the destination isn't writable, use the upload picker instead.
+
+Uploaded folders keep their names and internal structure. If a folder with the same name already exists, Sambee merges into it without removing files already there. If a file blocks a folder, or a folder blocks a file, you can skip or rename the incoming item; a folder isn't overwritten. Individual file conflicts can be skipped, renamed, or replaced.
+
+Files upload one at a time. The progress notice shows the current file and path, and the final notice reports completed, skipped, failed, or uncertain results and folder counts. Cancelling or failing partway through doesn't undo files or folders already created. If a folder upload has an uncertain outcome, Sambee stops the remaining transfers; inspect the destination before trying again.
 
 ## Download Limits
 

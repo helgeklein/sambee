@@ -316,6 +316,48 @@ describe("FileBrowserPane", () => {
   // --------------------------------------------------------------------------
 
   describe("desktop layout", () => {
+    it("centers an accessible drop cue without shifting rows and clears it on drop", () => {
+      const onFileDrop = vi.fn();
+      const props = defaultProps({ dropTargetLabel: "My NAS:/some/path", onFileDrop });
+      const { rerender } = render(<FileBrowserPane {...props} />);
+      const list = screen.getByTestId("file-list");
+      const frame = list.parentElement!;
+      fireEvent.dragEnter(list, { dataTransfer: { types: ["Files"] } });
+      const cue = screen.getByRole("status", { name: /My NAS:\/some\/path/ });
+      expect(cue).toHaveTextContent("fileBrowser.transfers.dropToUpload");
+      expect(cue).not.toHaveTextContent("My NAS:/some/path");
+      expect(cue).toContainElement(screen.getByTestId("CloudUploadOutlinedIcon"));
+      expect(cue).toHaveStyle({ position: "absolute", left: "50%", pointerEvents: "none" });
+      expect(getComputedStyle(frame).outline).toContain("2px solid");
+      expect(list).toHaveTextContent("Documents");
+      fireEvent.drop(list, { dataTransfer: { types: ["Files"] } });
+      expect(onFileDrop).toHaveBeenCalledOnce();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+      rerender(<FileBrowserPane {...props} dropUnavailableReason="Finish the current upload first" />);
+      fireEvent.dragEnter(list, { dataTransfer: { types: ["Files"] } });
+      const unavailable = screen.getByRole("status", { name: "Finish the current upload first" });
+      expect(unavailable).toContainElement(screen.getByTestId("BlockOutlinedIcon"));
+      expect(unavailable).not.toHaveTextContent("My NAS:/some/path");
+      expect(getComputedStyle(frame).outlineStyle).toBe("none");
+    });
+
+    it("ignores non-file drags and clears a nested file drag on Escape", () => {
+      const onFileDrop = vi.fn();
+      render(<FileBrowserPane {...defaultProps({ dropTargetLabel: "My NAS:/some/path", onFileDrop })} />);
+      const list = screen.getByTestId("file-list");
+      fireEvent.dragEnter(list, { dataTransfer: { types: ["text/plain"] } });
+      fireEvent.drop(list, { dataTransfer: { types: ["text/plain"] } });
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      expect(onFileDrop).not.toHaveBeenCalled();
+
+      fireEvent.dragEnter(list, { dataTransfer: { types: ["Files"] } });
+      fireEvent.dragEnter(list.firstElementChild!, { dataTransfer: { types: ["Files"] } });
+      expect(screen.getByRole("status", { name: /My NAS:\/some\/path/ })).toBeInTheDocument();
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    });
+
     it("uses fixed pixel dimensions for the visually hidden selection announcement", () => {
       render(<FileBrowserPane {...defaultProps()} />);
 

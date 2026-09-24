@@ -336,7 +336,7 @@ export interface UseFileBrowserPaneReturn {
    * `directory_changed` event is received.  Invalidates the cache entry
    * and triggers a reload if this pane is viewing the affected directory.
    */
-  handleDirectoryChanged: (change: DirectoryChange) => void;
+  handleDirectoryChanged: (change: DirectoryChange, options?: { invalidateOnly?: boolean }) => void;
 
   // ── Cache Management ───────────────────────────────────────────────────
   /** Clear all directory and navigation caches (e.g. on connection switch). */

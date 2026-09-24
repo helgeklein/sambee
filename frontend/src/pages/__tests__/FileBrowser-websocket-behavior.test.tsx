@@ -1,4 +1,4 @@
-import { act, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { NavigateFunction } from "react-router-dom";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -222,6 +222,92 @@ describe("FileBrowser WebSocket behavior", () => {
     await waitFor(() => {
       expect(api.listDirectory).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it("coalesces directory notifications during an upload into one final listing refresh", async () => {
+    let finishUpload:
+      | ((result: { status: "completed"; replaced: false; effects: { source: "unchanged"; destination: "mutated" } }) => void)
+      | undefined;
+    vi.mocked(api.publishBrowserFile).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishUpload = resolve;
+        })
+    );
+    const pickerClick = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(function (this: HTMLInputElement) {
+      if (this.type !== "file") return;
+      Object.defineProperty(this, "files", { value: [new File(["data"], "new.txt")] });
+      this.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    try {
+      const { renderBrowser } = await import("./FileBrowser.test.utils");
+      renderBrowser("/browse/smb/test-server-1");
+      await waitFor(() => expect(api.listDirectory).toHaveBeenCalledTimes(1));
+      const backendSocket = InspectableWebSocket.instances.find(isServerSocket);
+      backendSocket?.open();
+      fireEvent.click(screen.getByRole("button", { name: "Upload", exact: true }));
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Files" }));
+      await waitFor(() => expect(finishUpload).toBeDefined());
+
+      act(() => {
+        for (let index = 0; index < 2; index++) {
+          backendSocket?.onmessage?.(
+            new MessageEvent("message", { data: JSON.stringify({ type: "directory_changed", connection_id: "conn-1", path: "" }) })
+          );
+        }
+      });
+      expect(api.listDirectory).toHaveBeenCalledTimes(1);
+
+      act(() => finishUpload!({ status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } }));
+      await waitFor(() => expect(api.listDirectory).toHaveBeenCalledTimes(2));
+      act(() => {
+        backendSocket?.onmessage?.(
+          new MessageEvent("message", { data: JSON.stringify({ type: "directory_changed", connection_id: "conn-1", path: "" }) })
+        );
+      });
+      expect(api.listDirectory).toHaveBeenCalledTimes(2);
+    } finally {
+      pickerClick.mockRestore();
+    }
+  });
+
+  it("refreshes a deferred directory change when an upload is cancelled", async () => {
+    vi.mocked(api.publishBrowserFile).mockImplementation(
+      (_file, _connectionId, _path, _policy, options) =>
+        new Promise((resolve) => {
+          options.signal?.addEventListener(
+            "abort",
+            () => resolve({ status: "cancelled", replaced: false, effects: { source: "unchanged", destination: "unchanged" } }),
+            { once: true }
+          );
+        })
+    );
+    const pickerClick = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(function (this: HTMLInputElement) {
+      if (this.type !== "file") return;
+      Object.defineProperty(this, "files", { value: [new File(["data"], "new.txt")] });
+      this.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    try {
+      const { renderBrowser } = await import("./FileBrowser.test.utils");
+      renderBrowser("/browse/smb/test-server-1");
+      await waitFor(() => expect(api.listDirectory).toHaveBeenCalledTimes(1));
+      const backendSocket = InspectableWebSocket.instances.find(isServerSocket);
+      backendSocket?.open();
+      fireEvent.click(screen.getByRole("button", { name: "Upload", exact: true }));
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Files" }));
+      await waitFor(() => expect(api.publishBrowserFile).toHaveBeenCalledOnce());
+
+      act(() => {
+        backendSocket?.onmessage?.(
+          new MessageEvent("message", { data: JSON.stringify({ type: "directory_changed", connection_id: "conn-1", path: "" }) })
+        );
+      });
+      expect(api.listDirectory).toHaveBeenCalledTimes(1);
+      fireEvent.click(await screen.findByRole("button", { name: "Cancel", exact: true }));
+      await waitFor(() => expect(api.listDirectory).toHaveBeenCalledTimes(2));
+    } finally {
+      pickerClick.mockRestore();
+    }
   });
 
   it("ignores acknowledged WebSocket control frames without malformed-message warnings", async () => {

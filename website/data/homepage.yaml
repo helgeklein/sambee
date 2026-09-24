@@ -159,6 +159,8 @@ features:
           body: Take care of common file and folder operations from one browser interface.
         - title: Copy and move across storage locations
           body: Move files and folders between local drives and SMB shares.
+        - title: Inspect, create, and extract ZIP archives
+          body: Archives are virtual folders you can move around in. Files from within archives can be viewed directly without a need to extract them first.
     - id: desktop_app_editing
       icon: open_in_new
       title: Edit in desktop apps

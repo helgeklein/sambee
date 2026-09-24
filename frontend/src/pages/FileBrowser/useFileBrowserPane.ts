@@ -2958,11 +2958,13 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // ──────────────────────────────────────────────────────────────────────────
 
   const handleDirectoryChanged = useCallback(
-    (change: DirectoryChange) => {
+    (change: DirectoryChange, options?: { invalidateOnly?: boolean }) => {
       const { connectionId: changedConnectionId, path: changedPath } = change;
       // Invalidate cache for the changed directory
       const cacheKey = `${changedConnectionId}:${changedPath}`;
       directoryCache.current.delete(cacheKey);
+
+      if (options?.invalidateOnly) return;
 
       if (changedConnectionId !== connectionIdRef.current || changedPath !== currentPathRef.current) {
         return;

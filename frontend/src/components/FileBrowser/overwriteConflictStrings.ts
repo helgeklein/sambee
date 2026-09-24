@@ -16,6 +16,18 @@ export const OVERWRITE_CONFLICT_STRINGS = {
   get ALREADY_EXISTS() {
     return translate("fileBrowser.overwriteConflict.alreadyExists");
   },
+  get FOLDER_CONFLICT() {
+    return translate("fileBrowser.overwriteConflict.folderConflict");
+  },
+  get FILE_FOLDER_CONFLICT() {
+    return translate("fileBrowser.overwriteConflict.fileFolderConflict");
+  },
+  get BUTTON_SKIP_FOLDER() {
+    return translate("fileBrowser.overwriteConflict.skipFolder");
+  },
+  get BUTTON_RENAME_FOLDER() {
+    return translate("fileBrowser.overwriteConflict.renameFolder");
+  },
 
   get LABEL_TARGET_NAME() {
     return translate("fileBrowser.overwriteConflict.labelTargetName");
@@ -64,13 +76,15 @@ export const OVERWRITE_CONFLICT_STRINGS = {
   get ERROR_NO_RESOLUTION_AVAILABLE() {
     return translate("fileBrowser.overwriteConflict.noResolutionAvailable");
   },
-  CANCEL_OPERATION(operation: "copy" | "move" | "extract") {
+  CANCEL_OPERATION(operation: "copy" | "move" | "extract" | "upload") {
     return translate(
-      operation === "copy"
-        ? "fileBrowser.overwriteConflict.cancelCopy"
-        : operation === "move"
-          ? "fileBrowser.overwriteConflict.cancelMove"
-          : "fileBrowser.overwriteConflict.cancelExtraction"
+      operation === "upload"
+        ? "fileBrowser.overwriteConflict.cancelUpload"
+        : operation === "copy"
+          ? "fileBrowser.overwriteConflict.cancelCopy"
+          : operation === "move"
+            ? "fileBrowser.overwriteConflict.cancelMove"
+            : "fileBrowser.overwriteConflict.cancelExtraction"
     );
   },
   get BUTTON_CONTINUE() {
