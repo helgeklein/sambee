@@ -19,7 +19,20 @@
  * @see FileBrowserPane — renders a single pane's UI (breadcrumbs, file list, etc.)
  */
 
-import { AppBar, Box, Button, Container, Divider, Snackbar, Toolbar, Typography, useMediaQuery, useTheme } from "@mui/material";
+import {
+  AppBar,
+  Box,
+  Button,
+  Container,
+  Divider,
+  Menu,
+  MenuItem,
+  Snackbar,
+  Toolbar,
+  Typography,
+  useMediaQuery,
+  useTheme,
+} from "@mui/material";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
@@ -33,6 +46,7 @@ import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
 import type { CompanionLifecycleStatus } from "../components/FileBrowser/FileBrowserAlerts";
 import { FileBrowserAlerts } from "../components/FileBrowser/FileBrowserAlerts";
 import { FileOperationsToolbar } from "../components/FileBrowser/FileOperationsToolbar";
+import { formatConnectionPath } from "../components/FileBrowser/formatConnectionPath";
 import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
 import NameInputDialog from "../components/FileBrowser/NameInputDialog";
 import {
@@ -86,11 +100,13 @@ import { FileType, isApiError } from "../types";
 import { openExternalUrl } from "../utils/externalLinks";
 import { compareLocalizedStrings } from "../utils/localeFormatting";
 import { getConnectionById, isConnectionReadOnly, isConnectionWritable } from "./FileBrowser/access";
+import { type BrowserUploadEntry, captureDropEntries, manifestFromDrop, manifestFromFiles } from "./FileBrowser/browserUploadManifest";
 import {
   areSameContentLocations,
   type ContentOperationExecution,
   type ContentOperationReason,
   cancelForegroundArchiveOperationOnPageHide,
+  createContentItem,
   downloadContentSelection,
   executeTransfer,
   executeTransferTree,
@@ -161,6 +177,7 @@ const SERVER_WEBSOCKET_RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 5_000] as const
 const COMPANION_WEBSOCKET_RECONNECT_DELAY_MS = 5_000;
 const COMPANION_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
 const TRANSFER_NOTICE_AUTOHIDE_MS = 6_000;
+const MAX_UPLOAD_DIRECTORY_CREATE_RETRIES = 3;
 
 const COMPANION_STATUS_QUERY_PARAM = "companion_status";
 const IGNORED_REALTIME_MESSAGE_TYPES = new Set(["subscribed", "unsubscribed", "pong"]);
@@ -463,6 +480,23 @@ const Browser: React.FC = () => {
     unknown: number;
   } | null>(null);
   const uploadAbortRef = React.useRef<AbortController | null>(null);
+  const uploadDirectoryChangesRef = React.useRef<{
+    connectionId: string;
+    writingPaths: Set<string>;
+    deferredPaths: Set<string>;
+  } | null>(null);
+  const pendingUploadPickerRef = React.useRef<HTMLInputElement | null>(null);
+  const [uploadSessionActive, setUploadSessionActive] = useState(false);
+  const uploadTriggerRef = React.useRef<HTMLElement | null>(null);
+  const uploadMenuFocusRef = React.useRef<HTMLElement | null>(null);
+  const [uploadMenu, setUploadMenu] = useState<{ anchor: HTMLElement; paneId: PaneId; destination: PhysicalLocation } | null>(null);
+  const [uploadPreparing, setUploadPreparing] = useState(false);
+  const [uploadConflict, setUploadConflict] = useState<{
+    kind: "file" | "directory";
+    actions: readonly ConflictResolution[];
+    path: string;
+    connectionId: string;
+  } | null>(null);
   const [preparingDownload, setPreparingDownload] = useState(false);
   const downloadAbortRef = React.useRef<AbortController | null>(null);
   const backendAvailability = useBackendAvailability();
@@ -973,7 +1007,7 @@ const Browser: React.FC = () => {
       }
 
       if (action === "upload") {
-        if (uploadProgress) return unavailableFileListShortcut("interaction-blocked");
+        if (uploadSessionActive) return unavailableFileListShortcut("interaction-blocked");
         if (sourceIsArchive) return unavailableFileListShortcut("archive-content-immutable");
         if (sourcePaneReadOnly) return unavailableFileListShortcut("read-only-location");
         if (sourceLocation.kind !== "physical" || !isConnectionWritable(getConnectionById(allConnections, sourceLocation.connectionId)))
@@ -1065,7 +1099,7 @@ const Browser: React.FC = () => {
       isBrowserBrowsing,
       isDualMode,
       preparingDownload,
-      uploadProgress,
+      uploadSessionActive,
     ]
   );
   const getUnavailableShortcutMessage = useCallback(
@@ -1736,6 +1770,14 @@ const Browser: React.FC = () => {
    * double-mount or Vite HMR), `wsRef.current` would still be `null` and
    * the socket would leak. `disposed` prevents reconnection after unmount.
    */
+  const handleRealtimeDirectoryChange = (change: DirectoryChange) => {
+    const upload = uploadDirectoryChangesRef.current;
+    const deferReload = upload?.connectionId === change.connectionId && upload.writingPaths.has(change.path);
+    if (deferReload) upload.deferredPaths.add(change.path);
+    leftPane.handleDirectoryChanged(change, { invalidateOnly: deferReload });
+    rightPane.handleDirectoryChanged(change, { invalidateOnly: deferReload });
+  };
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: WebSocket created once on mount. handleDirectoryChanged refs are stable.
   useEffect(() => {
     let disposed = false;
@@ -1803,9 +1845,7 @@ const Browser: React.FC = () => {
           return;
         }
         if (message.type === "directory_changed") {
-          // Dispatch to both panes — each pane checks if it's viewing the affected directory
-          leftPane.handleDirectoryChanged(message.change);
-          rightPane.handleDirectoryChanged(message.change);
+          handleRealtimeDirectoryChange(message.change);
         } else if (message.type === "transfer_progress") {
           // Byte-level progress for cross-connection copy/move
           if (message.bytesTransferred === -1) {
@@ -1980,8 +2020,7 @@ const Browser: React.FC = () => {
           return;
         }
         if (message.type === "directory_changed") {
-          leftPane.handleDirectoryChanged(message.change);
-          rightPane.handleDirectoryChanged(message.change);
+          handleRealtimeDirectoryChange(message.change);
         }
       };
 
@@ -2915,39 +2954,152 @@ const Browser: React.FC = () => {
     [browserContentServices.providers, t]
   );
 
-  const handleUploadRequest = useCallback(
-    (paneId: PaneId) => {
-      const pane = getPaneForId(paneId);
-      const destination = pane.currentLocation;
-      if (
-        destination.kind !== "physical" ||
-        uploadAbortRef.current ||
-        !pane.contentCapabilities.mutate ||
-        !isConnectionWritable(getConnectionById(allConnections, destination.connectionId))
-      )
-        return;
-      const picker = document.createElement("input");
-      picker.type = "file";
-      picker.multiple = true;
-      picker.onchange = () => {
-        const files = Array.from(picker.files ?? []);
-        if (!files.length) return;
-        setTransferNotice("");
-        const abortController = new AbortController();
-        uploadAbortRef.current = abortController;
-        void (async () => {
-          const counts = { completed: 0, skipped: 0, failed: 0, unknown: 0 };
-          for (const [index, file] of files.entries()) {
-            if (abortController.signal.aborted) break;
+  const startBrowserUpload = useCallback(
+    (paneId: PaneId, destination: PhysicalLocation, prepare: (signal: AbortSignal) => Promise<BrowserUploadEntry[]>) => {
+      if (uploadAbortRef.current) return;
+      const controller = new AbortController();
+      const directoryChanges = {
+        connectionId: destination.connectionId,
+        writingPaths: new Set<string>(),
+        deferredPaths: new Set<string>(),
+      };
+      uploadAbortRef.current = controller;
+      uploadDirectoryChangesRef.current = directoryChanges;
+      setUploadSessionActive(true);
+      setUploadPreparing(true);
+      setTransferNotice("");
+      void (async () => {
+        const counts = { completed: 0, skipped: 0, failed: 0, unknown: 0, created: 0, merged: 0, skippedFolders: 0, failedFolders: 0 };
+        const changedPaths = new Set<string>();
+        let totalFiles = 0;
+        let halted = false;
+        const requestConflict = async (
+          conflict: ConflictInfo,
+          kind: "file" | "directory",
+          actions: readonly ConflictResolution[],
+          path: string
+        ) => {
+          setConflictInfo(conflict);
+          setUploadConflict({ kind, actions, path, connectionId: destination.connectionId });
+          const decision = await new Promise<ConflictDecision | null>((resolve) => {
+            conflictResolveRef.current = resolve;
+            setConflictDialogOpen(true);
+          });
+          setConflictDialogOpen(false);
+          setUploadConflict(null);
+          if (!decision) controller.abort();
+          return decision;
+        };
+        try {
+          const manifest = await prepare(controller.signal);
+          const hasDirectories = manifest.some((entry) => entry.kind === "directory");
+          totalFiles = manifest.filter((entry) => entry.kind === "file").length;
+          const current = getPaneForId(paneId);
+          const location = current.currentLocation;
+          if (
+            controller.signal.aborted ||
+            location.kind !== "physical" ||
+            location.connectionId !== destination.connectionId ||
+            location.path !== destination.path ||
+            !current.contentCapabilities.mutate ||
+            !isConnectionWritable(getConnectionById(allConnections, destination.connectionId)) ||
+            (isLocalDrive(destination.connectionId) && !contentOperationEnvironment.isCompanionPaired)
+          ) {
+            if (!controller.signal.aborted) setTransferNotice(t("fileBrowser.transfers.uploadDestinationChanged"));
+            return;
+          }
+          const mappedDirectories = new Map<string, string>();
+          const skippedDirectories = new Set<string>();
+          const failedDirectories = new Set<string>();
+          let fileIndex = 0;
+          for (const entry of manifest) {
+            if (controller.signal.aborted || halted) break;
+            if (entry.kind === "file") fileIndex++;
+            const relativeParent = entry.segments.slice(0, -1).join("/");
+            if (skippedDirectories.has(relativeParent) || failedDirectories.has(relativeParent)) {
+              const failed = failedDirectories.has(relativeParent);
+              if (entry.kind === "file") {
+                if (failed) counts.failed++;
+                else counts.skipped++;
+              } else (failed ? failedDirectories : skippedDirectories).add(entry.segments.join("/"));
+              continue;
+            }
+            const parent = mappedDirectories.get(relativeParent) ?? destination.path;
+            const originalName = entry.segments[entry.segments.length - 1];
+            if (!originalName) throw new Error("Upload path is missing a name.");
+            if (entry.kind === "directory") {
+              let name = originalName;
+              let resolved = false;
+              let creationConflicts = 0;
+              while (!controller.signal.aborted && !resolved) {
+                const path = joinPath(parent, name);
+                const target = browserContentServices.registry.resolveItem({ connectionId: destination.connectionId, path });
+                let existing = null;
+                try {
+                  existing = await browserContentServices.registry.getBackend(target.target).getInfo(target);
+                } catch (error) {
+                  if (!isApiError(error) || error.response?.status !== 404) throw error;
+                }
+                if (existing?.type === FileType.DIRECTORY) {
+                  counts.merged++;
+                  mappedDirectories.set(entry.segments.join("/"), path);
+                  resolved = true;
+                } else if (existing) {
+                  const incoming = {
+                    name: originalName,
+                    path: entry.segments.join("/"),
+                    type: FileType.DIRECTORY,
+                    is_readable: true,
+                    is_hidden: false,
+                  };
+                  const decision = await requestConflict(
+                    { incoming_file: incoming, existing_file: existing },
+                    "directory",
+                    ["skip", "rename"],
+                    incoming.path
+                  );
+                  if (!decision || decision.resolution === "skip") {
+                    skippedDirectories.add(entry.segments.join("/"));
+                    counts.skippedFolders++;
+                    resolved = true;
+                  } else if (decision.targetName) name = decision.targetName;
+                } else {
+                  try {
+                    if (controller.signal.aborted) break;
+                    directoryChanges.writingPaths.add(parent);
+                    await createContentItem(
+                      physicalLocation(destination.connectionId, parent),
+                      name,
+                      "directory",
+                      contentOperationEnvironment
+                    );
+                    changedPaths.add(parent);
+                    counts.created++;
+                    mappedDirectories.set(entry.segments.join("/"), path);
+                    resolved = true;
+                  } catch (error) {
+                    if (isApiError(error) && error.response?.status === 409 && ++creationConflicts < MAX_UPLOAD_DIRECTORY_CREATE_RETRIES) {
+                      continue;
+                    }
+                    logger.error("Upload folder creation failed", { path, error }, "file-browser");
+                    counts.failedFolders++;
+                    failedDirectories.add(entry.segments.join("/"));
+                    resolved = true;
+                  }
+                }
+              }
+              continue;
+            }
+            const file = entry.file;
             let lastProgressUpdate = 0;
             const updateProgress = (bytes: number) => {
               const now = performance.now();
               if (bytes > 0 && bytes < file.size && now - lastProgressUpdate < 100) return;
               lastProgressUpdate = now;
               setUploadProgress({
-                current: index + 1,
-                total: files.length,
-                name: file.name,
+                current: fileIndex,
+                total: totalFiles,
+                name: entry.segments.join("/"),
                 connectionId: destination.connectionId,
                 bytes,
                 size: file.size,
@@ -2955,82 +3107,207 @@ const Browser: React.FC = () => {
               });
             };
             updateProgress(0);
-            let name = file.name;
+            setUploadPreparing(false);
+            let name = originalName;
             let policy: TargetResolutionPolicy = "ask";
-            while (!abortController.signal.aborted) {
+            while (!controller.signal.aborted) {
               try {
-                const result = await publishBrowserFile(file, destination.connectionId, joinPath(destination.path, name), policy, {
-                  signal: abortController.signal,
-                  onProgress: (bytes) => updateProgress(bytes),
+                directoryChanges.writingPaths.add(parent);
+                const result = await publishBrowserFile(file, destination.connectionId, joinPath(parent, name), policy, {
+                  signal: controller.signal,
+                  onProgress: updateProgress,
                 });
                 if (result.status === "completed") {
                   counts.completed++;
-                  await pane.reloadCurrentLocation({ forceRefresh: true });
-                } else if (result.status === "skipped") {
-                  counts.skipped++;
-                } else if (result.status === "outcome_unknown") {
+                  changedPaths.add(parent);
+                } else if (result.status === "skipped") counts.skipped++;
+                else if (result.status === "outcome_unknown") {
                   counts.unknown++;
-                  await pane.reloadCurrentLocation({ forceRefresh: true });
+                  changedPaths.add(parent);
+                  halted = hasDirectories;
                 } else if (result.status === "failed") {
                   counts.failed++;
-                  logger.error("File upload failed", { name: file.name, error: result.error }, "file-browser");
+                  logger.error("File upload failed", { name: entry.segments.join("/"), error: result.error }, "file-browser");
                 }
                 break;
               } catch (error) {
                 const detail = isApiError(error) ? error.response?.data?.detail : null;
                 if (isApiError(error) && error.response?.status === 409 && typeof detail === "object" && detail !== null) {
-                  setConflictInfo(detail as ConflictInfo);
-                  const decision = await new Promise<ConflictDecision | null>((resolve) => {
-                    conflictResolveRef.current = resolve;
-                    setConflictDialogOpen(true);
-                  });
-                  setConflictDialogOpen(false);
-                  if (!decision) {
-                    abortController.abort();
-                    break;
-                  }
+                  const conflict = detail as ConflictInfo;
+                  const actions: readonly ConflictResolution[] =
+                    conflict.existing_file.type === FileType.DIRECTORY ? ["skip", "rename"] : ["skip", "overwrite", "rename"];
+                  const decision = await requestConflict(conflict, "file", actions, entry.segments.join("/"));
+                  if (!decision) break;
                   if (decision.resolution === "skip") {
                     counts.skipped++;
                     break;
                   }
-                  if (decision.resolution === "rename") {
-                    if (!decision.targetName) {
-                      counts.failed++;
-                      break;
-                    }
-                    name = decision.targetName;
-                  }
+                  if (decision.resolution === "rename" && decision.targetName) name = decision.targetName;
                   policy = targetResolutionPolicyForConflictResolution(decision.resolution);
                   continue;
                 }
-                if (!abortController.signal.aborted) {
+                if (!controller.signal.aborted) {
                   counts.failed++;
-                  logger.error("File upload failed", { name: file.name, error }, "file-browser");
+                  logger.error("File upload failed", { name: entry.segments.join("/"), error }, "file-browser");
                 }
                 break;
               }
             }
           }
-          setUploadProgress(null);
-          uploadAbortRef.current = null;
-          const cancelled = abortController.signal.aborted
-            ? files.length - counts.completed - counts.skipped - counts.failed - counts.unknown
-            : 0;
+          const cancelled = controller.signal.aborted ? totalFiles - counts.completed - counts.skipped - counts.failed - counts.unknown : 0;
           const problems = [
             counts.skipped && t("fileBrowser.transfers.uploadSkipped", { count: counts.skipped }),
             counts.failed && t("fileBrowser.transfers.uploadFailed", { count: counts.failed }),
+            counts.failedFolders && t("fileBrowser.transfers.uploadFolderFailed", { count: counts.failedFolders }),
             counts.unknown && t("fileBrowser.transfers.uploadUnknown", { count: counts.unknown }),
             cancelled && t("fileBrowser.transfers.uploadCancelled", { count: cancelled }),
+            halted && t("fileBrowser.transfers.uploadInspectDestination"),
+            halted &&
+              t("fileBrowser.transfers.uploadRemaining", {
+                count: totalFiles - counts.completed - counts.skipped - counts.failed - counts.unknown,
+              }),
+            (controller.signal.aborted || counts.failedFolders > 0) && changedPaths.size > 0 && t("fileBrowser.transfers.uploadPartial"),
           ]
             .filter(Boolean)
             .join(", ");
           const summary = t("fileBrowser.transfers.uploadComplete", { count: counts.completed });
-          setTransferNotice(problems ? t("fileBrowser.transfers.uploadSummaryWithIssues", { summary, issues: problems }) : summary);
-        })();
+          const folders = hasDirectories
+            ? t("fileBrowser.transfers.uploadFolders", { created: counts.created, merged: counts.merged, skipped: counts.skippedFolders })
+            : "";
+          setTransferNotice(
+            [problems ? t("fileBrowser.transfers.uploadSummaryWithIssues", { summary, issues: problems }) : summary, folders]
+              .filter(Boolean)
+              .join(" · ")
+          );
+        } catch (error) {
+          if (!controller.signal.aborted) {
+            logger.error("Browser upload failed", { error, destination }, "file-browser");
+            const message = error instanceof Error ? error.message : t("fileBrowser.transfers.uploadFailed", { count: 1 });
+            setTransferNotice(changedPaths.size ? `${message} ${t("fileBrowser.transfers.uploadPartial")}` : message);
+          } else
+            setTransferNotice(
+              changedPaths.size
+                ? t("fileBrowser.transfers.uploadPartial")
+                : t("fileBrowser.transfers.uploadCancelled", { count: totalFiles })
+            );
+        } finally {
+          conflictResolveRef.current?.(null);
+          conflictResolveRef.current = null;
+          setConflictDialogOpen(false);
+          setUploadConflict(null);
+          setUploadProgress(null);
+          setUploadPreparing(false);
+          setUploadSessionActive(false);
+          uploadAbortRef.current = null;
+          uploadDirectoryChangesRef.current = null;
+          if (changedPaths.size) {
+            leftPane.invalidateConnectionCache(destination.connectionId);
+            rightPane.invalidateConnectionCache(destination.connectionId);
+          }
+          if (changedPaths.size || directoryChanges.deferredPaths.size) {
+            const affectedPaths = new Set([...changedPaths, ...directoryChanges.deferredPaths]);
+            for (const visiblePane of [leftPaneRef.current, rightPaneRef.current]) {
+              const location = visiblePane.currentLocation;
+              if (location.kind === "physical" && location.connectionId === destination.connectionId && affectedPaths.has(location.path)) {
+                void visiblePane.reloadCurrentLocation({ forceRefresh: true, preserveVisibleContent: true });
+              }
+            }
+          }
+        }
+      })();
+    },
+    [allConnections, browserContentServices.registry, contentOperationEnvironment, getPaneForId, leftPane, rightPane, t]
+  );
+
+  const handleUploadRequest = useCallback(
+    (paneId: PaneId, folder = false) => {
+      const pane = getPaneForId(paneId);
+      const destination = pane.currentLocation;
+      const availability = getFileListShortcutAvailability("upload", getOperationPolicyContext(paneId));
+      if (destination.kind !== "physical" || uploadAbortRef.current || !availability.available) return;
+      if (pendingUploadPickerRef.current && document.hasFocus() === false) return;
+      const picker = document.createElement("input");
+      picker.type = "file";
+      if (folder) picker.setAttribute("webkitdirectory", "");
+      else picker.multiple = true;
+      pendingUploadPickerRef.current = picker;
+      picker.oncancel = () => {
+        if (pendingUploadPickerRef.current === picker) pendingUploadPickerRef.current = null;
+      };
+      picker.onchange = () => {
+        if (pendingUploadPickerRef.current !== picker) return;
+        pendingUploadPickerRef.current = null;
+        const files = Array.from(picker.files ?? []);
+        if (!files.length) return;
+        startBrowserUpload(paneId, destination, async () => manifestFromFiles(files, folder));
       };
       picker.click();
     },
-    [allConnections, getPaneForId, t]
+    [getFileListShortcutAvailability, getOperationPolicyContext, getPaneForId, startBrowserUpload]
+  );
+
+  const openUploadMenu = useCallback(
+    (paneId: PaneId) => {
+      const anchor = uploadTriggerRef.current;
+      if (!anchor?.isConnected || uploadAbortRef.current) return;
+      const pane = getPaneForId(paneId);
+      const destination = pane.currentLocation;
+      if (
+        destination.kind !== "physical" ||
+        !pane.contentCapabilities.mutate ||
+        !isConnectionWritable(getConnectionById(allConnections, destination.connectionId))
+      )
+        return;
+      uploadMenuFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setUploadMenu({ anchor, paneId, destination });
+    },
+    [allConnections, getPaneForId]
+  );
+
+  const closeUploadMenu = useCallback(() => {
+    setUploadMenu(null);
+    const focusTarget = uploadMenuFocusRef.current?.isConnected ? uploadMenuFocusRef.current : uploadTriggerRef.current;
+    focusTarget?.focus();
+    uploadMenuFocusRef.current = null;
+  }, []);
+
+  const handleUploadAnchorChange = useCallback((anchor: HTMLElement | null) => {
+    uploadTriggerRef.current = anchor;
+  }, []);
+
+  const selectUploadChoice = useCallback(
+    (folder: boolean) => {
+      if (!uploadMenu) return;
+      const { paneId, destination } = uploadMenu;
+      closeUploadMenu();
+      const pane = getPaneForId(paneId);
+      const current = pane.currentLocation;
+      if (current.kind !== "physical" || current.connectionId !== destination.connectionId || current.path !== destination.path) {
+        setTransferNotice(t("fileBrowser.transfers.uploadDestinationChanged"));
+        return;
+      }
+      handleUploadRequest(paneId, folder);
+    },
+    [closeUploadMenu, getPaneForId, handleUploadRequest, t, uploadMenu]
+  );
+
+  const handlePaneFileDrop = useCallback(
+    (paneId: PaneId, event: React.DragEvent<HTMLElement>) => {
+      const pane = getPaneForId(paneId);
+      const destination = pane.currentLocation;
+      const availability = getFileListShortcutAvailability("upload", getOperationPolicyContext(paneId));
+      if (destination.kind !== "physical" || uploadAbortRef.current || !availability.available) {
+        setTransferNotice(t("fileBrowser.transfers.dropUnavailable"));
+        return;
+      }
+      try {
+        const entries = captureDropEntries(event.dataTransfer.items);
+        startBrowserUpload(paneId, destination, (signal) => manifestFromDrop(entries, signal));
+      } catch (error) {
+        setTransferNotice(error instanceof Error ? error.message : t("fileBrowser.transfers.dropUnsupported"));
+      }
+    },
+    [getFileListShortcutAvailability, getOperationPolicyContext, getPaneForId, startBrowserUpload, t]
   );
 
   const buildFileOperationActions = useCallback(
@@ -3143,7 +3420,7 @@ const Browser: React.FC = () => {
                 : invocation
             );
           },
-          upload: () => handleUploadRequest(createInvocation().paneId),
+          upload: () => openUploadMenu(createInvocation().paneId),
           refresh: () => getPaneForId(createInvocation().paneId).handleRefresh(),
         },
       });
@@ -3160,10 +3437,23 @@ const Browser: React.FC = () => {
       handleCreateArchiveRequest,
       handleMoveToOtherPane,
       handleDownloadRequest,
-      handleUploadRequest,
+      openUploadMenu,
       isDualMode,
       t,
     ]
+  );
+  const buildCompactCreateActions = useCallback(
+    (context: FileOperationPolicyContext): readonly FileOperationAction[] =>
+      buildFileOperationActions("compact-create-menu", context).flatMap((action) => {
+        if (action.id !== "upload") return [action];
+        const files = { ...action, label: t("fileBrowser.toolbar.uploadFiles"), onClick: () => handleUploadRequest(context.paneId) };
+        if (!("webkitdirectory" in document.createElement("input"))) return [files];
+        return [
+          files,
+          { ...action, label: t("fileBrowser.toolbar.uploadFolder"), onClick: () => handleUploadRequest(context.paneId, true) },
+        ];
+      }),
+    [buildFileOperationActions, handleUploadRequest, t]
   );
   const buildCompactItemActions = useCallback(
     (context: FileOperationPolicyContext): readonly CompactItemAction[] => {
@@ -3509,7 +3799,7 @@ const Browser: React.FC = () => {
       },
       {
         ...BROWSER_SHORTCUTS.UPLOAD,
-        handler: () => handleUploadRequest(effectiveActivePaneId),
+        handler: () => openUploadMenu(effectiveActivePaneId),
         enabled: browsing && noDialogOrCopyMove && uploadAvailability.available,
         onUnavailable: (event) => handleUnavailableShortcut("upload", event),
       },
@@ -3675,7 +3965,7 @@ const Browser: React.FC = () => {
     getOperationPolicyContext,
     handleUnavailableShortcut,
     handleDownloadRequest,
-    handleUploadRequest,
+    openUploadMenu,
     handleOpenSettings,
     handleOpenConnectionSelector,
     settingsOpen,
@@ -3859,13 +4149,40 @@ const Browser: React.FC = () => {
 
   // Force single-pane on mobile
   const effectivePaneMode: PaneMode = useCompactLayout ? "single" : paneMode;
+  const getPaneDropUnavailableReason = (paneId: PaneId): string | null => {
+    const availability = getFileListShortcutAvailability("upload", getOperationPolicyContext(paneId));
+    if (uploadAbortRef.current || availability.reason === "interaction-blocked") return t("fileBrowser.transfers.dropBusy");
+    if (availability.reason === "companion-unavailable") return t("fileBrowser.unavailableShortcuts.companionUnavailable");
+    if (!availability.available) return t("fileBrowser.transfers.dropUnavailable");
+    if (typeof DataTransferItem === "undefined" || !("webkitGetAsEntry" in DataTransferItem.prototype)) {
+      return t("fileBrowser.transfers.dropUnsupported");
+    }
+    return null;
+  };
 
   // ──────────────────────────────────────────────────────────────────────────
   // Component Render
   // ──────────────────────────────────────────────────────────────────────────
 
   return (
-    <Box sx={getMobileViewportShellSx(useCompactLayout)} onKeyDown={handleBrowserKeyDown}>
+    <Box
+      sx={getMobileViewportShellSx(useCompactLayout)}
+      onKeyDown={handleBrowserKeyDown}
+      onDragOverCapture={(event) => {
+        if (
+          Array.from(event.dataTransfer.types).includes("Files") &&
+          !(event.target instanceof Element && event.target.closest("input, textarea, [contenteditable=true]"))
+        )
+          event.preventDefault();
+      }}
+      onDropCapture={(event) => {
+        if (
+          Array.from(event.dataTransfer.types).includes("Files") &&
+          !(event.target instanceof Element && event.target.closest("input, textarea, [contenteditable=true]"))
+        )
+          event.preventDefault();
+      }}
+    >
       {/* Hamburger Menu - Mobile Only */}
       <HamburgerMenu
         open={drawerOpen}
@@ -3989,6 +4306,16 @@ const Browser: React.FC = () => {
               <FileBrowserPane
                 pane={leftPane}
                 paneId="left"
+                dropTargetLabel={
+                  leftPane.currentLocation.kind === "physical"
+                    ? formatConnectionPath(
+                        getConnectionById(allConnections, leftPane.currentLocation.connectionId)?.name ?? "",
+                        leftPane.currentLocation.path
+                      )
+                    : undefined
+                }
+                dropUnavailableReason={getPaneDropUnavailableReason("left")}
+                onFileDrop={(event) => handlePaneFileDrop("left", event)}
                 isActive={effectiveActivePaneId === "left"}
                 paneMode={effectivePaneMode}
                 connections={allConnections}
@@ -4012,7 +4339,7 @@ const Browser: React.FC = () => {
                 onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
                 showKeyboardHints={showQuickBarKeyboardHints}
                 modeOptions={quickBarModeOptions}
-                getCompactCreateActions={(context) => buildFileOperationActions("compact-create-menu", context)}
+                getCompactCreateActions={buildCompactCreateActions}
                 getCompactItemActions={buildCompactItemActions}
                 getCompactSelectionActions={(context) => buildFileOperationActions("compact-selection-menu", context)}
               />
@@ -4024,6 +4351,16 @@ const Browser: React.FC = () => {
                   <FileBrowserPane
                     pane={rightPane}
                     paneId="right"
+                    dropTargetLabel={
+                      rightPane.currentLocation.kind === "physical"
+                        ? formatConnectionPath(
+                            getConnectionById(allConnections, rightPane.currentLocation.connectionId)?.name ?? "",
+                            rightPane.currentLocation.path
+                          )
+                        : undefined
+                    }
+                    dropUnavailableReason={getPaneDropUnavailableReason("right")}
+                    onFileDrop={(event) => handlePaneFileDrop("right", event)}
                     isActive={effectiveActivePaneId === "right"}
                     paneMode={effectivePaneMode}
                     connections={allConnections}
@@ -4047,14 +4384,20 @@ const Browser: React.FC = () => {
                     onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
                     showKeyboardHints={showQuickBarKeyboardHints}
                     modeOptions={quickBarModeOptions}
-                    getCompactCreateActions={(context) => buildFileOperationActions("compact-create-menu", context)}
+                    getCompactCreateActions={buildCompactCreateActions}
                     getCompactItemActions={buildCompactItemActions}
                     getCompactSelectionActions={(context) => buildFileOperationActions("compact-selection-menu", context)}
                   />
                 </>
               )}
             </Box>
-            {!useCompactLayout && <FileOperationsToolbar actions={fileOperationActions} moreLabel={t("fileBrowser.toolbar.more")} />}
+            {!useCompactLayout && (
+              <FileOperationsToolbar
+                actions={fileOperationActions}
+                moreLabel={t("fileBrowser.toolbar.more")}
+                onUploadTriggerChange={handleUploadAnchorChange}
+              />
+            )}
             {!useCompactLayout && (
               <Box sx={{ display: "flex", minHeight: 0 }}>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -4275,13 +4618,14 @@ const Browser: React.FC = () => {
       <OverwriteResolutionDialog
         open={conflictDialogOpen}
         conflict={conflictInfo}
-        operation={uploadProgress ? "copy" : copyMoveMode}
-        allowedActions={uploadProgress ? ["skip", "overwrite", "rename"] : getCopyMoveConflictActions(conflictInfo)}
+        operation={uploadConflict ? "upload" : copyMoveMode}
+        uploadKind={uploadConflict?.kind}
+        allowedActions={uploadConflict ? uploadConflict.actions : getCopyMoveConflictActions(conflictInfo)}
         canApplyToAll={treeConflictAllowsApplyToAll ? () => true : undefined}
         progress={conflictProgress}
         sourcePath={
-          uploadProgress
-            ? uploadProgress.name
+          uploadConflict
+            ? uploadConflict.path
             : conflictInfo && copyMoveItems[0]
               ? getLocationDisplayName(
                   { kind: "physical", connectionId: copyMoveItems[0].handle.location.connectionId, path: conflictInfo.incoming_file.path },
@@ -4290,11 +4634,11 @@ const Browser: React.FC = () => {
               : undefined
         }
         targetDirectoryPath={
-          conflictInfo && (uploadProgress || copyMoveDestination)
+          conflictInfo && (uploadConflict || copyMoveDestination)
             ? getLocationDisplayName(
                 {
                   kind: "physical",
-                  connectionId: uploadProgress ? uploadProgress.connectionId : copyMoveDestination!.connectionId,
+                  connectionId: uploadConflict ? uploadConflict.connectionId : copyMoveDestination!.connectionId,
                   path: parentPath(conflictInfo.existing_file.path),
                 },
                 (connectionId) => getConnectionById(allConnections, connectionId)?.name ?? connectionId
@@ -4304,10 +4648,22 @@ const Browser: React.FC = () => {
         onResolve={handleConflictResolve}
         onCancel={handleConflictCancel}
       />
+      <Menu anchorEl={uploadMenu?.anchor} open={Boolean(uploadMenu)} onClose={closeUploadMenu} autoFocus>
+        <MenuItem onClick={() => selectUploadChoice(false)}>{t("fileBrowser.toolbar.uploadChoiceFiles")}</MenuItem>
+        <MenuItem onClick={() => selectUploadChoice(true)}>{t("fileBrowser.toolbar.uploadChoiceFolder")}</MenuItem>
+      </Menu>
       <Snackbar
-        key={uploadProgress ? "upload-progress" : preparingDownload ? "download-progress" : transferNotice}
-        open={Boolean(uploadProgress || preparingDownload || transferNotice)}
-        autoHideDuration={uploadProgress || preparingDownload ? null : TRANSFER_NOTICE_AUTOHIDE_MS}
+        key={
+          uploadProgress
+            ? "upload-progress"
+            : uploadPreparing
+              ? "upload-preparing"
+              : preparingDownload
+                ? "download-progress"
+                : transferNotice
+        }
+        open={Boolean(uploadProgress || uploadPreparing || preparingDownload || transferNotice)}
+        autoHideDuration={uploadProgress || uploadPreparing || preparingDownload ? null : TRANSFER_NOTICE_AUTOHIDE_MS}
         message={
           uploadProgress
             ? t("fileBrowser.transfers.uploadProgress", {
@@ -4315,12 +4671,14 @@ const Browser: React.FC = () => {
                 bytes: formatFileSize(uploadProgress.bytes),
                 size: formatFileSize(uploadProgress.size),
               })
-            : preparingDownload
-              ? t("fileBrowser.transfers.preparingDownload")
-              : transferNotice
+            : uploadPreparing
+              ? t("fileBrowser.transfers.preparingUpload")
+              : preparingDownload
+                ? t("fileBrowser.transfers.preparingDownload")
+                : transferNotice
         }
         action={
-          uploadProgress || preparingDownload ? (
+          uploadProgress || uploadPreparing || preparingDownload ? (
             <Button
               color="inherit"
               onClick={() => {
@@ -4335,7 +4693,7 @@ const Browser: React.FC = () => {
           ) : undefined
         }
         onClose={() => {
-          if (!uploadProgress && !preparingDownload) setTransferNotice("");
+          if (!uploadProgress && !uploadPreparing && !preparingDownload) setTransferNotice("");
         }}
       />
     </Box>

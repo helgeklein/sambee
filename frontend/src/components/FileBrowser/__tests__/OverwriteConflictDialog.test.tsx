@@ -60,6 +60,27 @@ describe("OverwriteConflictDialog", () => {
     expect(screen.getByTestId("responsive-form-dialog-desktop-actions")).toBeInTheDocument();
   });
 
+  it("shows upload-specific actions and folder metadata for a directory/file conflict", () => {
+    render(
+      <OverwriteConflictDialog
+        {...defaultProps}
+        operation="upload"
+        uploadKind="directory"
+        allowedActions={["skip", "rename"]}
+        conflict={{
+          incoming_file: { ...conflict.incoming_file, name: "Reports", type: FileType.DIRECTORY },
+          existing_file: conflict.existing_file,
+        }}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Cancel upload" })).toBeInTheDocument();
+    expect(screen.getByText(S.FOLDER_CONFLICT)).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: S.BUTTON_OVERWRITE })).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("overwrite-conflict-source-details")).queryByText(S.LABEL_SIZE)).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("overwrite-conflict-target-details")).getByText(S.LABEL_SIZE)).toBeInTheDocument();
+  });
+
   it("shows owner-supplied connection-qualified source and target paths", () => {
     render(
       <OverwriteConflictDialog

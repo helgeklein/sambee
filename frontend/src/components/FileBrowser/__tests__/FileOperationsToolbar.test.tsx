@@ -151,6 +151,43 @@ describe("FileOperationsToolbar", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "More" })).toBeInTheDocument());
   });
 
+  it("keeps a mounted upload anchor after its overflow action closes", async () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          callback([{ contentRect: { width: 80 } } as ResizeObserverEntry], this as unknown as ResizeObserver);
+        }
+        observe() {}
+        disconnect() {}
+      }
+    );
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
+      if (this.dataset.operationId) return { width: 100 } as DOMRect;
+      if (this.hasAttribute("data-more-button")) return { width: 60 } as DOMRect;
+      if (this.dataset.testid === "file-operations-toolbar") return { width: 80 } as DOMRect;
+      return { width: 0 } as DOMRect;
+    });
+    const onUploadTriggerChange = vi.fn();
+    const onClick = vi.fn();
+    render(
+      <SambeeThemeProvider>
+        <FileOperationsToolbar
+          actions={[createAction("upload", { label: "Upload", onClick })]}
+          moreLabel="More"
+          onUploadTriggerChange={onUploadTriggerChange}
+        />
+      </SambeeThemeProvider>
+    );
+
+    const more = await screen.findByRole("button", { name: "More" });
+    fireEvent.click(more);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Upload" }));
+    expect(onClick).toHaveBeenCalledOnce();
+    expect(onUploadTriggerChange).toHaveBeenCalledWith(more);
+    expect(more.isConnected).toBe(true);
+  });
+
   it("keeps a disabled command in More without delegating its click", async () => {
     const observers: ResizeObserverCallback[] = [];
     vi.stubGlobal(

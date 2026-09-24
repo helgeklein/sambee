@@ -31,7 +31,7 @@ export function CompactCreateMenu({ actions }: CompactCreateMenuProps) {
       </Tooltip>
       <Menu anchorEl={anchorElement} open={Boolean(anchorElement)} onClose={() => setAnchorElement(null)}>
         {actions.map((action) => (
-          <Tooltip key={action.id} title={action.tooltip} placement="left">
+          <Tooltip key={`${action.id}-${action.label}`} title={action.tooltip} placement="left">
             <span>
               <MenuItem
                 disabled={!action.enabled}

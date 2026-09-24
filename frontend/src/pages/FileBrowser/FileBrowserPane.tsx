@@ -14,8 +14,10 @@
  * @see FileBrowser — the parent page-level orchestrator
  */
 
-import { alpha, Box, Chip, CircularProgress, useTheme } from "@mui/material";
-import React, { useMemo } from "react";
+import BlockOutlinedIcon from "@mui/icons-material/BlockOutlined";
+import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
+import { alpha, Box, Chip, CircularProgress, Typography, useTheme } from "@mui/material";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { BreadcrumbsNavigation } from "../../components/FileBrowser/BreadcrumbsNavigation";
 import { BrowserViewerPicker } from "../../components/FileBrowser/BrowserViewerPicker";
@@ -108,6 +110,9 @@ export interface FileBrowserPaneProps {
   getCompactItemActions?: (context: FileOperationPolicyContext) => readonly CompactItemAction[];
   /** Builds bulk actions for an immutable selection context. */
   getCompactSelectionActions?: (context: FileOperationPolicyContext) => readonly FileOperationAction[];
+  dropTargetLabel?: string;
+  dropUnavailableReason?: string | null;
+  onFileDrop?: (event: React.DragEvent<HTMLElement>) => void;
 }
 
 // ============================================================================
@@ -139,10 +144,39 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   getCompactCreateActions,
   getCompactItemActions,
   getCompactSelectionActions,
+  dropTargetLabel,
+  dropUnavailableReason,
+  onFileDrop,
 }) => {
   const theme = useTheme();
   const { t } = useTranslation();
   const isDualMode = paneMode === "dual";
+  const [fileDragActive, setFileDragActive] = useState(false);
+  const dragDepthRef = useRef(0);
+  const dragLocationRef = useRef("");
+
+  useEffect(() => {
+    const clearDrag = () => {
+      dragDepthRef.current = 0;
+      setFileDragActive(false);
+    };
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") clearDrag();
+    };
+    const onWindowLeave = (event: DragEvent) => {
+      if (!event.relatedTarget) clearDrag();
+    };
+    window.addEventListener("dragend", clearDrag);
+    window.addEventListener("drop", clearDrag);
+    window.addEventListener("dragleave", onWindowLeave);
+    window.addEventListener("keydown", onEscape);
+    return () => {
+      window.removeEventListener("dragend", clearDrag);
+      window.removeEventListener("drop", clearDrag);
+      window.removeEventListener("dragleave", onWindowLeave);
+      window.removeEventListener("keydown", onEscape);
+    };
+  }, []);
 
   /** Only show the selection highlight on the focused row when this pane is active. */
   const showSelectionHighlight = !isDualMode || isActive;
@@ -193,6 +227,13 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     closeBrowserViewerPicker,
     confirmBrowserViewerPicker,
   } = pane;
+  useEffect(() => {
+    const location = `${connectionId}:${currentPath}`;
+    if (dragLocationRef.current === location) return;
+    dragLocationRef.current = location;
+    dragDepthRef.current = 0;
+    setFileDragActive(false);
+  }, [connectionId, currentPath]);
 
   const currentConnection = useMemo(() => connections.find((connection) => connection.id === connectionId), [connections, connectionId]);
   const [unsavedDraftPaths, setUnsavedDraftPaths] = React.useState<Set<string>>(new Set());
@@ -527,6 +568,30 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         </Box>
       ) : (
         <Box
+          onDragEnter={(event) => {
+            if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+            event.preventDefault();
+            dragDepthRef.current++;
+            setFileDragActive(true);
+          }}
+          onDragOver={(event) => {
+            if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = dropUnavailableReason ? "none" : "copy";
+          }}
+          onDragLeave={(event) => {
+            if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+            dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+            if (dragDepthRef.current === 0 || !event.relatedTarget) setFileDragActive(false);
+          }}
+          onDrop={(event) => {
+            if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+            event.preventDefault();
+            event.stopPropagation();
+            dragDepthRef.current = 0;
+            setFileDragActive(false);
+            onFileDrop?.(event);
+          }}
           sx={{
             display: "flex",
             gap: 2,
@@ -534,8 +599,57 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
             minHeight: 0,
             mb: 0,
             flexDirection: "column",
+            position: "relative",
+            outline: fileDragActive && !dropUnavailableReason ? `2px solid ${theme.palette.primary.main}` : undefined,
+            outlineOffset: -2,
           }}
         >
+          {fileDragActive && (
+            <Box
+              role="status"
+              aria-label={dropUnavailableReason ?? [t("fileBrowser.transfers.dropToUpload"), dropTargetLabel].filter(Boolean).join(" ")}
+              sx={{
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                zIndex: 2,
+                pointerEvents: "none",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 1,
+                width: "min(280px, calc(100% - 32px))",
+                minHeight: 116,
+                px: 2,
+                py: 2,
+                borderRadius: 1,
+                bgcolor: dropUnavailableReason
+                  ? theme.palette.background.paper
+                  : theme.palette.mode === "dark"
+                    ? theme.palette.grey[800]
+                    : theme.palette.text.primary,
+                color: dropUnavailableReason
+                  ? theme.palette.text.primary
+                  : theme.palette.mode === "dark"
+                    ? theme.palette.text.primary
+                    : theme.palette.background.paper,
+                boxShadow: theme.shadows[8],
+                border: dropUnavailableReason ? `1px solid ${theme.palette.divider}` : undefined,
+                textAlign: "center",
+              }}
+            >
+              {dropUnavailableReason ? (
+                <BlockOutlinedIcon aria-hidden="true" sx={{ fontSize: 32, color: "text.secondary" }} />
+              ) : (
+                <CloudUploadOutlinedIcon aria-hidden="true" sx={{ fontSize: 32, color: "primary.main" }} />
+              )}
+              <Typography sx={{ fontSize: "1rem", fontWeight: 600, lineHeight: 1.35 }}>
+                {dropUnavailableReason ?? t("fileBrowser.transfers.dropToUpload")}
+              </Typography>
+            </Box>
+          )}
           <FileList
             files={sortedFiles}
             showEmptyState={error === null}
