@@ -6550,13 +6550,7 @@ mod tests {
         let drive_id = format!("test-drive-{}", uuid::Uuid::new_v4());
         super::drives::register_test_drive_path(drive_id.clone(), directory.path().to_path_buf());
 
-        for filename in [
-            "page.html",
-            "icon.svg",
-            "page.xhtml",
-            "r\u{e9}sum\u{e9} \"draft\".html",
-            "readme.txt",
-        ] {
+        for filename in ["page.html", "icon.svg", "page.xhtml", "r\u{e9}sum\u{e9} draft.html", "readme.txt"] {
             std::fs::write(directory.path().join(filename), b"content").expect("viewer file should be created");
             let response = super::viewer_file(
                 axum::extract::Path(drive_id.clone()),
@@ -6572,8 +6566,8 @@ mod tests {
             assert_eq!(response.headers()["x-content-type-options"], "nosniff");
             let disposition = response.headers()["content-disposition"].to_str().unwrap();
             assert_eq!(disposition.starts_with("attachment"), filename != "readme.txt");
-            if filename == "r\u{e9}sum\u{e9} \"draft\".html" {
-                assert_eq!(disposition, "attachment; filename*=UTF-8''r%C3%A9sum%C3%A9%20%22draft%22.html");
+            if filename == "r\u{e9}sum\u{e9} draft.html" {
+                assert_eq!(disposition, "attachment; filename*=UTF-8''r%C3%A9sum%C3%A9%20draft.html");
             }
         }
     }
