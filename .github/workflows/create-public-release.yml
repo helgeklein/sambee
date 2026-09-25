@@ -68,7 +68,7 @@ jobs:
         run: |
           release_json="$(gh release view "$RELEASE_TAG" --json isDraft,isPrerelease 2>/dev/null || true)"
           if [[ -z "$release_json" ]]; then
-            gh release create "$RELEASE_TAG" --draft --title "Sambee v$VERSION" --generate-notes
+            gh release create "$RELEASE_TAG" --draft --title "v${VERSION%.*}" --notes ""
           elif [[ "$(jq -r '.isDraft' <<<"$release_json")" != "true" ]]; then
             echo "Public release $RELEASE_TAG is already published and cannot be modified." >&2
             exit 1
