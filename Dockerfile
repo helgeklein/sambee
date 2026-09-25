@@ -21,7 +21,7 @@ FROM runtime-base AS devcontainer
 # Keep this major aligned with the frontend builder and every setup-node CI job.
 # Node major upgrades are coordinated manually; Dependabot maintains Docker's
 # pinned builder image within the supported major line.
-ARG HUGO_VERSION=0.160.0
+ARG HUGO_VERSION=0.166.0
 ARG NODE_MAJOR=24
 ARG RUST_TOOLCHAIN=stable
 
@@ -69,7 +69,7 @@ RUN arch="$(dpkg --print-architecture)" \
         *) echo "Unsupported architecture for Hugo: $arch" >&2; exit 1 ;; \
     esac \
     && curl -fsSL \
-        "https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_extended_${HUGO_VERSION}_${hugo_arch}.tar.gz" \
+        "https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_${HUGO_VERSION}_${hugo_arch}.tar.gz" \
         -o /tmp/hugo.tar.gz \
     && tar -xzf /tmp/hugo.tar.gz -C /tmp hugo \
     && install -m 0755 /tmp/hugo /usr/local/bin/hugo \

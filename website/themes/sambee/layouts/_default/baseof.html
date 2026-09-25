@@ -23,7 +23,7 @@
   {{- $pagefindKind = "docs" -}}
 {{- end -}}
 <!DOCTYPE html>
-<html lang="{{ site.LanguageCode | default `en-US` }}" class="{{ $initialTheme }}">
+<html lang="{{ site.Language.Locale | default `en-US` }}" class="{{ $initialTheme }}">
 <head>
   {{ if site.Params.theme_switcher }}
   <script>

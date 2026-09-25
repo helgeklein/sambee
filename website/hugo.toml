@@ -20,8 +20,11 @@ section = ["HTML"]
 page = ["HTML"]
 
 [imaging]
-quality = 80
 resampleFilter = "Lanczos"
+
+[security]
+  [security.exec]
+    allow = ['^(dart-)?sass$', '^go$', '^git$', '^node$', '^postcss$', '^tailwindcss$']
 
 [caches]
   [caches.images]
