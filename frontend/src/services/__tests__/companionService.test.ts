@@ -4,6 +4,26 @@ import {
   COMPANION_PAIR_CONFIRMATION_PENDING_DETAIL,
   default as companionService,
 } from "../companion";
+import { companionSession } from "../companionSession";
+
+describe("companion request signatures", () => {
+  it("binds method and URL while normalizing query order", async () => {
+    localStorage.setItem("companion_secret", "shared-secret");
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const first = await companionSession.getSigningHeaders("GET", "http://localhost:21549/api/viewer/root/file?z=2&A=1");
+      const reordered = await companionSession.getSigningHeaders("GET", "http://localhost:21549/api/viewer/root/file?A=1&z=2");
+      const differentPath = await companionSession.getSigningHeaders("GET", "http://localhost:21549/api/viewer/root/download?A=1&z=2");
+      const differentMethod = await companionSession.getSigningHeaders("DELETE", "http://localhost:21549/api/viewer/root/file?A=1&z=2");
+      expect(first["X-Companion-Secret"]).toBe("2213e964861fc8d4db9ae41c96188ce038ed113c0d064d8d6c96c5314c033d33");
+      expect(first["X-Companion-Secret"]).toBe(reordered["X-Companion-Secret"]);
+      expect(first["X-Companion-Secret"]).not.toBe(differentPath["X-Companion-Secret"]);
+      expect(first["X-Companion-Secret"]).not.toBe(differentMethod["X-Companion-Secret"]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+});
 
 const { mockAxiosInstance } = vi.hoisted(() => ({
   mockAxiosInstance: {

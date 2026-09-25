@@ -132,6 +132,33 @@ class TestInjectionAttacks:
 class TestAuthenticationBypass:
     """Test authentication bypass attempts"""
 
+    def test_only_admins_can_read_mobile_logs(
+        self, client: TestClient, auth_headers_viewer: dict, auth_headers_user: dict, auth_headers_admin: dict
+    ) -> None:
+        for headers in (auth_headers_viewer, auth_headers_user):
+            assert client.get("/api/logs/list", headers=headers).status_code == 403
+            assert client.get("/api/logs/download/nonexistent.jsonl", headers=headers).status_code == 403
+        assert client.get("/api/logs/list", headers=auth_headers_admin).status_code == 200
+
+    def test_oversized_mobile_log_is_rejected_before_parsing(self, client: TestClient) -> None:
+        from app.middleware.authentication import MOBILE_LOG_BODY_LIMIT_BYTES
+
+        response = client.post("/api/logs/mobile", content=b"x" * (MOBILE_LOG_BODY_LIMIT_BYTES + 1))
+        assert response.status_code == 413
+
+    def test_mobile_log_retention_prunes_oldest_at_storage_limit(self, tmp_path) -> None:
+        from app.services.log_manager import MobileLogManager
+
+        manager = MobileLogManager(tmp_path)
+        oldest = tmp_path / "mobile_logs_1.jsonl"
+        newest = tmp_path / "mobile_logs_2.jsonl"
+        oldest.write_bytes(b"old!")
+        newest.write_bytes(b"new!")
+
+        assert manager.cleanup_old_logs(max_bytes=4) == 1
+        assert not oldest.exists()
+        assert newest.exists()
+
     def test_no_token_access(self, client: TestClient):
         """Test accessing protected endpoints without token"""
         protected_endpoints = [

@@ -1365,7 +1365,6 @@ describe("API Service", () => {
 
       expect(result).toEqual(resolution);
       expect(mockAxiosInstance.get).toHaveBeenCalledWith("/browse/c/resolve-activation", {
-        headers: expect.any(Object),
         params: { path: "Links/report.lnk" },
       });
     });
@@ -1387,7 +1386,6 @@ describe("API Service", () => {
 
       expect(result).toEqual(listing);
       expect(mockAxiosInstance.get).toHaveBeenCalledWith("/browse/c/link-targets", {
-        headers: expect.any(Object),
         params: { path: "Links" },
         timeout: 15_000,
       });
@@ -1409,7 +1407,7 @@ describe("API Service", () => {
       expect(mockAxiosInstance.post).toHaveBeenCalledWith(
         "/browse/c/archive/v2/executions",
         { contract_version: "v2", kind: "create", source_paths: ["Documents/report.txt"], target_path: "Archives/backup.zip" },
-        { headers: expect.any(Object) }
+        {}
       );
     });
 
@@ -1442,16 +1440,8 @@ describe("API Service", () => {
       });
 
       expect(mockAxiosInstance.post.mock.calls.slice(-2)).toEqual([
-        [
-          "/browse/c/archive/v2/executions/create-1/cancellation",
-          { contract_version: "v2", expected_revision: 1 },
-          { headers: expect.any(Object) },
-        ],
-        [
-          "/browse/c/archive/v2/executions/create-1/cancellation",
-          { contract_version: "v2", expected_revision: 2 },
-          { headers: expect.any(Object) },
-        ],
+        ["/browse/c/archive/v2/executions/create-1/cancellation", { contract_version: "v2", expected_revision: 1 }, {}],
+        ["/browse/c/archive/v2/executions/create-1/cancellation", { contract_version: "v2", expected_revision: 2 }, {}],
       ]);
     });
   });
@@ -1721,7 +1711,7 @@ describe("API Service", () => {
       expect(result).toEqual({ locked: true, locked_by: "alice" });
       expect(mockAxiosInstance.get).toHaveBeenCalledWith(
         "/browse/c/lock-status",
-        expect.objectContaining({ params: { path: "/docs/readme.md" }, headers: expect.any(Object) })
+        expect.objectContaining({ params: { path: "/docs/readme.md" } })
       );
     });
 
@@ -1745,7 +1735,7 @@ describe("API Service", () => {
       expect(mockAxiosInstance.post).toHaveBeenCalledWith(
         "/browse/c/lock",
         undefined,
-        expect.objectContaining({ params: { path: "/docs/readme.md" }, headers: expect.any(Object) })
+        expect.objectContaining({ params: { path: "/docs/readme.md" } })
       );
       expect(mockAxiosInstance.post).toHaveBeenCalledWith(
         "/browse/c/lock/heartbeat",
@@ -1754,7 +1744,7 @@ describe("API Service", () => {
           lock_id: "lock-1",
           lock_capability: "cap-1",
         },
-        expect.objectContaining({ params: { path: "/docs/readme.md" }, headers: expect.any(Object) })
+        expect.objectContaining({ params: { path: "/docs/readme.md" } })
       );
       expect(mockAxiosInstance.delete).toHaveBeenCalledWith(
         "/browse/c/lock",
@@ -1765,7 +1755,6 @@ describe("API Service", () => {
             lock_id: "lock-1",
             lock_capability: "cap-1",
           },
-          headers: expect.any(Object),
         })
       );
     });

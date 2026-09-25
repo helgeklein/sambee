@@ -482,6 +482,21 @@ class TestViewerFile:
                 "%E2%80%94%20App%20Dev%20Best%20Practices.pdf"
             )
 
+    @pytest.mark.parametrize("mime_type,filename", [("text/html", "unsafe.html"), ("image/svg+xml", "unsafe.svg")])
+    def test_active_document_is_downloaded(self, client, auth_headers_user, test_connection, mime_type, filename):
+        active_file = FileInfo(name=filename, path=f"/{filename}", type=FileType.FILE, size=4, mime_type=mime_type)
+        with patch("app.api.viewer.SMBBackend") as mock:
+            backend_instance = AsyncMock()
+            backend_instance.get_file_info.return_value = active_file
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([b"test"])
+            mock.return_value = backend_instance
+
+            response = client.get(f"/api/viewer/{test_connection.id}/file", headers=auth_headers_user, params={"path": active_file.path})
+
+        assert response.status_code == 200
+        assert response.headers["content-disposition"].startswith("attachment;")
+        assert response.headers["x-content-type-options"] == "nosniff"
+
     def test_content_disposition_encodes_unicode_and_control_characters(self):
         """Filename encoding must stay ASCII-only and prevent header injection."""
         from app.utils.content_disposition import build_content_disposition

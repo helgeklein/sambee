@@ -40,6 +40,13 @@ ArchiveCreationRunner = Callable[
     Awaitable[ArchiveCreationResult],
 ]
 _CREATION_MEMBER_OUTCOME_STATUSES = frozenset({"directory", "created"})
+_ACTIVE_DOCUMENT_EXTENSION_MIME_TYPES = {
+    ".htm": "text/html",
+    ".html": "text/html",
+    ".svg": "image/svg+xml",
+    ".xht": "application/xhtml+xml",
+    ".xhtml": "application/xhtml+xml",
+}
 
 
 def _validate_archive_member_hierarchy(
@@ -149,6 +156,10 @@ class ArchiveMemberReadPresentation:
 
     def project_member(self, member: ArchiveInspectionManifestMember) -> ArchiveMemberReadProjection:
         member_name = member.path.rsplit("/", 1)[-1]
+        extension = "." + member_name.rsplit(".", 1)[-1].lower()
+        content_type = (
+            _ACTIVE_DOCUMENT_EXTENSION_MIME_TYPES.get(extension) or mimetypes.guess_type(member_name)[0] or "application/octet-stream"
+        )
         preview_requested = not self.download and self.view_kind != "raw"
         if preview_requested and not member.is_inline_preview_eligible():
             delivery: Literal["raw", "image", "normalized_pdf", "preview_unavailable"] = "preview_unavailable"
@@ -160,7 +171,7 @@ class ArchiveMemberReadPresentation:
             delivery = "raw"
         return ArchiveMemberReadProjection(
             member=member,
-            content_type=mimetypes.guess_type(member_name)[0] or "application/octet-stream",
+            content_type=content_type,
             content_disposition=build_content_disposition("attachment" if self.download else "inline", member_name),
             delivery=delivery,
             viewport_width=self.viewport_width,

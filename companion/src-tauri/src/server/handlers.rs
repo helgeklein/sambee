@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use axum::body::Body;
 use axum::extract::ws::{Message, WebSocket};
-use axum::extract::{Path, Query, State, WebSocketUpgrade};
+use axum::extract::{OriginalUri, Path, Query, State, WebSocketUpgrade};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::Response;
 use axum::Json;
@@ -85,6 +85,25 @@ const ARCHIVE_RELAY_IDEMPOTENCY_HEADER: &str = "Idempotency-Key";
 const ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS: usize = 2;
 const TRANSFER_RECEIPT_TTL: Duration = Duration::from_secs(5 * 60);
 const TRANSFER_COPY_BUFFER_SIZE: usize = 1024 * 1024;
+const ACTIVE_DOCUMENT_MIME_TYPES: &[&str] = &["text/html", "application/xhtml+xml", "image/svg+xml"];
+
+fn is_active_document_mime_type(mime_type: &str) -> bool {
+    ACTIVE_DOCUMENT_MIME_TYPES.contains(&mime_type.split(';').next().unwrap_or_default().trim().to_ascii_lowercase().as_str())
+}
+
+fn active_document_disposition(filename: &str) -> String {
+    let encoded: String = filename
+        .bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || b"!#$&+-.^_`|~".contains(&byte) {
+                (byte as char).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect();
+    format!("attachment; filename*=UTF-8''{encoded}")
+}
 
 struct TransferReceipt {
     expires_at: Instant,
@@ -232,6 +251,7 @@ pub struct WsAuthParams {
 pub async fn ws_upgrade(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
+    OriginalUri(uri): OriginalUri,
     Query(params): Query<WsAuthParams>,
 ) -> Result<Response, ApiError> {
     let hmac_val = params.hmac.ok_or_else(|| ApiError::Forbidden("Missing hmac query param".into()))?;
@@ -246,7 +266,7 @@ pub async fn ws_upgrade(
         path: "/api/ws",
     };
 
-    auth::validate_hmac_public(&state, &origin_val, &hmac_val, &ts_val, &log_context)?;
+    auth::validate_hmac_public(&state, &origin_val, &hmac_val, &ts_val, &uri, &log_context)?;
 
     Ok(ws.on_upgrade(move |socket| handle_ws_connection(socket, state)))
 }
@@ -824,8 +844,7 @@ const FALLBACK_MIME: &str = "application/octet-stream";
 
 /// `GET /api/viewer/{drive}/file` — stream a file for inline viewing.
 ///
-/// Sets `Content-Type` from extension (via `mime_guess`) and
-/// `Content-Disposition: inline` so browsers render the content.
+/// Sets `Content-Type` from extension (via `mime_guess`) and downloads active documents.
 pub async fn viewer_file(Path(drive): Path<String>, Query(query): Query<ViewerQuery>) -> Result<Response<Body>, ApiError> {
     let (full_path, mime_type) = resolve_viewer_path(&drive, &query)?;
 
@@ -834,11 +853,16 @@ pub async fn viewer_file(Path(drive): Path<String>, Query(query): Query<ViewerQu
     let body = Body::from_stream(stream);
 
     let filename = full_path.file_name().unwrap_or_default().to_string_lossy();
-    let disposition = format!("inline; filename=\"{filename}\"");
+    let disposition = if is_active_document_mime_type(&mime_type) {
+        active_document_disposition(&filename)
+    } else {
+        format!("inline; filename=\"{filename}\"")
+    };
 
     Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", &mime_type)
+        .header("X-Content-Type-Options", "nosniff")
         .header(
             "Content-Disposition",
             HeaderValue::from_str(&disposition).unwrap_or_else(|_| HeaderValue::from_static("inline")),
@@ -1086,10 +1110,18 @@ pub async fn viewer_archive_member(Path(drive): Path<String>, Query(query): Quer
 
     Response::builder()
         .status(StatusCode::OK)
-        .header("Content-Type", member.content_type)
+        .header("Content-Type", &member.content_type)
+        .header("X-Content-Type-Options", "nosniff")
         .header(
             "Content-Disposition",
-            HeaderValue::from_str(&member.content_disposition).unwrap_or_else(|_| HeaderValue::from_static("attachment")),
+            if is_active_document_mime_type(&member.content_type) {
+                HeaderValue::from_str(&active_document_disposition(
+                    member.member_path.rsplit('/').next().unwrap_or("download"),
+                ))
+                .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
+            } else {
+                HeaderValue::from_str(&member.content_disposition).unwrap_or_else(|_| HeaderValue::from_static("attachment"))
+            },
         )
         .body(Body::from_stream(ReaderStream::new(reader)))
         .map_err(|error| ApiError::Internal(format!("Failed to build archive member response: {error}")))
@@ -6512,6 +6544,85 @@ async fn rename_noreplace(_source: &FsPath, _destination: &FsPath) -> Result<(),
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn active_viewer_files_are_downloaded() {
+        let directory = tempfile::tempdir().expect("temporary viewer directory should be created");
+        let drive_id = format!("test-drive-{}", uuid::Uuid::new_v4());
+        super::drives::register_test_drive_path(drive_id.clone(), directory.path().to_path_buf());
+
+        for filename in ["page.html", "icon.svg", "page.xhtml", "r\u{e9}sum\u{e9} draft.html", "readme.txt"] {
+            std::fs::write(directory.path().join(filename), b"content").expect("viewer file should be created");
+            let response = super::viewer_file(
+                axum::extract::Path(drive_id.clone()),
+                axum::extract::Query(super::ViewerQuery {
+                    path: Some(filename.to_string()),
+                    viewport_width: None,
+                    viewport_height: None,
+                    no_resizing: None,
+                }),
+            )
+            .await
+            .expect("viewer response should succeed");
+            assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+            let disposition = response.headers()["content-disposition"].to_str().unwrap();
+            assert_eq!(disposition.starts_with("attachment"), filename != "readme.txt");
+            if filename == "r\u{e9}sum\u{e9} draft.html" {
+                assert_eq!(disposition, "attachment; filename*=UTF-8''r%C3%A9sum%C3%A9%20draft.html");
+            }
+        }
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn active_archive_members_are_downloaded() {
+        let _resolver_test_guard = super::INSPECTION_RESOLVER_TEST_LOCK
+            .lock()
+            .expect("inspection resolver test lock should not be poisoned");
+        let directory = tempfile::tempdir().expect("temporary archive directory should be created");
+        let archive_path = directory.path().join("archive.zip");
+        let mut archive = zip::ZipWriter::new(std::fs::File::create(&archive_path).expect("archive should be created"));
+        for filename in [
+            "page.html",
+            "icon.svg",
+            "page.xhtml",
+            "r\u{e9}sum\u{e9} \"draft\".html",
+            "readme.txt",
+        ] {
+            archive
+                .start_file(filename, zip::write::SimpleFileOptions::default())
+                .expect("entry should start");
+            std::io::Write::write_all(&mut archive, b"content").expect("entry should be written");
+        }
+        archive.finish().expect("archive should finish");
+        let drive_id = format!("test-drive-{}", uuid::Uuid::new_v4());
+        super::drives::register_test_drive_path(drive_id.clone(), directory.path().to_path_buf());
+
+        for filename in [
+            "page.html",
+            "icon.svg",
+            "page.xhtml",
+            "r\u{e9}sum\u{e9} \"draft\".html",
+            "readme.txt",
+        ] {
+            let response = super::viewer_archive_member(
+                axum::extract::Path(drive_id.clone()),
+                axum::extract::Query(super::ArchiveMemberQuery {
+                    archive_path: "archive.zip".to_string(),
+                    member_path: filename.to_string(),
+                    download: false,
+                }),
+            )
+            .await
+            .expect("archive member response should succeed");
+            assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+            let disposition = response.headers()["content-disposition"].to_str().unwrap();
+            assert_eq!(disposition.starts_with("attachment"), filename != "readme.txt");
+            if filename == "r\u{e9}sum\u{e9} \"draft\".html" {
+                assert_eq!(disposition, "attachment; filename*=UTF-8''r%C3%A9sum%C3%A9%20%22draft%22.html");
+            }
+        }
+    }
+
     use super::{
         archive_creation_response, archive_execution_response, browse_list_archive, browse_stream_transfer, build_file_info,
         build_pair_status_response, classify_link_target, complete_transfer_receipt, copy_regular_file_exclusively, execute_archive_relay,

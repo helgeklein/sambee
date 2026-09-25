@@ -45,7 +45,7 @@ from app.services.pdf_normalizer import (
 from app.services.preprocessor import PreprocessorFileTooLargeError
 from app.services.system_settings import get_integer_setting_value
 from app.storage.smb import SMBBackend
-from app.utils.content_disposition import build_content_disposition
+from app.utils.content_disposition import build_content_disposition, is_active_document_mime_type
 from app.utils.file_type_registry import needs_processing
 
 router = APIRouter()
@@ -215,7 +215,14 @@ async def stream_archive_member(
         return StreamingResponse(
             stream_member(),
             media_type=inspection_projection.content_type,
-            headers={"Content-Disposition": inspection_projection.content_disposition},
+            headers={
+                "Content-Disposition": (
+                    build_content_disposition("attachment", member_name)
+                    if is_active_document_mime_type(inspection_projection.content_type)
+                    else inspection_projection.content_disposition
+                ),
+                "X-Content-Type-Options": "nosniff",
+            },
         )
     except ArchiveFormatError as exc:
         if reader is not None:
@@ -857,7 +864,12 @@ async def view_file(
         return StreamingResponse(
             create_file_streamer(backend, path),
             media_type=file_info.mime_type,
-            headers={"Content-Disposition": build_content_disposition("inline", file_info.name)},
+            headers={
+                "Content-Disposition": build_content_disposition(
+                    "attachment" if is_active_document_mime_type(file_info.mime_type) else "inline", file_info.name
+                ),
+                "X-Content-Type-Options": "nosniff",
+            },
         )
 
     except HTTPException:

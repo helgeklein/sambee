@@ -200,8 +200,8 @@ class CompanionService {
    * Returns an object with `X-Companion-Secret` (HMAC digest) and
    * `X-Companion-Timestamp` headers.
    */
-  private async buildAuthHeaders(): Promise<Record<string, string>> {
-    return companionSession.getSigningHeaders();
+  private async buildAuthHeaders(method: string, path: string): Promise<Record<string, string>> {
+    return companionSession.getSigningHeaders(method, `${COMPANION_BASE_URL}${path}`);
   }
 
   // ── Health ───────────────────────────────────────────────────────────────
@@ -305,20 +305,20 @@ class CompanionService {
 
   /** Remove the current browser origin from the companion. */
   async unpairCurrentOrigin(): Promise<void> {
-    const headers = await this.buildAuthHeaders();
+    const headers = await this.buildAuthHeaders("DELETE", "/pair/current");
     await this.client.delete("/pair/current", { headers });
   }
 
   /** Validate the current browser's authenticated pairing with the companion. */
   async testPairing(): Promise<PairTestResponse> {
-    const headers = await this.buildAuthHeaders();
+    const headers = await this.buildAuthHeaders("POST", "/pair/test");
     const response = await this.client.post<PairTestResponse>("/pair/test", undefined, { headers });
     return response.data;
   }
 
   /** Synchronize the current browser localization to the companion. */
   async syncLocalization(payload: CompanionLocalizationPayload): Promise<CompanionLocalizationSyncResponse> {
-    const headers = await this.buildAuthHeaders();
+    const headers = await this.buildAuthHeaders("POST", "/localization");
     const response = await this.client.post<CompanionLocalizationSyncResponse>("/localization", payload, { headers });
     return response.data;
   }
@@ -331,7 +331,7 @@ class CompanionService {
    * Requires an active pairing (HMAC auth).
    */
   async getDrives(): Promise<DriveInfo[]> {
-    const headers = await this.buildAuthHeaders();
+    const headers = await this.buildAuthHeaders("GET", "/drives");
     const response = await this.client.get<DriveInfo[]>("/drives", { headers });
     return response.data;
   }
@@ -342,7 +342,7 @@ class CompanionService {
    * List directory contents on a local drive.
    */
   async listDirectory(driveId: string, path = ""): Promise<{ path: string; items: unknown[]; total: number }> {
-    const headers = await this.buildAuthHeaders();
+    const headers = await this.buildAuthHeaders("GET", `/browse/${driveId}/list?${new URLSearchParams({ path })}`);
     const response = await this.client.get(`/browse/${driveId}/list`, {
       headers,
       params: { path },
@@ -354,7 +354,7 @@ class CompanionService {
    * Get file/directory metadata on a local drive.
    */
   async getFileInfo(driveId: string, path = ""): Promise<unknown> {
-    const headers = await this.buildAuthHeaders();
+    const headers = await this.buildAuthHeaders("GET", `/browse/${driveId}/info?${new URLSearchParams({ path })}`);
     const response = await this.client.get(`/browse/${driveId}/info`, {
       headers,
       params: { path },
@@ -369,7 +369,7 @@ class CompanionService {
     targetPath: string,
     signal?: AbortSignal
   ): Promise<CompanionArchiveCreationResult> {
-    const headers = await this.buildAuthHeaders();
+    const headers = await this.buildAuthHeaders("POST", `/browse/${driveId}/archive`);
     const response = await this.client.post<CompanionArchiveCreationResult>(
       `/browse/${driveId}/archive`,
       { source_paths: sourcePaths, target_path: targetPath },
@@ -396,5 +396,5 @@ export async function buildCompanionWsUrl(): Promise<string | null> {
 
   // Derive ws:// URL from the HTTP base URL
   const wsBase = COMPANION_BASE_URL.replace(/^http/, "ws");
-  return `${wsBase}/ws?${await companionSession.getSignedQuery()}`;
+  return `${wsBase}/ws?${await companionSession.getSignedQuery("GET", `${COMPANION_BASE_URL}/ws`)}`;
 }
