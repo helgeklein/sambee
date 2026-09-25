@@ -1,5 +1,5 @@
 +++
-title = "Companion Channels, Feeds, And Downloads"
+title = "Companion Channels, Feeds & Downloads"
 +++
 
 Use this page when you need the system model behind Companion release promotion.
