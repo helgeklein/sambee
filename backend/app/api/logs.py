@@ -8,9 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from app.core.authorization import Capability
 from app.core.config import settings, static
 from app.core.logging import get_logger
-from app.core.security import get_current_user_with_auth_check
+from app.core.security import get_current_user_with_auth_check, require_capability
 from app.models.logs import MobileLogBatch
 from app.models.user import User
 from app.services.log_manager import MobileLogManager
@@ -81,7 +82,7 @@ async def receive_mobile_logs(
 #
 @router.get("/list")
 async def list_log_files(
-    _user: Annotated[User, Depends(get_current_user_with_auth_check)],
+    _user: Annotated[User, Depends(require_capability(Capability.ACCESS_ADMIN_SETTINGS))],
 ) -> dict[str, Any]:
     """
     List available mobile log files
@@ -111,7 +112,7 @@ async def list_log_files(
 @router.get("/download/{filename}")
 async def download_log_file(
     filename: str,
-    _user: Annotated[User, Depends(get_current_user_with_auth_check)],
+    _user: Annotated[User, Depends(require_capability(Capability.ACCESS_ADMIN_SETTINGS))],
 ) -> FileResponse:
     """
     Download a specific mobile log file

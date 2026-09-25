@@ -11,6 +11,7 @@ from app.core.logging import get_logger
 from app.models.logs import MobileLogBatch
 
 logger = get_logger(__name__)
+MAX_MOBILE_LOG_STORAGE_BYTES = 64 * 1024 * 1024
 
 
 #
@@ -74,7 +75,7 @@ class MobileLogManager:
     #
     # cleanup_old_logs
     #
-    def cleanup_old_logs(self, hours: int = 24) -> int:
+    def cleanup_old_logs(self, hours: int = 24, max_bytes: int = MAX_MOBILE_LOG_STORAGE_BYTES) -> int:
         """
         Delete log files older than specified hours
 
@@ -87,10 +88,14 @@ class MobileLogManager:
 
         cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
         deleted_count = 0
+        log_files = sorted(self.log_dir.glob("mobile_logs_*.jsonl"), key=lambda path: (path.stat().st_mtime, path.name))
+        total_bytes = sum(path.stat().st_size for path in log_files)
 
-        for log_file in self.log_dir.glob("mobile_logs_*.jsonl"):
-            if log_file.stat().st_mtime < cutoff_time.timestamp():
+        for log_file in log_files:
+            file_stat = log_file.stat()
+            if file_stat.st_mtime < cutoff_time.timestamp() or total_bytes > max_bytes:
                 log_file.unlink()
+                total_bytes -= file_stat.st_size
                 deleted_count += 1
 
         if deleted_count > 0:

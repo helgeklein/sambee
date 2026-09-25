@@ -170,7 +170,7 @@ def claim_oidc_callback(
             _FLOW_TABLE.c.state_hash == hash_flow_secret(state),
             _FLOW_TABLE.c.expires_at > current_time,
         )
-        .values(status=OidcFlowStatus.CALLBACK_PROCESSING, state_hash=None)
+        .values(status=OidcFlowStatus.CALLBACK_PROCESSING)
         .returning(_FLOW_TABLE.c.id)
     )
     flow_id = session.connection().execute(statement).scalar_one_or_none()
@@ -289,6 +289,7 @@ def consume_login_grant(
     session: Session,
     *,
     grant: str,
+    browser_state: str,
     now: datetime | None = None,
 ) -> ConsumedLoginGrant:
     current_time = now or _now_utc()
@@ -298,6 +299,7 @@ def consume_login_grant(
             _FLOW_TABLE.c.purpose == OidcFlowPurpose.LOGIN,
             _FLOW_TABLE.c.status == OidcFlowStatus.CALLBACK_VALIDATED,
             _FLOW_TABLE.c.grant_hash == hash_flow_secret(grant),
+            _FLOW_TABLE.c.state_hash == hash_flow_secret(browser_state),
             _FLOW_TABLE.c.grant_expires_at > current_time,
         )
         .values(status=OidcFlowStatus.CONSUMED, grant_hash=None)

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import secrets
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
@@ -95,7 +96,13 @@ from app.services.oidc_flow import (
     fail_claimed_callback,
     start_login_flow,
 )
-from app.services.oidc_http import ID_TOKEN_CLOCK_SKEW_SECONDS, OidcHttpError, ValidatedOidcHttpClient
+from app.services.oidc_http import (
+    ID_TOKEN_CLOCK_SKEW_SECONDS,
+    LOGIN_GRANT_LIFETIME_SECONDS,
+    PRE_CALLBACK_FLOW_LIFETIME_SECONDS,
+    OidcHttpError,
+    ValidatedOidcHttpClient,
+)
 from app.services.oidc_identity import OidcIdentityError, OidcIdentityErrorCode, resolve_or_provision_oidc_user
 from app.services.system_settings import build_network_settings_read
 from app.services.user_settings import build_current_user_settings_read, update_current_user_settings
@@ -109,6 +116,7 @@ OIDC_REFRESH_RECENT_COMPLETION_SECONDS = 5
 OIDC_REFRESH_GENERATION_HEADER = "x-sambee-oidc-refresh-generation"
 OIDC_RATE_LIMIT_REDIRECT = "/login#error=oidc_rate_limited"
 OIDC_RENEWABLE_SESSION_SCOPE = "offline_access"
+OIDC_LOGIN_FLOW_COOKIE_NAME = "sambee_oidc_login_flow"
 _OIDC_BROWSER_SESSION_TABLE = SQLModel.metadata.tables["oidcbrowsersession"]
 OIDC_PUBLIC_ERROR_CODES = frozenset(
     {
@@ -490,7 +498,17 @@ async def oidc_authorize(
         session.rollback()
         logger.warning("OIDC authorization start failed: category=%s", type(error).__name__)
         return _oidc_error_redirect(error)
-    return RedirectResponse(authorization.url, status_code=status.HTTP_303_SEE_OTHER)
+    response = RedirectResponse(authorization.url, status_code=status.HTTP_303_SEE_OTHER)
+    response.set_cookie(
+        OIDC_LOGIN_FLOW_COOKIE_NAME,
+        started.state,
+        max_age=PRE_CALLBACK_FLOW_LIFETIME_SECONDS + LOGIN_GRANT_LIFETIME_SECONDS,
+        path="/api/auth/oidc",
+        secure=IS_PRODUCTION,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
 
 
 @router.get("/oidc/callback")
@@ -509,6 +527,10 @@ async def oidc_callback(
         cipher = get_oidc_secret_cipher()
         claimed = claim_oidc_callback(session, state=state_value, cipher=cipher)
         claimed_flow_id = claimed.flow_id
+        if claimed.purpose == OidcFlowPurpose.LOGIN and not secrets.compare_digest(
+            request.cookies.get(OIDC_LOGIN_FLOW_COOKIE_NAME, ""), state_value
+        ):
+            raise ValueError("OIDC login flow did not start in this browser")
         if provider_error is not None or code is None:
             raise ValueError("OIDC provider did not return an authorization code")
         active_configuration = session.get(OidcProviderConfiguration, 1)
@@ -676,7 +698,11 @@ async def oidc_exchange(
         except OidcBrowserSessionError:
             pass
         revoke_expired_pending_browser_sessions(session)
-        consumed = consume_login_grant(session, grant=payload.grant)
+        consumed = consume_login_grant(
+            session,
+            grant=payload.grant,
+            browser_state=request.cookies.get(OIDC_LOGIN_FLOW_COOKIE_NAME, ""),
+        )
         if consumed.oidc_browser_session_id is None or consumed.encrypted_browser_session_secret is None:
             raise OidcFlowError("OIDC login grant is invalid")
         browser_session, secret = activate_pending_browser_session(
@@ -715,6 +741,7 @@ async def oidc_exchange(
         secret=secret,
         expires_at=browser_session_cookie_expiry(browser_session),
     )
+    response.delete_cookie(OIDC_LOGIN_FLOW_COOKIE_NAME, path="/api/auth/oidc", secure=IS_PRODUCTION, httponly=True, samesite="lax")
     return response
 
 

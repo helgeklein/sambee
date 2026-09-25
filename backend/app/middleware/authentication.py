@@ -3,6 +3,8 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 PASSWORD_FORM_BODY_LIMIT_BYTES = 64 * 1024
 PASSWORD_TOKEN_PATH = "/api/auth/token"
+MOBILE_LOG_BODY_LIMIT_BYTES = 256 * 1024
+MOBILE_LOG_PATH = "/api/logs/mobile"
 
 
 class PasswordFormBodyLimitMiddleware:
@@ -12,12 +14,20 @@ class PasswordFormBodyLimitMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or scope["method"] != "POST" or scope["path"] != PASSWORD_TOKEN_PATH:
+        if scope["type"] != "http" or scope["method"] != "POST":
+            await self.app(scope, receive, send)
+            return
+
+        limit = {
+            PASSWORD_TOKEN_PATH: PASSWORD_FORM_BODY_LIMIT_BYTES,
+            MOBILE_LOG_PATH: MOBILE_LOG_BODY_LIMIT_BYTES,
+        }.get(scope["path"])
+        if limit is None:
             await self.app(scope, receive, send)
             return
 
         content_length = _content_length(scope)
-        if content_length is not None and content_length > PASSWORD_FORM_BODY_LIMIT_BYTES:
+        if content_length is not None and content_length > limit:
             await _reject_oversized_request(scope, receive, send)
             return
 
@@ -27,7 +37,7 @@ class PasswordFormBodyLimitMiddleware:
             if message["type"] == "http.disconnect":
                 return
             body.extend(message.get("body", b""))
-            if len(body) > PASSWORD_FORM_BODY_LIMIT_BYTES:
+            if len(body) > limit:
                 await _reject_oversized_request(scope, receive, send)
                 return
             if not message.get("more_body", False):

@@ -484,11 +484,14 @@ class ApiService {
       }
     );
 
-    // Companion axios instance — no Bearer token interceptor.
-    // Auth headers are added per-request via buildCompanionHeaders().
+    // Companion requests are signed after axios has assembled their URL and query.
     this.companionApi = axios.create({
       baseURL: COMPANION_BASE_URL,
       timeout: 10_000,
+    });
+    this.companionApi.interceptors.request.use(async (config) => {
+      Object.assign(config.headers, await companionSession.getSigningHeaders(config.method ?? "GET", this.companionApi.getUri(config)));
+      return config;
     });
   }
 
@@ -496,11 +499,9 @@ class ApiService {
 
   /**
    * Build HMAC auth headers for companion requests.
-   *
-   * Uses Web Crypto API for HMAC-SHA256(secret, timestamp).
    */
-  private async buildCompanionHeaders(): Promise<Record<string, string>> {
-    return companionSession.getSigningHeaders();
+  private async buildCompanionHeaders(method: string, url: string): Promise<Record<string, string>> {
+    return companionSession.getSigningHeaders(method, url);
   }
 
   /**
@@ -509,8 +510,8 @@ class ApiService {
    * Used for `<img src>` / `<iframe>` contexts where headers can't be set.
    * Returns a query string fragment: `hmac=...&ts=...&origin=...`
    */
-  private async buildCompanionQueryAuth(): Promise<string> {
-    return companionSession.getSignedQuery();
+  private async buildCompanionQueryAuth(url: string): Promise<string> {
+    return companionSession.getSignedQuery("GET", url);
   }
 
   /**
@@ -521,8 +522,7 @@ class ApiService {
    */
   private async getClientConfig(connectionId: string): Promise<{ client: AxiosInstance; extraConfig: ClientConfig }> {
     if (isLocalDrive(connectionId)) {
-      const headers = await this.buildCompanionHeaders();
-      return { client: this.companionApi, extraConfig: { headers } };
+      return { client: this.companionApi, extraConfig: {} };
     }
     return { client: this.api, extraConfig: {} };
   }
@@ -1714,7 +1714,7 @@ class ApiService {
   ): Promise<ContentTransferResult> {
     const sourceModifiedAt = modifiedAt ? `&source_modified_at=${encodeURIComponent(modifiedAt)}` : "";
     const destinationUrl = `${getBaseUrl(destinationConnectionId)}/browse/${getBrowseSegment(destinationConnectionId)}/transfer-stream?path=${encodeURIComponent(destinationPath)}&target_resolution_policy=${encodeURIComponent(targetResolutionPolicy)}&expected_size=${expectedSize}${sourceModifiedAt}`;
-    const destinationHeaders = await this.getTransferFetchHeaders(destinationConnectionId);
+    const destinationHeaders = await this.getTransferFetchHeaders(destinationConnectionId, "POST", destinationUrl);
     let bytesTransferred = 0;
     const relayStream = options.onProgress
       ? sourceStream.pipeThrough(
@@ -1861,9 +1861,9 @@ class ApiService {
     return isLocalDrive(sourceConnectionId) !== isLocalDrive(destConnectionId);
   }
 
-  private async getTransferFetchHeaders(connectionId: string): Promise<Record<string, string>> {
+  private async getTransferFetchHeaders(connectionId: string, method: string, url: string): Promise<Record<string, string>> {
     if (isLocalDrive(connectionId)) {
-      return this.buildCompanionHeaders();
+      return this.buildCompanionHeaders(method, url);
     }
     const token = authSession.getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
@@ -1871,7 +1871,7 @@ class ApiService {
 
   private async fetchRawFileStream(connectionId: string, path: string, options: { signal?: AbortSignal } = {}): Promise<Response> {
     const url = `${getBaseUrl(connectionId)}/viewer/${getBrowseSegment(connectionId)}/download?path=${encodeURIComponent(path)}`;
-    const response = await fetch(url, { headers: await this.getTransferFetchHeaders(connectionId), signal: options.signal });
+    const response = await fetch(url, { headers: await this.getTransferFetchHeaders(connectionId, "GET", url), signal: options.signal });
     if (!response.ok) {
       throw new Error(`Download failed (${response.status}): ${response.statusText}`);
     }
@@ -1908,14 +1908,14 @@ class ApiService {
     formData.append("file", blob, filename);
 
     const headers: Record<string, string> = {};
+    const requestUrl = params ? `${url}&${new URLSearchParams(params).toString()}` : url;
     if (isLocalDrive(connectionId)) {
-      Object.assign(headers, await this.buildCompanionHeaders());
+      Object.assign(headers, await this.buildCompanionHeaders("POST", requestUrl));
     } else {
       const token = authSession.getAccessToken();
       if (token) headers["Authorization"] = `Bearer ${token}`;
     }
 
-    const requestUrl = params ? `${url}&${new URLSearchParams(params).toString()}` : url;
     const response = await fetch(requestUrl, {
       method: "POST",
       headers,
@@ -1948,7 +1948,7 @@ class ApiService {
     const baseUrl = getBaseUrl(connectionId);
     const segment = getBrowseSegment(connectionId);
     if (isLocalDrive(connectionId)) {
-      const authParams = await this.buildCompanionQueryAuth();
+      const authParams = await this.buildCompanionQueryAuth(`${baseUrl}/viewer/${segment}/file?path=${encodeURIComponent(path)}`);
       return `${baseUrl}/viewer/${segment}/file?path=${encodeURIComponent(path)}&${authParams}`;
     }
     return `${baseUrl}/viewer/${segment}/file?path=${encodeURIComponent(path)}`;
@@ -1958,7 +1958,7 @@ class ApiService {
     const baseUrl = getBaseUrl(connectionId);
     const segment = getBrowseSegment(connectionId);
     if (isLocalDrive(connectionId)) {
-      const authParams = await this.buildCompanionQueryAuth();
+      const authParams = await this.buildCompanionQueryAuth(`${baseUrl}/viewer/${segment}/download?path=${encodeURIComponent(path)}`);
       return `${baseUrl}/viewer/${segment}/download?path=${encodeURIComponent(path)}&${authParams}`;
     }
     return `${baseUrl}/viewer/${segment}/download?path=${encodeURIComponent(path)}`;
@@ -2028,7 +2028,7 @@ class ApiService {
 
     const headers: Record<string, string> = {};
     if (isLocalDrive(connectionId)) {
-      const companionHeaders = await this.buildCompanionHeaders();
+      const companionHeaders = await this.buildCompanionHeaders("GET", url);
       Object.assign(headers, companionHeaders);
     } else {
       const token = authSession.getAccessToken();
@@ -2045,19 +2045,19 @@ class ApiService {
     this.saveDownloadBlob(blob, filename);
   }
 
-  private async getSelectionDownloadHeaders(connectionId: string): Promise<Record<string, string>> {
-    const headers = await this.getTransferFetchHeaders(connectionId);
+  private async getSelectionDownloadHeaders(connectionId: string, url: string): Promise<Record<string, string>> {
+    const headers = await this.getTransferFetchHeaders(connectionId, "POST", url);
     if (isLocalDrive(connectionId)) {
       const token = authSession.getAccessToken();
       if (!token) throw new Error("Authentication is required to download a local selection");
-      headers.Authorization = `Bearer ${token}`;
+      headers["Authorization"] = `Bearer ${token}`;
     }
     return headers;
   }
 
   async downloadSelectionArchive(connectionId: string, paths: string[], signal?: AbortSignal): Promise<void> {
     const url = `${getBaseUrl(connectionId)}/browse/${getBrowseSegment(connectionId)}/download-selection`;
-    const headers = await this.getSelectionDownloadHeaders(connectionId);
+    const headers = await this.getSelectionDownloadHeaders(connectionId, url);
     const response = await fetch(url, {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
@@ -2074,7 +2074,7 @@ class ApiService {
 
   async downloadZipSelectionArchive(connectionId: string, archivePath: string, paths: string[], signal?: AbortSignal): Promise<void> {
     const url = `${getBaseUrl(connectionId)}/browse/${getBrowseSegment(connectionId)}/archive/download-selection`;
-    const headers = await this.getSelectionDownloadHeaders(connectionId);
+    const headers = await this.getSelectionDownloadHeaders(connectionId, url);
     const response = await fetch(url, {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },

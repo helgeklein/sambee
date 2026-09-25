@@ -108,13 +108,27 @@ def test_callback_grant_is_hashed_single_use_and_deletes_flow(session: Session) 
     assert stored.encrypted_nonce is None
     assert stored.encrypted_verifier is None
 
-    consumed_user, return_path = consume_login_grant(session, grant=validated.grant)
+    consumed_user, return_path = consume_login_grant(session, grant=validated.grant, browser_state=started.state)
     assert consumed_user.id == user.id
     assert return_path == "/browse/private"
     assert session.get(OidcFlow, claimed.flow_id) is None
 
     with pytest.raises(OidcFlowError):
-        consume_login_grant(session, grant=validated.grant)
+        consume_login_grant(session, grant=validated.grant, browser_state=started.state)
+
+
+def test_login_grant_rejects_a_different_browser_state(session: Session) -> None:
+    cipher = _cipher()
+    user = _user(session)
+    started = start_login_flow(session, configuration_revision=1, cipher=cipher, return_path=None)
+    session.commit()
+    claimed = claim_login_callback(session, state=started.state, cipher=cipher)
+    validated = complete_login_callback(session, flow_id=claimed.flow_id, user=user)
+
+    with pytest.raises(OidcFlowError):
+        consume_login_grant(session, grant=validated.grant, browser_state="another-browser")
+
+    assert consume_login_grant(session, grant=validated.grant, browser_state=started.state).user.id == user.id
 
 
 def test_token_version_change_invalidates_and_consumes_grant(session: Session) -> None:
@@ -129,6 +143,6 @@ def test_token_version_change_invalidates_and_consumes_grant(session: Session) -
     session.commit()
 
     with pytest.raises(OidcFlowError):
-        consume_login_grant(session, grant=validated.grant)
+        consume_login_grant(session, grant=validated.grant, browser_state=started.state)
 
     assert session.get(OidcFlow, claimed.flow_id) is None

@@ -1262,6 +1262,25 @@ class TestListArchiveDirectory:
 
 @pytest.mark.integration
 class TestStreamArchiveMember:
+    @pytest.mark.parametrize("member_path", ["docs/page.html", "docs/icon.svg", "docs/page.xhtml"])
+    def test_active_archive_member_is_downloaded(self, client, auth_headers_user, test_connection, member_path):
+        data = _archive_bytes({member_path: b"active content"})
+        backend = AsyncMock()
+        backend.get_file_info.return_value = FileInfo(name="backup.zip", path="backup.zip", type=FileType.FILE, size=len(data))
+        backend.open_random_access_reader = AsyncMock(return_value=_MemoryRandomAccessReader(data))
+
+        with patch("app.api.viewer.SMBBackend", return_value=backend):
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/archive/member",
+                headers=auth_headers_user,
+                params={"archive_path": "backup.zip", "member_path": member_path},
+            )
+
+        assert response.status_code == 200
+        assert response.content == b"active content"
+        assert response.headers["content-disposition"].startswith("attachment;")
+        assert response.headers["x-content-type-options"] == "nosniff"
+
     def test_streams_validated_zip_member(
         self,
         client: TestClient,
