@@ -95,7 +95,10 @@ def reserve_or_resolve(
         tag = tag_name(version)
         source_sha = resolve_tag(tag)
         if source_sha is None:
-            raise CandidateError(f"Canonical build tag {tag} does not exist.")
+            raise CandidateError(
+                f"Canonical build tag {tag} does not exist. Select the version of an "
+                "existing build-vX.Y.Z tag (for example, build-v1.0.33 -> 1.0.33)."
+            )
         require_main_ancestor(source_sha)
         run_git("checkout", "--detach", source_sha)
         if read_version() != version:

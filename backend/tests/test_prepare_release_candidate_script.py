@@ -124,6 +124,16 @@ def test_resolve_existing_build_checks_out_its_canonical_commit(repository: Path
     assert git(repository, "rev-parse", "HEAD") == source_sha
 
 
+def test_resolve_missing_build_tag_fails_before_publication(repository: Path) -> None:
+    with pytest.raises(MODULE.CandidateError, match=r"build-v1\.0\.33 does not exist.*build-v1\.0\.33 -> 1\.0\.33"):
+        MODULE.reserve_or_resolve(
+            dispatch_ref="refs/heads/main",
+            dispatch_sha=git(repository, "rev-parse", "HEAD"),
+            build_version="1.0.33",
+            run_url="https://example.test/runs/1",
+        )
+
+
 def test_reservation_rejects_existing_tag_for_different_source(repository: Path) -> None:
     first_sha = git(repository, "rev-parse", "HEAD")
     MODULE.reserve_or_resolve(

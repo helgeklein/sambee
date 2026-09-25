@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       build_version:
-        description: Existing immutable build version to release publicly.
+        description: Existing immutable build version to release publicly (e.g., "build-v1.0.33" -> "1.0.33").
         required: true
         type: string
       component_scope:

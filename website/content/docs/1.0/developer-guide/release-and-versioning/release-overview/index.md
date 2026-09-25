@@ -28,16 +28,21 @@ Notes:
 
 ## Release Process & Checklist
 
-### Update Documentation
+### Update Website
 
 1. Review the homepage content and update it where necessary.
-1. Docs:
-   - Verify [Supported File Formats](../../../user-guide/reference/supported-file-formats/) and update as necessary.
-   - Finalize the target release's [What's New](/release-info/news-and-changes/whats-new/) page.
-   - Mark the target version as current in `website/data/docs-versions.toml`.
-   - Run the VS Code task `Website: Refresh Docs Derived Artifacts`.
-   - Review the Docs Structure Report this creates in `/workspace/website-meta/docs-reports/docs-structure-report.html`.
-1. Git merge all changes.
+
+### Update Documentation
+
+1. Verify [Supported File Formats](../../../user-guide/reference/supported-file-formats/) and update as necessary.
+1. Finalize the target release's [What's New](/release-info/news-and-changes/whats-new/) page.
+1. Mark the target version as current in `website/data/docs-versions.toml`:
+   - Update the top-level `current` key, e.g.: `current = "1.0"`
+   - Update the `[[versions]]` sections of the previous and the new current version
+1. Run the VS Code task `Website: Refresh Docs Derived Artifacts`.
+1. Review the Docs Structure Report this creates in `/workspace/website-meta/docs-reports/docs-structure-report.html`.
+
+Git merge all changes.
 
 ### Build Docker Image
 
