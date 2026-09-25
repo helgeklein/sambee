@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, delete, select
+from starlette.requests import Request
 
 import app.api.auth as auth_module
 from app.core.security import (
@@ -25,6 +26,17 @@ from app.models.oidc import OidcBrowserSession, OidcBrowserSessionStatus, OidcPr
 from app.models.user import User, UserRole
 from app.services.oidc_browser_session import OIDC_BROWSER_SESSION_COOKIE_NAME, build_cookie_value
 from app.services.oidc_client import OidcClientError, OidcClientErrorCode
+
+
+def test_pending_oidc_login_cookies_keep_parallel_flows_separate() -> None:
+    first_state, second_state = "first-state", "second-state"
+    first_cookie = auth_module._oidc_login_flow_cookie_name(first_state)
+    second_cookie = auth_module._oidc_login_flow_cookie_name(second_state)
+    assert first_cookie != second_cookie
+
+    cookie_header = f"{first_cookie}={first_state}; {second_cookie}={second_state}; {auth_module.OIDC_LOGIN_FLOW_COOKIE_NAME}_invalid=wrong"
+    request = Request({"type": "http", "headers": [(b"cookie", cookie_header.encode())]})
+    assert auth_module._pending_oidc_login_states(request) == [first_state, second_state]
 
 
 @pytest.mark.parametrize(

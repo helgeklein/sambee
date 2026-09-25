@@ -91,6 +91,20 @@ fn is_active_document_mime_type(mime_type: &str) -> bool {
     ACTIVE_DOCUMENT_MIME_TYPES.contains(&mime_type.split(';').next().unwrap_or_default().trim().to_ascii_lowercase().as_str())
 }
 
+fn active_document_disposition(filename: &str) -> String {
+    let encoded: String = filename
+        .bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || b"!#$&+-.^_`|~".contains(&byte) {
+                (byte as char).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect();
+    format!("attachment; filename*=UTF-8''{encoded}")
+}
+
 struct TransferReceipt {
     expires_at: Instant,
     fingerprint: String,
@@ -840,7 +854,7 @@ pub async fn viewer_file(Path(drive): Path<String>, Query(query): Query<ViewerQu
 
     let filename = full_path.file_name().unwrap_or_default().to_string_lossy();
     let disposition = if is_active_document_mime_type(&mime_type) {
-        "attachment".to_string()
+        active_document_disposition(&filename)
     } else {
         format!("inline; filename=\"{filename}\"")
     };
@@ -1101,7 +1115,10 @@ pub async fn viewer_archive_member(Path(drive): Path<String>, Query(query): Quer
         .header(
             "Content-Disposition",
             if is_active_document_mime_type(&member.content_type) {
-                HeaderValue::from_static("attachment")
+                HeaderValue::from_str(&active_document_disposition(
+                    member.member_path.rsplit('/').next().unwrap_or("download"),
+                ))
+                .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
             } else {
                 HeaderValue::from_str(&member.content_disposition).unwrap_or_else(|_| HeaderValue::from_static("attachment"))
             },
@@ -6533,7 +6550,13 @@ mod tests {
         let drive_id = format!("test-drive-{}", uuid::Uuid::new_v4());
         super::drives::register_test_drive_path(drive_id.clone(), directory.path().to_path_buf());
 
-        for filename in ["page.html", "icon.svg", "page.xhtml", "readme.txt"] {
+        for filename in [
+            "page.html",
+            "icon.svg",
+            "page.xhtml",
+            "r\u{e9}sum\u{e9} \"draft\".html",
+            "readme.txt",
+        ] {
             std::fs::write(directory.path().join(filename), b"content").expect("viewer file should be created");
             let response = super::viewer_file(
                 axum::extract::Path(drive_id.clone()),
@@ -6549,6 +6572,9 @@ mod tests {
             assert_eq!(response.headers()["x-content-type-options"], "nosniff");
             let disposition = response.headers()["content-disposition"].to_str().unwrap();
             assert_eq!(disposition.starts_with("attachment"), filename != "readme.txt");
+            if filename == "r\u{e9}sum\u{e9} \"draft\".html" {
+                assert_eq!(disposition, "attachment; filename*=UTF-8''r%C3%A9sum%C3%A9%20%22draft%22.html");
+            }
         }
     }
 
@@ -6561,7 +6587,13 @@ mod tests {
         let directory = tempfile::tempdir().expect("temporary archive directory should be created");
         let archive_path = directory.path().join("archive.zip");
         let mut archive = zip::ZipWriter::new(std::fs::File::create(&archive_path).expect("archive should be created"));
-        for filename in ["page.html", "icon.svg", "page.xhtml", "readme.txt"] {
+        for filename in [
+            "page.html",
+            "icon.svg",
+            "page.xhtml",
+            "r\u{e9}sum\u{e9} \"draft\".html",
+            "readme.txt",
+        ] {
             archive
                 .start_file(filename, zip::write::SimpleFileOptions::default())
                 .expect("entry should start");
@@ -6571,7 +6603,13 @@ mod tests {
         let drive_id = format!("test-drive-{}", uuid::Uuid::new_v4());
         super::drives::register_test_drive_path(drive_id.clone(), directory.path().to_path_buf());
 
-        for filename in ["page.html", "icon.svg", "page.xhtml", "readme.txt"] {
+        for filename in [
+            "page.html",
+            "icon.svg",
+            "page.xhtml",
+            "r\u{e9}sum\u{e9} \"draft\".html",
+            "readme.txt",
+        ] {
             let response = super::viewer_archive_member(
                 axum::extract::Path(drive_id.clone()),
                 axum::extract::Query(super::ArchiveMemberQuery {
@@ -6585,6 +6623,9 @@ mod tests {
             assert_eq!(response.headers()["x-content-type-options"], "nosniff");
             let disposition = response.headers()["content-disposition"].to_str().unwrap();
             assert_eq!(disposition.starts_with("attachment"), filename != "readme.txt");
+            if filename == "r\u{e9}sum\u{e9} \"draft\".html" {
+                assert_eq!(disposition, "attachment; filename*=UTF-8''r%C3%A9sum%C3%A9%20%22draft%22.html");
+            }
         }
     }
 

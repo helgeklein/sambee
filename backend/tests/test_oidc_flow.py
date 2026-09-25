@@ -12,6 +12,7 @@ from app.services.oidc_flow import (
     claim_login_callback,
     complete_login_callback,
     consume_login_grant,
+    hash_flow_secret,
     safe_return_path,
     start_login_flow,
 )
@@ -108,13 +109,13 @@ def test_callback_grant_is_hashed_single_use_and_deletes_flow(session: Session) 
     assert stored.encrypted_nonce is None
     assert stored.encrypted_verifier is None
 
-    consumed_user, return_path = consume_login_grant(session, grant=validated.grant, browser_state=started.state)
+    consumed_user, return_path = consume_login_grant(session, grant=validated.grant, browser_states=[started.state])
     assert consumed_user.id == user.id
     assert return_path == "/browse/private"
     assert session.get(OidcFlow, claimed.flow_id) is None
 
     with pytest.raises(OidcFlowError):
-        consume_login_grant(session, grant=validated.grant, browser_state=started.state)
+        consume_login_grant(session, grant=validated.grant, browser_states=[started.state])
 
 
 def test_login_grant_rejects_a_different_browser_state(session: Session) -> None:
@@ -126,9 +127,31 @@ def test_login_grant_rejects_a_different_browser_state(session: Session) -> None
     validated = complete_login_callback(session, flow_id=claimed.flow_id, user=user)
 
     with pytest.raises(OidcFlowError):
-        consume_login_grant(session, grant=validated.grant, browser_state="another-browser")
+        consume_login_grant(session, grant=validated.grant, browser_states=["another-browser"])
 
-    assert consume_login_grant(session, grant=validated.grant, browser_state=started.state).user.id == user.id
+    assert consume_login_grant(session, grant=validated.grant, browser_states=[started.state]).user.id == user.id
+
+
+@pytest.mark.parametrize("exchange_order", [(0, 1), (1, 0)])
+def test_two_pending_login_flows_can_exchange_in_either_order(session: Session, exchange_order: tuple[int, int]) -> None:
+    cipher = _cipher()
+    user = _user(session)
+    started_flows = [start_login_flow(session, configuration_revision=1, cipher=cipher, return_path=None) for _ in range(2)]
+    session.commit()
+    grants = []
+    for started in reversed(started_flows):
+        claimed = claim_login_callback(session, state=started.state, cipher=cipher)
+        grants.append((started, complete_login_callback(session, flow_id=claimed.flow_id, user=user)))
+
+    browser_states = [started.state for started in started_flows]
+    for index in exchange_order:
+        started, validated = grants[index]
+        consumed = consume_login_grant(session, grant=validated.grant, browser_states=browser_states)
+        assert consumed.user.id == user.id
+        assert consumed.state_hash == hash_flow_secret(started.state)
+        browser_states.remove(started.state)
+
+    assert browser_states == []
 
 
 def test_token_version_change_invalidates_and_consumes_grant(session: Session) -> None:
@@ -143,6 +166,6 @@ def test_token_version_change_invalidates_and_consumes_grant(session: Session) -
     session.commit()
 
     with pytest.raises(OidcFlowError):
-        consume_login_grant(session, grant=validated.grant, browser_state=started.state)
+        consume_login_grant(session, grant=validated.grant, browser_states=[started.state])
 
     assert session.get(OidcFlow, claimed.flow_id) is None
