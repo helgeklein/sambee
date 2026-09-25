@@ -1,5 +1,12 @@
 # TODO
 
+## Mobile sharing
+
+- Sharing is currently only possible from the viewers
+- Add a sharing command to:
+   - the per-item menu
+   - the multi-selection menu
+
 ## Misc. commands
 
 - Add a command to open the current file list location in a new browser tab (which keyboard shortcut to assign? Ctrl+(Shift)+Tab is needed by the browser)
