@@ -60,7 +60,7 @@ export async function downloadContentSelection(
       );
     } else throw new Error("Selected download sources are incompatible");
   } else if (item.handle.kind === "physical") {
-    await downloadPhysicalFile(item.handle.location.connectionId, item.handle.path, item.entry.name);
+    await downloadPhysicalFile(item.handle.location.connectionId, item.handle.path, item.entry.name, signal);
   } else {
     const blob = await providers.get(item.handle.location).read(item.handle, { kind: "raw" }, { download: true, signal });
     if (!signal.aborted) saveVirtualDownload(blob, item.entry.name);

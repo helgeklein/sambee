@@ -137,6 +137,74 @@ describe("Browser Component - Interactions", () => {
     }
   });
 
+  it("does not start a pending upload picker while a copy dialog is open", async () => {
+    setupRegularFileTransferListing();
+    const pickers: HTMLInputElement[] = [];
+    const pickerClick = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(function (this: HTMLInputElement) {
+      if (this.type === "file") pickers.push(this);
+    });
+    try {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
+      const listContainer = (await screen.findAllByTestId("virtual-list"))[0]!;
+      await user.click(listContainer);
+      await user.keyboard(" ");
+      fireEvent.click(screen.getByRole("button", { name: "Upload", exact: true }));
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Files" }));
+      expect(pickers).toHaveLength(1);
+
+      listContainer.focus();
+      await user.keyboard("{F5}");
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      Object.defineProperty(pickers[0], "files", { value: [new File(["new"], "new.txt")] });
+      pickers[0]!.dispatchEvent(new Event("change", { bubbles: true }));
+      expect(api.publishBrowserFile).not.toHaveBeenCalled();
+    } finally {
+      pickerClick.mockRestore();
+    }
+  });
+
+  it("offers cancellation during a single-file download", async () => {
+    setupRegularFileTransferListing();
+    let downloadSignal: AbortSignal | undefined;
+    vi.mocked(api.downloadFile).mockImplementationOnce((_connectionId, _path, _name, signal) => {
+      downloadSignal = signal;
+      return new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }));
+    });
+
+    const user = userEvent.setup();
+    renderBrowser("/browse/smb/test-server-1");
+    const listContainer = await screen.findByTestId("virtual-list");
+    await user.click(listContainer);
+    await user.keyboard(" ");
+    await user.click(screen.getByRole("button", { name: "Download", exact: true }));
+
+    expect(await screen.findByText("Downloading")).toBeInTheDocument();
+    const cancel = await screen.findByRole("button", { name: "Cancel" });
+    await user.click(cancel);
+    expect(downloadSignal?.aborted).toBe(true);
+    await waitFor(() => expect(screen.queryByText("Downloading")).not.toBeInTheDocument());
+  });
+
+  it("shows archive preparation while downloading a directory", async () => {
+    let downloadSignal: AbortSignal | undefined;
+    vi.mocked(api.downloadSelectionArchive).mockImplementationOnce((_connectionId, _paths, signal) => {
+      downloadSignal = signal;
+      return new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }));
+    });
+
+    const user = userEvent.setup();
+    renderBrowser("/browse/smb/test-server-1");
+    const listContainer = await screen.findByTestId("virtual-list");
+    await user.click(listContainer);
+    await user.keyboard(" ");
+    await user.click(screen.getByRole("button", { name: "Download", exact: true }));
+
+    expect(await screen.findByText("Preparing archive")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(downloadSignal?.aborted).toBe(true);
+  });
+
   it("rejects a menu choice after the destination changes", async () => {
     const pickerClick = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
     try {

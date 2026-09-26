@@ -2021,7 +2021,7 @@ class ApiService {
     }
   }
 
-  async downloadFile(connectionId: string, path: string, filename: string): Promise<void> {
+  async downloadFile(connectionId: string, path: string, filename: string, signal?: AbortSignal): Promise<void> {
     const baseUrl = getBaseUrl(connectionId);
     const segment = getBrowseSegment(connectionId);
     const url = `${baseUrl}/viewer/${segment}/download?path=${encodeURIComponent(path)}`;
@@ -2035,14 +2035,15 @@ class ApiService {
       if (token) headers["Authorization"] = `Bearer ${token}`;
     }
 
-    const response = await fetch(url, { headers });
+    if (signal?.aborted) return;
+    const response = await fetch(url, { headers, signal });
 
     if (!response.ok) {
       throw new Error(`Download failed: ${response.statusText}`);
     }
 
     const blob = await response.blob();
-    this.saveDownloadBlob(blob, filename);
+    if (!signal?.aborted) this.saveDownloadBlob(blob, filename);
   }
 
   private async getSelectionDownloadHeaders(connectionId: string, url: string): Promise<Record<string, string>> {

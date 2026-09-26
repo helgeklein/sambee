@@ -100,14 +100,12 @@ import { FileType, isApiError } from "../types";
 import { openExternalUrl } from "../utils/externalLinks";
 import { compareLocalizedStrings } from "../utils/localeFormatting";
 import { getConnectionById, isConnectionReadOnly, isConnectionWritable } from "./FileBrowser/access";
-import { type BrowserUploadEntry, captureDropEntries, manifestFromDrop, manifestFromFiles } from "./FileBrowser/browserUploadManifest";
+import { captureDropEntries, manifestFromDrop, manifestFromFiles } from "./FileBrowser/browserUploadManifest";
 import {
   areSameContentLocations,
   type ContentOperationExecution,
   type ContentOperationReason,
   cancelForegroundArchiveOperationOnPageHide,
-  createContentItem,
-  downloadContentSelection,
   executeTransfer,
   executeTransferTree,
   getArchiveExtractionAvailability,
@@ -117,7 +115,6 @@ import {
   getTransferAvailability,
   hasForegroundArchiveOperationWork,
   isPartialContainerOutputError,
-  publishBrowserFile,
   recoverInterruptedArchiveOperation,
   recoverInterruptedPhysicalTransfer,
   startArchiveExtraction,
@@ -165,6 +162,8 @@ import {
 } from "./FileBrowser/routing";
 import type { ArchiveLocation, DirectoryChange, PaneId, PaneMode, VirtualRouteLocation } from "./FileBrowser/types";
 import { ACTIVE_PANE_QUERY_KEY, ACTIVE_PANE_STORAGE_KEY, RIGHT_PANE_QUERY_KEY } from "./FileBrowser/types";
+import { useBrowserDownload } from "./FileBrowser/useBrowserDownload";
+import { useBrowserUpload } from "./FileBrowser/useBrowserUpload";
 import { useFileBrowserPane } from "./FileBrowser/useFileBrowserPane";
 
 // ============================================================================
@@ -177,7 +176,6 @@ const SERVER_WEBSOCKET_RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 5_000] as const
 const COMPANION_WEBSOCKET_RECONNECT_DELAY_MS = 5_000;
 const COMPANION_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
 const TRANSFER_NOTICE_AUTOHIDE_MS = 6_000;
-const MAX_UPLOAD_DIRECTORY_CREATE_RETRIES = 3;
 
 const COMPANION_STATUS_QUERY_PARAM = "companion_status";
 const IGNORED_REALTIME_MESSAGE_TYPES = new Set(["subscribed", "unsubscribed", "pong"]);
@@ -467,39 +465,11 @@ const Browser: React.FC = () => {
   const [companionHintOpen, setCompanionHintOpen] = useState(false);
   const [unavailableShortcutNotice, setUnavailableShortcutNotice] = useState<UnavailableShortcutNotice | null>(null);
   const [transferNotice, setTransferNotice] = useState("");
-  const [uploadProgress, setUploadProgress] = useState<{
-    current: number;
-    total: number;
-    name: string;
-    connectionId: string;
-    bytes: number;
-    size: number;
-    completed: number;
-    skipped: number;
-    failed: number;
-    unknown: number;
-  } | null>(null);
-  const uploadAbortRef = React.useRef<AbortController | null>(null);
-  const uploadDirectoryChangesRef = React.useRef<{
-    connectionId: string;
-    writingPaths: Set<string>;
-    deferredPaths: Set<string>;
-  } | null>(null);
   const pendingUploadPickerRef = React.useRef<HTMLInputElement | null>(null);
-  const [uploadSessionActive, setUploadSessionActive] = useState(false);
   const uploadTriggerRef = React.useRef<HTMLElement | null>(null);
   const uploadMenuFocusRef = React.useRef<HTMLElement | null>(null);
   const uploadMenuOpenId = React.useRef(0);
   const [uploadMenu, setUploadMenu] = useState<{ anchor: HTMLElement; paneId: PaneId; destination: PhysicalLocation } | null>(null);
-  const [uploadPreparing, setUploadPreparing] = useState(false);
-  const [uploadConflict, setUploadConflict] = useState<{
-    kind: "file" | "directory";
-    actions: readonly ConflictResolution[];
-    path: string;
-    connectionId: string;
-  } | null>(null);
-  const [preparingDownload, setPreparingDownload] = useState(false);
-  const downloadAbortRef = React.useRef<AbortController | null>(null);
   const backendAvailability = useBackendAvailability();
 
   useEffect(() => {
@@ -536,6 +506,11 @@ const Browser: React.FC = () => {
   /** Server connections merged with companion-provided local drives. */
   const allConnections = useMemo(() => mergeConnections(connections, companion.drives), [connections, companion.drives]);
   const [browserContentServices] = useState(() => createBrowserContentServices(allConnections));
+  const { startDownload, cancelDownload, isDownloading, downloadKind } = useBrowserDownload(
+    browserContentServices.providers,
+    t,
+    setTransferNotice
+  );
   useSyncExternalStore(browserContentServices.subscribe, browserContentServices.getSnapshot, browserContentServices.getSnapshot);
 
   useEffect(() => {
@@ -803,6 +778,34 @@ const Browser: React.FC = () => {
   effectiveActivePaneIdRef.current = effectiveActivePaneId;
   const activePane = effectiveActivePaneId === "left" ? leftPane : rightPane;
   const getPaneForId = useCallback((paneId: PaneId) => (paneId === "left" ? leftPaneRef.current : rightPaneRef.current), []);
+  const contentOperationEnvironment = useMemo(
+    () => ({
+      isCompanionPaired: companion.status === "paired",
+      storageRegistry: browserContentServices.registry,
+      archiveOperations: browserContentServices.archiveOperations,
+      history: browserContentServices.history,
+    }),
+    [browserContentServices.archiveOperations, browserContentServices.history, browserContentServices.registry, companion.status]
+  );
+  const {
+    startBrowserUpload,
+    cancelUpload,
+    deferDirectoryChange,
+    resolveUploadConflict,
+    uploadConflict,
+    uploadProgress,
+    uploadPreparing,
+    uploadSessionActive,
+  } = useBrowserUpload({
+    blocked: copyMoveDialogOpen || conflictDialogOpen,
+    connections: allConnections,
+    environment: contentOperationEnvironment,
+    getPaneForId,
+    registry: browserContentServices.registry,
+    resolvePolicy: targetResolutionPolicyForConflictResolution,
+    showNotice: setTransferNotice,
+    t,
+  });
   const getOperationPolicyContext = useCallback(
     (paneId: PaneId = effectiveActivePaneIdRef.current): FileOperationPolicyContext => {
       const pane = getPaneForId(paneId);
@@ -846,6 +849,7 @@ const Browser: React.FC = () => {
     rightPane.createDialogOpen ||
     copyMoveDialogOpen ||
     conflictDialogOpen ||
+    uploadConflict !== null ||
     archiveWorkflowDialogOpen;
   const handleBrowserEscape = useCallback(() => {
     activePane.handleClose();
@@ -895,15 +899,6 @@ const Browser: React.FC = () => {
     );
     return browserContentServices.providers.getCapabilities(source).extract ? source : null;
   }, [activePane.contentCapabilities.extract, activePane.currentLocation, activePaneFocusedFile, browserContentServices.providers]);
-  const contentOperationEnvironment = useMemo(
-    () => ({
-      isCompanionPaired: companion.status === "paired",
-      storageRegistry: browserContentServices.registry,
-      archiveOperations: browserContentServices.archiveOperations,
-      history: browserContentServices.history,
-    }),
-    [browserContentServices.archiveOperations, browserContentServices.history, browserContentServices.registry, companion.status]
-  );
   const quickBarPaneWritable = quickBarPane.contentCapabilities.mutate && isConnectionWritable(quickBarPaneConnection);
   const activePaneFocusedItem = activePaneFocusedFile ? activePane.getItemsByPaths([activePaneFocusedFile.path])[0] : undefined;
   const quickBarFocusedItem = quickBarFocusedFile ? quickBarPane.getItemsByPaths([quickBarFocusedFile.path])[0] : undefined;
@@ -981,6 +976,9 @@ const Browser: React.FC = () => {
   );
   const getFileListShortcutAvailability = useCallback(
     (action: FileListShortcutAction, context: FileOperationPolicyContext = getOperationPolicyContext()): FileListShortcutAvailability => {
+      if ((action === "copy" || action === "move") && uploadSessionActive) {
+        return unavailableFileListShortcut("interaction-blocked");
+      }
       if (action === "refresh") {
         return isBrowserBrowsing ? AVAILABLE_FILE_LIST_SHORTCUT : unavailableFileListShortcut("interaction-blocked");
       }
@@ -1008,7 +1006,7 @@ const Browser: React.FC = () => {
       }
 
       if (action === "upload") {
-        if (uploadSessionActive) return unavailableFileListShortcut("interaction-blocked");
+        if (uploadSessionActive || copyMoveDialogOpen || conflictDialogOpen) return unavailableFileListShortcut("interaction-blocked");
         if (sourceIsArchive) return unavailableFileListShortcut("archive-content-immutable");
         if (sourcePaneReadOnly) return unavailableFileListShortcut("read-only-location");
         if (sourceLocation.kind !== "physical" || !isConnectionWritable(getConnectionById(allConnections, sourceLocation.connectionId)))
@@ -1019,7 +1017,7 @@ const Browser: React.FC = () => {
       }
 
       if (action === "download") {
-        if (preparingDownload) return unavailableFileListShortcut("interaction-blocked");
+        if (isDownloading) return unavailableFileListShortcut("interaction-blocked");
         const selected = context.items.length ? context.items : context.focusedItem ? [context.focusedItem] : [];
         if (!selected.length) return unavailableFileListShortcut("no-selection");
         if (selected.some((item) => !item.entry.is_readable)) return unavailableFileListShortcut("unsupported-source");
@@ -1092,6 +1090,8 @@ const Browser: React.FC = () => {
     [
       allConnections,
       contentOperationEnvironment,
+      conflictDialogOpen,
+      copyMoveDialogOpen,
       getArchiveExtractionSourceForContext,
       getArchiveExtractionShortcutAvailability,
       getCapturedDestination,
@@ -1099,7 +1099,7 @@ const Browser: React.FC = () => {
       getPaneForId,
       isBrowserBrowsing,
       isDualMode,
-      preparingDownload,
+      isDownloading,
       uploadSessionActive,
     ]
   );
@@ -1671,11 +1671,10 @@ const Browser: React.FC = () => {
         reconcileBootstrapRoute(data, persistedSelectedConnectionId);
       } catch (err: unknown) {
         logger.error("Error loading connections", { error: err }, "browser");
+        if (preserveVisibleUi) return;
         if (isApiError(err)) {
           if (err.response?.status === 401) {
-            if (!preserveVisibleUi) {
-              navigate(loginPath(window.location.pathname + window.location.search));
-            }
+            navigate(loginPath(window.location.pathname + window.location.search));
           } else if (err.response?.status === 403) {
             leftPane.setError("Access denied. Please contact an administrator to configure connections.");
           } else {
@@ -1772,9 +1771,7 @@ const Browser: React.FC = () => {
    * the socket would leak. `disposed` prevents reconnection after unmount.
    */
   const handleRealtimeDirectoryChange = (change: DirectoryChange) => {
-    const upload = uploadDirectoryChangesRef.current;
-    const deferReload = upload?.connectionId === change.connectionId && upload.writingPaths.has(change.path);
-    if (deferReload) upload.deferredPaths.add(change.path);
+    const deferReload = deferDirectoryChange(change.connectionId, change.path);
     leftPane.handleDirectoryChanged(change, { invalidateOnly: deferReload });
     rightPane.handleDirectoryChanged(change, { invalidateOnly: deferReload });
   };
@@ -2262,7 +2259,7 @@ const Browser: React.FC = () => {
    */
   const handleOpenCopyMoveDialog = useCallback(
     (mode: CopyMoveMode, invocation?: FileOperationInvocationContext) => {
-      if (!isDualModeRef.current) return;
+      if (!isDualModeRef.current || uploadSessionActive) return;
 
       const sourcePaneId = invocation?.paneId ?? effectiveActivePaneIdRef.current;
       const sourcePane = getPaneForId(sourcePaneId);
@@ -2294,7 +2291,7 @@ const Browser: React.FC = () => {
       setCopyMoveProcessing(false);
       setCopyMoveDialogOpen(true);
     },
-    [allConnections, contentOperationEnvironment, getCapturedDestination, getPaneForId]
+    [allConnections, contentOperationEnvironment, getCapturedDestination, getPaneForId, uploadSessionActive]
   );
 
   /** Open the move dialog (F6). */
@@ -2519,15 +2516,26 @@ const Browser: React.FC = () => {
   );
 
   /** Called when the user resolves an overwrite conflict dialog. */
-  const handleConflictResolve = useCallback((decision: ConflictDecision) => {
-    conflictResolveRef.current?.(decision);
-    conflictResolveRef.current = null;
-  }, []);
+  const handleConflictResolve = useCallback(
+    (decision: ConflictDecision) => {
+      if (uploadConflict) {
+        resolveUploadConflict(decision);
+        return;
+      }
+      conflictResolveRef.current?.(decision);
+      conflictResolveRef.current = null;
+    },
+    [resolveUploadConflict, uploadConflict]
+  );
 
   const handleConflictCancel = useCallback(() => {
+    if (uploadConflict) {
+      resolveUploadConflict(null);
+      return;
+    }
     conflictResolveRef.current?.(null);
     conflictResolveRef.current = null;
-  }, []);
+  }, [resolveUploadConflict, uploadConflict]);
 
   /** Cancel the copy/move dialog. */
   const handleCopyMoveCancel = useCallback(() => {
@@ -2924,300 +2932,10 @@ const Browser: React.FC = () => {
 
   const handleDownloadRequest = useCallback(
     async (context: FileOperationPolicyContext) => {
-      const item = context.items[0] ?? context.focusedItem;
-      if (!item?.entry.is_readable) return;
-      try {
-        const selection = context.items.length ? context.items : [item];
-        if (context.items.length > 1 || item.entry.type === FileType.DIRECTORY) {
-          const controller = new AbortController();
-          downloadAbortRef.current = controller;
-          setPreparingDownload(true);
-          await downloadContentSelection(selection, browserContentServices.providers, controller.signal);
-        } else {
-          await downloadContentSelection(selection, browserContentServices.providers, new AbortController().signal);
-        }
-      } catch (error) {
-        if (!downloadAbortRef.current?.signal.aborted) {
-          logger.error("File download failed", { error, path: item.handle.path }, "file-browser");
-          setTransferNotice(
-            error instanceof Error && error.message === "temporary_archive_size_limit_exceeded"
-              ? t("fileBrowser.transfers.downloadSizeLimitExceeded")
-              : error instanceof Error
-                ? error.message
-                : t("fileBrowser.transfers.downloadFailed")
-          );
-        }
-      } finally {
-        downloadAbortRef.current = null;
-        setPreparingDownload(false);
-      }
+      const selection = context.items.length ? context.items : context.focusedItem ? [context.focusedItem] : [];
+      await startDownload(selection);
     },
-    [browserContentServices.providers, t]
-  );
-
-  const startBrowserUpload = useCallback(
-    (paneId: PaneId, destination: PhysicalLocation, prepare: (signal: AbortSignal) => Promise<BrowserUploadEntry[]>) => {
-      if (uploadAbortRef.current) return;
-      const controller = new AbortController();
-      const directoryChanges = {
-        connectionId: destination.connectionId,
-        writingPaths: new Set<string>(),
-        deferredPaths: new Set<string>(),
-      };
-      uploadAbortRef.current = controller;
-      uploadDirectoryChangesRef.current = directoryChanges;
-      setUploadSessionActive(true);
-      setUploadPreparing(true);
-      setTransferNotice("");
-      void (async () => {
-        const counts = { completed: 0, skipped: 0, failed: 0, unknown: 0, created: 0, merged: 0, skippedFolders: 0, failedFolders: 0 };
-        const changedPaths = new Set<string>();
-        let totalFiles = 0;
-        let halted = false;
-        const requestConflict = async (
-          conflict: ConflictInfo,
-          kind: "file" | "directory",
-          actions: readonly ConflictResolution[],
-          path: string
-        ) => {
-          setConflictInfo(conflict);
-          setUploadConflict({ kind, actions, path, connectionId: destination.connectionId });
-          const decision = await new Promise<ConflictDecision | null>((resolve) => {
-            conflictResolveRef.current = resolve;
-            setConflictDialogOpen(true);
-          });
-          setConflictDialogOpen(false);
-          setUploadConflict(null);
-          if (!decision) controller.abort();
-          return decision;
-        };
-        try {
-          const manifest = await prepare(controller.signal);
-          const hasDirectories = manifest.some((entry) => entry.kind === "directory");
-          totalFiles = manifest.filter((entry) => entry.kind === "file").length;
-          const current = getPaneForId(paneId);
-          const location = current.currentLocation;
-          if (
-            controller.signal.aborted ||
-            location.kind !== "physical" ||
-            location.connectionId !== destination.connectionId ||
-            location.path !== destination.path ||
-            !current.contentCapabilities.mutate ||
-            !isConnectionWritable(getConnectionById(allConnections, destination.connectionId)) ||
-            (isLocalDrive(destination.connectionId) && !contentOperationEnvironment.isCompanionPaired)
-          ) {
-            if (!controller.signal.aborted) setTransferNotice(t("fileBrowser.transfers.uploadDestinationChanged"));
-            return;
-          }
-          const mappedDirectories = new Map<string, string>();
-          const skippedDirectories = new Set<string>();
-          const failedDirectories = new Set<string>();
-          let fileIndex = 0;
-          for (const entry of manifest) {
-            if (controller.signal.aborted || halted) break;
-            if (entry.kind === "file") fileIndex++;
-            const relativeParent = entry.segments.slice(0, -1).join("/");
-            if (skippedDirectories.has(relativeParent) || failedDirectories.has(relativeParent)) {
-              const failed = failedDirectories.has(relativeParent);
-              if (entry.kind === "file") {
-                if (failed) counts.failed++;
-                else counts.skipped++;
-              } else (failed ? failedDirectories : skippedDirectories).add(entry.segments.join("/"));
-              continue;
-            }
-            const parent = mappedDirectories.get(relativeParent) ?? destination.path;
-            const originalName = entry.segments[entry.segments.length - 1];
-            if (!originalName) throw new Error("Upload path is missing a name.");
-            if (entry.kind === "directory") {
-              let name = originalName;
-              let resolved = false;
-              let creationConflicts = 0;
-              while (!controller.signal.aborted && !resolved) {
-                const path = joinPath(parent, name);
-                const target = browserContentServices.registry.resolveItem({ connectionId: destination.connectionId, path });
-                let existing = null;
-                try {
-                  existing = await browserContentServices.registry.getBackend(target.target).getInfo(target);
-                } catch (error) {
-                  if (!isApiError(error) || error.response?.status !== 404) throw error;
-                }
-                if (existing?.type === FileType.DIRECTORY) {
-                  counts.merged++;
-                  mappedDirectories.set(entry.segments.join("/"), path);
-                  resolved = true;
-                } else if (existing) {
-                  const incoming = {
-                    name: originalName,
-                    path: entry.segments.join("/"),
-                    type: FileType.DIRECTORY,
-                    is_readable: true,
-                    is_hidden: false,
-                  };
-                  const decision = await requestConflict(
-                    { incoming_file: incoming, existing_file: existing },
-                    "directory",
-                    ["skip", "rename"],
-                    incoming.path
-                  );
-                  if (!decision || decision.resolution === "skip") {
-                    skippedDirectories.add(entry.segments.join("/"));
-                    counts.skippedFolders++;
-                    resolved = true;
-                  } else if (decision.targetName) name = decision.targetName;
-                } else {
-                  try {
-                    if (controller.signal.aborted) break;
-                    directoryChanges.writingPaths.add(parent);
-                    await createContentItem(
-                      physicalLocation(destination.connectionId, parent),
-                      name,
-                      "directory",
-                      contentOperationEnvironment
-                    );
-                    changedPaths.add(parent);
-                    counts.created++;
-                    mappedDirectories.set(entry.segments.join("/"), path);
-                    resolved = true;
-                  } catch (error) {
-                    if (isApiError(error) && error.response?.status === 409 && ++creationConflicts < MAX_UPLOAD_DIRECTORY_CREATE_RETRIES) {
-                      continue;
-                    }
-                    logger.error("Upload folder creation failed", { path, error }, "file-browser");
-                    counts.failedFolders++;
-                    failedDirectories.add(entry.segments.join("/"));
-                    resolved = true;
-                  }
-                }
-              }
-              continue;
-            }
-            const file = entry.file;
-            let lastProgressUpdate = 0;
-            const updateProgress = (bytes: number) => {
-              const now = performance.now();
-              if (bytes > 0 && bytes < file.size && now - lastProgressUpdate < 100) return;
-              lastProgressUpdate = now;
-              setUploadProgress({
-                current: fileIndex,
-                total: totalFiles,
-                name: entry.segments.join("/"),
-                connectionId: destination.connectionId,
-                bytes,
-                size: file.size,
-                ...counts,
-              });
-            };
-            updateProgress(0);
-            setUploadPreparing(false);
-            let name = originalName;
-            let policy: TargetResolutionPolicy = "ask";
-            while (!controller.signal.aborted) {
-              try {
-                directoryChanges.writingPaths.add(parent);
-                const result = await publishBrowserFile(file, destination.connectionId, joinPath(parent, name), policy, {
-                  signal: controller.signal,
-                  onProgress: updateProgress,
-                });
-                if (result.status === "completed") {
-                  counts.completed++;
-                  changedPaths.add(parent);
-                } else if (result.status === "skipped") counts.skipped++;
-                else if (result.status === "outcome_unknown") {
-                  counts.unknown++;
-                  changedPaths.add(parent);
-                  halted = hasDirectories;
-                } else if (result.status === "failed") {
-                  counts.failed++;
-                  logger.error("File upload failed", { name: entry.segments.join("/"), error: result.error }, "file-browser");
-                }
-                break;
-              } catch (error) {
-                const detail = isApiError(error) ? error.response?.data?.detail : null;
-                if (isApiError(error) && error.response?.status === 409 && typeof detail === "object" && detail !== null) {
-                  const conflict = detail as ConflictInfo;
-                  const actions: readonly ConflictResolution[] =
-                    conflict.existing_file.type === FileType.DIRECTORY ? ["skip", "rename"] : ["skip", "overwrite", "rename"];
-                  const decision = await requestConflict(conflict, "file", actions, entry.segments.join("/"));
-                  if (!decision) break;
-                  if (decision.resolution === "skip") {
-                    counts.skipped++;
-                    break;
-                  }
-                  if (decision.resolution === "rename" && decision.targetName) name = decision.targetName;
-                  policy = targetResolutionPolicyForConflictResolution(decision.resolution);
-                  continue;
-                }
-                if (!controller.signal.aborted) {
-                  counts.failed++;
-                  logger.error("File upload failed", { name: entry.segments.join("/"), error }, "file-browser");
-                }
-                break;
-              }
-            }
-          }
-          const cancelled = controller.signal.aborted ? totalFiles - counts.completed - counts.skipped - counts.failed - counts.unknown : 0;
-          const problems = [
-            counts.skipped && t("fileBrowser.transfers.uploadSkipped", { count: counts.skipped }),
-            counts.failed && t("fileBrowser.transfers.uploadFailed", { count: counts.failed }),
-            counts.failedFolders && t("fileBrowser.transfers.uploadFolderFailed", { count: counts.failedFolders }),
-            counts.unknown && t("fileBrowser.transfers.uploadUnknown", { count: counts.unknown }),
-            cancelled && t("fileBrowser.transfers.uploadCancelled", { count: cancelled }),
-            halted && t("fileBrowser.transfers.uploadInspectDestination"),
-            halted &&
-              t("fileBrowser.transfers.uploadRemaining", {
-                count: totalFiles - counts.completed - counts.skipped - counts.failed - counts.unknown,
-              }),
-            (controller.signal.aborted || counts.failedFolders > 0) && changedPaths.size > 0 && t("fileBrowser.transfers.uploadPartial"),
-          ]
-            .filter(Boolean)
-            .join(", ");
-          const summary = t("fileBrowser.transfers.uploadComplete", { count: counts.completed });
-          const folders = hasDirectories
-            ? t("fileBrowser.transfers.uploadFolders", { created: counts.created, merged: counts.merged, skipped: counts.skippedFolders })
-            : "";
-          setTransferNotice(
-            [problems ? t("fileBrowser.transfers.uploadSummaryWithIssues", { summary, issues: problems }) : summary, folders]
-              .filter(Boolean)
-              .join(" · ")
-          );
-        } catch (error) {
-          if (!controller.signal.aborted) {
-            logger.error("Browser upload failed", { error, destination }, "file-browser");
-            const message = error instanceof Error ? error.message : t("fileBrowser.transfers.uploadFailed", { count: 1 });
-            setTransferNotice(changedPaths.size ? `${message} ${t("fileBrowser.transfers.uploadPartial")}` : message);
-          } else
-            setTransferNotice(
-              changedPaths.size
-                ? t("fileBrowser.transfers.uploadPartial")
-                : t("fileBrowser.transfers.uploadCancelled", { count: totalFiles })
-            );
-        } finally {
-          conflictResolveRef.current?.(null);
-          conflictResolveRef.current = null;
-          setConflictDialogOpen(false);
-          setUploadConflict(null);
-          setUploadProgress(null);
-          setUploadPreparing(false);
-          setUploadSessionActive(false);
-          uploadAbortRef.current = null;
-          uploadDirectoryChangesRef.current = null;
-          if (changedPaths.size) {
-            leftPane.invalidateConnectionCache(destination.connectionId);
-            rightPane.invalidateConnectionCache(destination.connectionId);
-          }
-          if (changedPaths.size || directoryChanges.deferredPaths.size) {
-            const affectedPaths = new Set([...changedPaths, ...directoryChanges.deferredPaths]);
-            for (const visiblePane of [leftPaneRef.current, rightPaneRef.current]) {
-              const location = visiblePane.currentLocation;
-              if (location.kind === "physical" && location.connectionId === destination.connectionId && affectedPaths.has(location.path)) {
-                void visiblePane.reloadCurrentLocation({ forceRefresh: true, preserveVisibleContent: true });
-              }
-            }
-          }
-        }
-      })();
-    },
-    [allConnections, browserContentServices.registry, contentOperationEnvironment, getPaneForId, leftPane, rightPane, t]
+    [startDownload]
   );
 
   const handleUploadRequest = useCallback(
@@ -3225,7 +2943,7 @@ const Browser: React.FC = () => {
       const pane = getPaneForId(paneId);
       const destination = pane.currentLocation;
       const availability = getFileListShortcutAvailability("upload", getOperationPolicyContext(paneId));
-      if (destination.kind !== "physical" || uploadAbortRef.current || !availability.available) return;
+      if (destination.kind !== "physical" || uploadSessionActive || !availability.available) return;
       if (pendingUploadPickerRef.current && document.hasFocus() === false) return;
       const picker = document.createElement("input");
       picker.type = "file";
@@ -3244,13 +2962,13 @@ const Browser: React.FC = () => {
       };
       picker.click();
     },
-    [getFileListShortcutAvailability, getOperationPolicyContext, getPaneForId, startBrowserUpload]
+    [getFileListShortcutAvailability, getOperationPolicyContext, getPaneForId, startBrowserUpload, uploadSessionActive]
   );
 
   const openUploadMenu = useCallback(
     (paneId: PaneId) => {
       const anchor = uploadTriggerRef.current;
-      if (!anchor?.isConnected || uploadAbortRef.current) return;
+      if (!anchor?.isConnected || uploadSessionActive) return;
       const pane = getPaneForId(paneId);
       const destination = pane.currentLocation;
       if (
@@ -3263,7 +2981,7 @@ const Browser: React.FC = () => {
       uploadMenuOpenId.current += 1;
       setUploadMenu({ anchor, paneId, destination });
     },
-    [allConnections, getPaneForId]
+    [allConnections, getPaneForId, uploadSessionActive]
   );
 
   const closeUploadMenu = useCallback(() => {
@@ -3298,7 +3016,7 @@ const Browser: React.FC = () => {
       const pane = getPaneForId(paneId);
       const destination = pane.currentLocation;
       const availability = getFileListShortcutAvailability("upload", getOperationPolicyContext(paneId));
-      if (destination.kind !== "physical" || uploadAbortRef.current || !availability.available) {
+      if (destination.kind !== "physical" || uploadSessionActive || !availability.available) {
         setTransferNotice(t("fileBrowser.transfers.dropUnavailable"));
         return;
       }
@@ -3309,7 +3027,7 @@ const Browser: React.FC = () => {
         setTransferNotice(error instanceof Error ? error.message : t("fileBrowser.transfers.dropUnsupported"));
       }
     },
-    [getFileListShortcutAvailability, getOperationPolicyContext, getPaneForId, startBrowserUpload, t]
+    [getFileListShortcutAvailability, getOperationPolicyContext, getPaneForId, startBrowserUpload, t, uploadSessionActive]
   );
 
   const buildFileOperationActions = useCallback(
@@ -4153,7 +3871,7 @@ const Browser: React.FC = () => {
   const effectivePaneMode: PaneMode = useCompactLayout ? "single" : paneMode;
   const getPaneDropUnavailableReason = (paneId: PaneId): string | null => {
     const availability = getFileListShortcutAvailability("upload", getOperationPolicyContext(paneId));
-    if (uploadAbortRef.current) return t("fileBrowser.transfers.dropBusy");
+    if (uploadSessionActive) return t("fileBrowser.transfers.dropBusy");
     if (!availability.available) {
       if (availability.reason === "interaction-blocked") return t("fileBrowser.transfers.dropBusy");
       if (availability.reason === "companion-unavailable") return t("fileBrowser.unavailableShortcuts.companionUnavailable");
@@ -4620,8 +4338,8 @@ const Browser: React.FC = () => {
       />
       {/* Overwrite Conflict Dialog (shown per-file during copy/move) */}
       <OverwriteResolutionDialog
-        open={conflictDialogOpen}
-        conflict={conflictInfo}
+        open={conflictDialogOpen || uploadConflict !== null}
+        conflict={uploadConflict?.info ?? conflictInfo}
         operation={uploadConflict ? "upload" : copyMoveMode}
         uploadKind={uploadConflict?.kind}
         allowedActions={uploadConflict ? uploadConflict.actions : getCopyMoveConflictActions(conflictInfo)}
@@ -4638,12 +4356,12 @@ const Browser: React.FC = () => {
               : undefined
         }
         targetDirectoryPath={
-          conflictInfo && (uploadConflict || copyMoveDestination)
+          (uploadConflict?.info ?? conflictInfo) && (uploadConflict || copyMoveDestination)
             ? getLocationDisplayName(
                 {
                   kind: "physical",
                   connectionId: uploadConflict ? uploadConflict.connectionId : copyMoveDestination!.connectionId,
-                  path: parentPath(conflictInfo.existing_file.path),
+                  path: parentPath((uploadConflict?.info ?? conflictInfo)!.existing_file.path),
                 },
                 (connectionId) => getConnectionById(allConnections, connectionId)?.name ?? connectionId
               )
@@ -4658,16 +4376,10 @@ const Browser: React.FC = () => {
       </Menu>
       <Snackbar
         key={
-          uploadProgress
-            ? "upload-progress"
-            : uploadPreparing
-              ? "upload-preparing"
-              : preparingDownload
-                ? "download-progress"
-                : transferNotice
+          uploadProgress ? "upload-progress" : uploadPreparing ? "upload-preparing" : isDownloading ? "download-progress" : transferNotice
         }
-        open={Boolean(uploadProgress || uploadPreparing || preparingDownload || transferNotice)}
-        autoHideDuration={uploadProgress || uploadPreparing || preparingDownload ? null : TRANSFER_NOTICE_AUTOHIDE_MS}
+        open={Boolean(uploadProgress || uploadPreparing || isDownloading || transferNotice)}
+        autoHideDuration={uploadProgress || uploadPreparing || isDownloading ? null : TRANSFER_NOTICE_AUTOHIDE_MS}
         message={
           uploadProgress
             ? t("fileBrowser.transfers.uploadProgress", {
@@ -4677,19 +4389,17 @@ const Browser: React.FC = () => {
               })
             : uploadPreparing
               ? t("fileBrowser.transfers.preparingUpload")
-              : preparingDownload
-                ? t("fileBrowser.transfers.preparingDownload")
+              : isDownloading
+                ? t(downloadKind === "archive" ? "fileBrowser.transfers.preparingArchive" : "fileBrowser.transfers.downloading")
                 : transferNotice
         }
         action={
-          uploadProgress || uploadPreparing || preparingDownload ? (
+          uploadProgress || uploadPreparing || isDownloading ? (
             <Button
               color="inherit"
               onClick={() => {
-                uploadAbortRef.current?.abort();
-                downloadAbortRef.current?.abort();
-                conflictResolveRef.current?.(null);
-                conflictResolveRef.current = null;
+                cancelUpload();
+                cancelDownload();
               }}
             >
               {t("common.actions.cancel")}
@@ -4697,7 +4407,7 @@ const Browser: React.FC = () => {
           ) : undefined
         }
         onClose={() => {
-          if (!uploadProgress && !uploadPreparing && !preparingDownload) setTransferNotice("");
+          if (!uploadProgress && !uploadPreparing && !isDownloading) setTransferNotice("");
         }}
       />
     </Box>

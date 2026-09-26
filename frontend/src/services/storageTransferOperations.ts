@@ -36,8 +36,8 @@ export function publishBrowserFile(
   return api.publishBrowserFile(file, connectionId, path, policy, options);
 }
 
-export function downloadPhysicalFile(connectionId: string, path: string, name: string): Promise<void> {
-  return api.downloadFile(connectionId, path, name);
+export function downloadPhysicalFile(connectionId: string, path: string, name: string, signal: AbortSignal): Promise<void> {
+  return api.downloadFile(connectionId, path, name, signal);
 }
 
 export function downloadPhysicalSelection(connectionId: string, paths: string[], signal: AbortSignal): Promise<void> {

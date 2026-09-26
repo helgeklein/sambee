@@ -49,3 +49,23 @@
 
 - MP3 files should be easy
 - Videos probably need more dependencies
+
+## Public file sharing
+
+### Issue
+
+The Sambee backend (container) is designed to be run in an internal network, not exposed to the internet. That prevents file sharing with people who don't have access to the internal network.
+
+### Proposal
+
+Create a hardened containerto be exposed to the internet. This container runs a publicly accessible file sharing service. This public container has no access to Sambee, only the other way round: When files are shared in Sambee, they are copied to the public container.
+
+Files stored on the public container are always end-to-end encrypted. The encryption keys are not stored on the public container. Thus, when the public container is compromised, its data is useless to attackers because the cannot decrypt it.
+
+Files to be shared are encrypted by Sambee. Each sharing operation uses a new, random encryption key. Encryption keys are stored by Sambee so they can be re-shared. Sharing links include the encryption key, so users can access shared files without having to fumble with keys: decryption happens transparently upon access/download.
+
+Sharing options:
+
+- Time limit: after which shared data is deleted by the public container
+- Password: if set, it is combined with the random encryption key. Decryption needs the key (shared via the link) and the password. This enables secure sharing where the link alone is not sufficient to decrypt the data.
+- Download limit

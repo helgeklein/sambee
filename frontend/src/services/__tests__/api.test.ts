@@ -434,6 +434,19 @@ describe("API Service", () => {
     expect(save).toHaveBeenCalledWith(expect.any(Blob), "Sambee-download.zip");
   });
 
+  it("aborts a physical file download and does not save a cancelled response", async () => {
+    const controller = new AbortController();
+    const save = vi.spyOn(apiService, "saveDownloadBlob").mockImplementation(() => {});
+    fetchMock.mockResolvedValueOnce(new Response(new Blob(["file"]), { status: 200 }));
+
+    const download = apiService.downloadFile("destination", "report.txt", "report.txt", controller.signal);
+    controller.abort();
+    await download;
+
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("report.txt"), expect.objectContaining({ signal: controller.signal }));
+    expect(save).not.toHaveBeenCalled();
+  });
+
   it("authenticates local selection ZIPs with both Companion and backend sessions", async () => {
     vi.spyOn(companionSession, "getSigningHeaders").mockResolvedValueOnce({
       "X-Companion-Secret": "signed",

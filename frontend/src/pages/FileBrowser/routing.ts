@@ -61,12 +61,16 @@ const parseRouteTarget = (kind: string | undefined, targetId: string | undefined
     return null;
   }
 
-  const decodedTargetId = decodeURIComponent(targetId);
-  return {
-    kind,
-    targetId: decodedTargetId,
-    path: decodePath(path ?? ""),
-  };
+  try {
+    return {
+      kind,
+      targetId: decodeURIComponent(targetId),
+      path: decodePath(path ?? ""),
+    };
+  } catch (error) {
+    if (error instanceof URIError) return null;
+    throw error;
+  }
 };
 
 const buildRoutePath = (path: string, virtualLocation?: VirtualRouteLocation | null): string => {

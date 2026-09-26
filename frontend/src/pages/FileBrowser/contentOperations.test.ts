@@ -1,3 +1,5 @@
+import { act, renderHook } from "@testing-library/react";
+import type { TFunction } from "i18next";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import api from "../../services/api";
 import { browserHistoryService } from "../../services/browserHistoryService";
@@ -15,6 +17,7 @@ import {
   startCreateContainer,
 } from "./contentOperations";
 import { physicalItem, physicalItemHandle, physicalLocation, virtualItem, virtualItemHandle, virtualLocation } from "./contentProviders";
+import { useBrowserDownload } from "./useBrowserDownload";
 
 vi.mock("../../services/api", () => ({
   default: {
@@ -50,6 +53,51 @@ describe("content operations", () => {
     vi.clearAllMocks();
   });
 
+  it("keeps one download active until its request settles, including after cancellation", async () => {
+    const location = physicalLocation("source", "parent");
+    const file = physicalItem(location, {
+      name: "report.txt",
+      path: "parent/report.txt",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    });
+    let finishDownload: (() => void) | undefined;
+    vi.mocked(api.downloadFile).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishDownload = resolve;
+        })
+    );
+    const { result } = renderHook(() => useBrowserDownload({} as never, ((key: string) => key) as TFunction, vi.fn()));
+
+    let firstDownload: Promise<void> | undefined;
+    await act(async () => {
+      firstDownload = result.current.startDownload([file]);
+    });
+    expect(result.current.isDownloading).toBe(true);
+    await act(async () => {
+      await result.current.startDownload([file]);
+    });
+    expect(api.downloadFile).toHaveBeenCalledTimes(1);
+
+    act(() => result.current.cancelDownload());
+    await act(async () => {
+      await result.current.startDownload([file]);
+    });
+    expect(api.downloadFile).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishDownload?.();
+      await firstDownload;
+    });
+    expect(result.current.isDownloading).toBe(false);
+    await act(async () => {
+      await result.current.startDownload([file]);
+    });
+    expect(api.downloadFile).toHaveBeenCalledTimes(2);
+  });
+
   it("routes a regular file directly and a directory through selected-root ZIP creation", async () => {
     const location = physicalLocation("source", "parent");
     const file = physicalItem(location, {
@@ -71,7 +119,7 @@ describe("content operations", () => {
     await downloadContentSelection([file], {} as never, signal);
     await downloadContentSelection([directory], {} as never, signal);
 
-    expect(api.downloadFile).toHaveBeenCalledWith("source", "parent/report.txt", "report.txt");
+    expect(api.downloadFile).toHaveBeenCalledWith("source", "parent/report.txt", "report.txt", signal);
     expect(api.downloadSelectionArchive).toHaveBeenCalledWith("source", ["parent/folder"], signal);
   });
 

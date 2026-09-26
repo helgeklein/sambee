@@ -387,6 +387,25 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
   // --------------------------------------------------------------------------
 
   describe("edge cases", () => {
+    it("ignores malformed encoded right-pane paths without breaking the left pane", async () => {
+      renderBrowser("/browse/smb/test-server-1?p2=smb%2Ftest-server-2%2Fbad%25name&active=2");
+
+      await waitFor(() => expectDirectoryLoad("conn-1", ""));
+      expect(vi.mocked(api.listDirectory).mock.calls.some(([connectionId]) => connectionId === "conn-2")).toBe(false);
+    });
+
+    it("preserves valid encoded percent signs in right-pane paths", () => {
+      const route = serializeBrowseRoute({
+        left: { kind: "smb", targetId: "test-server-1", path: "" },
+        right: { kind: "smb", targetId: "test-server-2", path: "100% ready" },
+        activePaneId: "right",
+      });
+      const url = new URL(route, "http://localhost");
+      expect(parseBrowseRoute({ targetType: "smb", targetId: "test-server-1", searchParams: url.searchParams }).right?.path).toBe(
+        "100% ready"
+      );
+    });
+
     it("ignores invalid SMB p2 targets gracefully", async () => {
       renderBrowser("/browse/smb/test-server-1?p2=smb/nonexistent-server/photos");
 
