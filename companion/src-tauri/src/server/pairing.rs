@@ -12,6 +12,8 @@ use log::{info, warn};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use super::DownloadIntent;
+
 #[derive(Clone, Copy)]
 pub enum VerifiedOriginRecordReason {
     PairingCompleted,
@@ -52,6 +54,7 @@ pub struct PairingState {
     last_initiated_at: Mutex<Option<Instant>>,
     /// Origins that have completed pairing (cached from keychain).
     paired_origins: Mutex<Vec<String>>,
+    pub(crate) download_intents: Mutex<HashMap<String, DownloadIntent>>,
 
     pairing_window_cooldown: Duration,
     max_pending_pairings: usize,
@@ -79,6 +82,7 @@ impl PairingState {
             pending: Mutex::new(HashMap::new()),
             last_initiated_at: Mutex::new(None),
             paired_origins: Mutex::new(Vec::new()),
+            download_intents: Mutex::new(HashMap::new()),
             pairing_window_cooldown: PAIRING_WINDOW_COOLDOWN,
             max_pending_pairings: MAX_PENDING_PAIRINGS,
         }
@@ -90,6 +94,7 @@ impl PairingState {
             pending: Mutex::new(HashMap::new()),
             last_initiated_at: Mutex::new(None),
             paired_origins: Mutex::new(Vec::new()),
+            download_intents: Mutex::new(HashMap::new()),
             pairing_window_cooldown,
             max_pending_pairings,
         }
@@ -365,6 +370,7 @@ impl PairingState {
         // Remove from cached list
         let mut origins = self.paired_origins.lock().unwrap();
         origins.retain(|o| o != origin);
+        self.download_intents.lock().unwrap().retain(|_, intent| intent.origin != origin);
         if let Err(e) = store_paired_origins_in_keychain(&origins) {
             warn!("Failed to persist paired origins list after unpair: {e}");
         }

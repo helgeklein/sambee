@@ -821,8 +821,10 @@ pub struct DownloadIntentResponse {
 
 pub async fn create_download_intent(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(request): Json<DownloadIntentRequest>,
 ) -> Result<Json<DownloadIntentResponse>, ApiError> {
+    let origin = extract_origin(&headers)?;
     if request.path.is_empty() || request.member_path.as_deref() == Some("") {
         return Err(ApiError::BadRequest(
             "A file path and nonempty member path are required".to_string(),
@@ -850,6 +852,7 @@ pub async fn create_download_intent(
 
     let token = uuid::Uuid::new_v4().to_string();
     let mut intents = state
+        .pairing
         .download_intents
         .lock()
         .map_err(|_| ApiError::Internal("Download intents unavailable".to_string()))?;
@@ -860,6 +863,7 @@ pub async fn create_download_intent(
     intents.insert(
         token.clone(),
         DownloadIntent {
+            origin,
             drive: request.drive,
             path: request.path,
             member_path: request.member_path,
@@ -881,7 +885,10 @@ fn consume_download_intent(intents: &Mutex<HashMap<String, DownloadIntent>>, tok
 }
 
 pub async fn redeem_download_intent(State(state): State<Arc<AppState>>, Path(token): Path<String>) -> Result<Response<Body>, ApiError> {
-    let intent = consume_download_intent(&state.download_intents, &token)?;
+    let intent = consume_download_intent(&state.pairing.download_intents, &token)?;
+    if !state.pairing.is_origin_paired(&intent.origin) {
+        return Err(ApiError::NotFound("Download expired or unavailable".to_string()));
+    }
     let mut response = if let Some(member_path) = intent.member_path {
         viewer_archive_member(
             Path(intent.drive),
@@ -6789,7 +6796,7 @@ mod tests {
     use crate::server::models::{
         ArchiveContractVersion, ArchiveCreationResponse, FileType, LinkKind, LinkTargetState, LinkTargetType, PublicPairingStatus,
     };
-    use crate::server::pairing::PairingState;
+    use crate::server::pairing::{PairingState, VerifiedOriginRecordReason};
     use crate::server::target_resolution::TargetResolutionPolicy;
 
     #[test]
@@ -6797,6 +6804,7 @@ mod tests {
         let intents = std::sync::Mutex::new(std::collections::HashMap::from([(
             "ticket".to_string(),
             crate::server::DownloadIntent {
+                origin: "https://example.com".to_string(),
                 drive: "test".to_string(),
                 path: "report.txt".to_string(),
                 member_path: None,
@@ -6808,6 +6816,40 @@ mod tests {
             super::consume_download_intent(&intents, "ticket"),
             Err(ApiError::NotFound(_))
         ));
+    }
+
+    #[test]
+    fn unpair_revokes_only_its_download_intents() {
+        let pairing = PairingState::new();
+        *pairing.download_intents.lock().unwrap() = std::collections::HashMap::from([
+            (
+                "revoked".to_string(),
+                crate::server::DownloadIntent {
+                    origin: "https://first.example".to_string(),
+                    drive: "test".to_string(),
+                    path: "report.txt".to_string(),
+                    member_path: None,
+                    expires_at: std::time::Instant::now() + std::time::Duration::from_secs(90),
+                },
+            ),
+            (
+                "kept".to_string(),
+                crate::server::DownloadIntent {
+                    origin: "https://second.example".to_string(),
+                    drive: "test".to_string(),
+                    path: "report.txt".to_string(),
+                    member_path: None,
+                    expires_at: std::time::Instant::now() + std::time::Duration::from_secs(90),
+                },
+            ),
+        ]);
+        pairing.unpair("https://first.example").unwrap();
+        pairing.record_verified_origin("https://first.example", VerifiedOriginRecordReason::PairingCompleted);
+        assert!(matches!(
+            super::consume_download_intent(&pairing.download_intents, "revoked"),
+            Err(ApiError::NotFound(_))
+        ));
+        assert!(super::consume_download_intent(&pairing.download_intents, "kept").is_ok());
     }
 
     #[tokio::test]

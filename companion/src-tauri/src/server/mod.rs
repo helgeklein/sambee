@@ -18,9 +18,8 @@ pub mod pairing;
 pub mod target_resolution;
 pub mod watcher;
 
-use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 use axum::http::{header, Method};
@@ -40,6 +39,7 @@ use self::watcher::DirectoryWatcher;
 pub const SERVER_PORT: u16 = 21549;
 
 pub struct DownloadIntent {
+    pub origin: String,
     pub drive: String,
     pub path: String,
     pub member_path: Option<String>,
@@ -55,7 +55,6 @@ pub struct AppState {
     pub auth: AuthState,
     pub archive_sessions: Arc<ArchiveSessionManager>,
     pub edit_locks: Arc<EditLockManager>,
-    pub download_intents: Mutex<HashMap<String, DownloadIntent>>,
     pub watcher: DirectoryWatcher,
 }
 
@@ -86,7 +85,6 @@ async fn run_server(
         auth: AuthState::new(),
         archive_sessions: Arc::new(ArchiveSessionManager::new()),
         edit_locks: Arc::new(EditLockManager::new()),
-        download_intents: Mutex::new(HashMap::new()),
         watcher: DirectoryWatcher::new(),
     });
 

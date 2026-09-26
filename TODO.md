@@ -50,7 +50,7 @@
 - MP3 files should be easy
 - Videos probably need more dependencies
 
-## Public file sharing
+## Public upload & download links
 
 ### Issue
 
@@ -58,14 +58,31 @@ The Sambee backend (container) is designed to be run in an internal network, not
 
 ### Proposal
 
-Create a hardened containerto be exposed to the internet. This container runs a publicly accessible file sharing service. This public container has no access to Sambee, only the other way round: When files are shared in Sambee, they are copied to the public container.
+#### File sharing service and container
+
+Create a hardened container to be exposed to the internet. This container runs a publicly accessible file sharing service. The public container has no access to Sambee, only the other way round: When files are shared in Sambee, they are copied to the public container. Files uploaded to the public container are pulled in from Sambee.
 
 Files stored on the public container are always end-to-end encrypted. The encryption keys are not stored on the public container. Thus, when the public container is compromised, its data is useless to attackers because the cannot decrypt it.
 
-Files to be shared are encrypted by Sambee. Each sharing operation uses a new, random encryption key. Encryption keys are stored by Sambee so they can be re-shared. Sharing links include the encryption key, so users can access shared files without having to fumble with keys: decryption happens transparently upon access/download.
+#### Download links
 
-Sharing options:
+Files to be shared via download links are encrypted by Sambee. Each sharing operation uses a new, random encryption key. Encryption keys are stored by Sambee so they can be re-shared.
+
+After encryption, Sambee uploads a file to be shared to the public container along with necessary metadata.
+
+Sharing links include the encryption key, so users can access shared files without having to fumble with keys: decryption happens transparently upon access/download in the user's browser.
+
+#### Uplkoad links
+
+Upload links are created in Sambee. They are tied to a specific directory on SMB storage. Access to that directory from the Sambee backends happens with the credentials of the user creating the link.
+
+When an upload link is created in Sambee, the backend communicates the metadata to the public container which then accepts uploads from the internet via the upload link. Uploads are encrypted in the user's browser and stored encrypted on the public container. The public container doesn't store the decryption key. Sambee periodically pulls in new uploads from the public container.
+
+#### User-configurable sharing options
 
 - Time limit: after which shared data is deleted by the public container
 - Password: if set, it is combined with the random encryption key. Decryption needs the key (shared via the link) and the password. This enables secure sharing where the link alone is not sufficient to decrypt the data.
-- Download limit
+- Download links:
+   - Max. download count
+- Upload links:
+   - Max. size
