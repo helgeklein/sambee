@@ -3037,6 +3037,55 @@ describe("Browser Component - Interactions", () => {
       }
     });
 
+    it("shows the native share error for a downloaded PDF", async () => {
+      const { share, restore } = setupCompactNativeShare();
+
+      try {
+        vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) => ({
+          path,
+          items: path
+            ? []
+            : [{ ...regularTransferTestItems[0]!, name: "document.pdf", path: "document.pdf", mime_type: "application/pdf" }],
+          total: path ? 0 : 1,
+        }));
+        vi.mocked(api.getOriginalFileBlob).mockResolvedValue(new Blob(["%PDF-1.4"], { type: "application/octet-stream" }));
+        share.mockRejectedValueOnce(new DOMException("The browser blocked this file", "NotAllowedError"));
+        const user = userEvent.setup();
+        renderBrowser("/browse/smb/test-server-1");
+
+        await user.click(await screen.findByRole("button", { name: "More actions for document.pdf" }));
+        await user.click(screen.getByRole("menuitem", { name: "Share" }));
+        await user.click(await screen.findByRole("button", { name: "Share" }));
+
+        await waitFor(() => expect(share).toHaveBeenCalledOnce());
+        expect((share.mock.calls[0]![0].files as File[])[0]).toMatchObject({ name: "document.pdf", type: "application/pdf" });
+        expect(await screen.findByText("Failed to share file: NotAllowedError: The browser blocked this file")).toBeInTheDocument();
+        await user.click(screen.getByRole("button", { name: "Close" }));
+        expect(screen.queryByText("Failed to share file: NotAllowedError: The browser blocked this file")).not.toBeInTheDocument();
+      } finally {
+        restore();
+      }
+    });
+
+    it("shows the download error while preparing to share", async () => {
+      const { share, restore } = setupCompactNativeShare();
+
+      try {
+        setupRegularFileTransferListing();
+        vi.mocked(api.getOriginalFileBlob).mockRejectedValueOnce(new Error("Download failed (403): Forbidden"));
+        const user = userEvent.setup();
+        renderBrowser("/browse/smb/test-server-1");
+
+        await user.click(await screen.findByRole("button", { name: "More actions for Documents" }));
+        await user.click(screen.getByRole("menuitem", { name: "Share" }));
+
+        expect(await screen.findByText("Failed to share file: Error: Download failed (403): Forbidden")).toBeInTheDocument();
+        expect(share).not.toHaveBeenCalled();
+      } finally {
+        restore();
+      }
+    });
+
     it("shares selected files separately in the compact selection menu", async () => {
       const { share, restore } = setupCompactNativeShare();
 
@@ -3208,7 +3257,7 @@ describe("Browser Component - Interactions", () => {
         );
         await user.click(screen.getByRole("button", { name: "More actions for Pictures" }));
         await user.click(screen.getByRole("menuitem", { name: "Share" }));
-        expect(await screen.findByText("Preparing 1 file to share...")).toBeInTheDocument();
+        expect(await screen.findByText("Downloading 1 file to share...")).toBeInTheDocument();
         const signal = vi.mocked(api.getOriginalFileBlob).mock.calls.at(-1)![2]!.signal;
         await user.click(screen.getByRole("button", { name: "Cancel" }));
         expect(signal?.aborted).toBe(true);

@@ -203,6 +203,11 @@ type UnavailableShortcutNotice = { id: number; message: string };
 type FileShareState = { status: "preparing"; count: number } | { status: "ready" | "sharing"; files: File[] };
 type RecoveryPhase = "pending" | "awaiting-route" | "ready";
 
+function fileShareErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) return `${fallback}: ${error.name}: ${error.message}`;
+  return error == null ? fallback : `${fallback}: ${String(error)}`;
+}
+
 const AVAILABLE_FILE_LIST_SHORTCUT: FileListShortcutAvailability = { available: true };
 
 function unavailableFileListShortcut(reason: FileListShortcutUnavailableReason): FileListShortcutAvailability {
@@ -471,6 +476,7 @@ const Browser: React.FC = () => {
   const [unavailableShortcutNotice, setUnavailableShortcutNotice] = useState<UnavailableShortcutNotice | null>(null);
   const [transferNotice, setTransferNotice] = useState("");
   const [shareNotice, setShareNotice] = useState("");
+  const [shareNoticeIsError, setShareNoticeIsError] = useState(false);
   const [fileShareState, setFileShareState] = useState<FileShareState | null>(null);
   const fileShareRequestRef = React.useRef<{
     controller: AbortController;
@@ -2998,6 +3004,7 @@ const Browser: React.FC = () => {
       const items = selectionAction ? context.items : context.focusedItem ? [context.focusedItem] : [];
       if (!getFileListShortcutAvailability("share", { ...context, items }).available || !items.length) return;
       setShareNotice("");
+      setShareNoticeIsError(false);
 
       const controller = new AbortController();
       const request = {
@@ -3018,9 +3025,15 @@ const Browser: React.FC = () => {
         setFileShareState({ status: "ready", files });
       } catch (error) {
         if (controller.signal.aborted || fileShareRequestRef.current !== request) return;
-        logger.error("Failed to prepare file-list share", { error }, "file-browser");
+        logger.error(
+          "Failed to prepare file-list share",
+          undefined,
+          "file-browser",
+          error instanceof Error ? error : new Error(String(error))
+        );
         cancelFileShare();
-        setShareNotice(t("viewer.share.failed"));
+        setShareNotice(fileShareErrorMessage(error, t("viewer.share.failed")));
+        setShareNoticeIsError(true);
       }
     },
     [browserContentServices.providers, cancelFileShare, getFileListShortcutAvailability, getPaneForId, t]
@@ -3035,8 +3048,14 @@ const Browser: React.FC = () => {
       if (fileShareRequestRef.current === request && result === "unsupported") setShareNotice(t("viewer.share.unsupported"));
     } catch (error) {
       if (fileShareRequestRef.current === request) {
-        logger.error("Failed to share file-list selection", { error }, "file-browser");
-        setShareNotice(t("viewer.share.failed"));
+        logger.error(
+          "Failed to share file-list selection",
+          undefined,
+          "file-browser",
+          error instanceof Error ? error : new Error(String(error))
+        );
+        setShareNotice(fileShareErrorMessage(error, t("viewer.share.failed")));
+        setShareNoticeIsError(true);
       }
     } finally {
       if (fileShareRequestRef.current === request) cancelFileShare();
@@ -4500,8 +4519,11 @@ const Browser: React.FC = () => {
         key={fileShareState ? `share-${fileShareState.status}` : `share-notice-${shareNotice}`}
         open={Boolean(fileShareState || shareNotice)}
         anchorOrigin={{ vertical: "top", horizontal: "center" }}
-        sx={{ top: `calc(${COMPACT_SHARE_SNACKBAR_TOP_PX}px + env(safe-area-inset-top))` }}
-        autoHideDuration={fileShareState ? null : TRANSFER_NOTICE_AUTOHIDE_MS}
+        sx={{
+          top: `calc(${COMPACT_SHARE_SNACKBAR_TOP_PX}px + env(safe-area-inset-top))`,
+          "& .MuiSnackbarContent-message": { overflowWrap: "anywhere" },
+        }}
+        autoHideDuration={fileShareState || shareNoticeIsError ? null : TRANSFER_NOTICE_AUTOHIDE_MS}
         message={
           fileShareState
             ? t(
@@ -4527,6 +4549,10 @@ const Browser: React.FC = () => {
           ) : fileShareState?.status === "preparing" ? (
             <Button color="inherit" onClick={cancelFileShare}>
               {t("common.actions.cancel")}
+            </Button>
+          ) : shareNoticeIsError ? (
+            <Button color="inherit" onClick={() => setShareNotice("")}>
+              {t("common.actions.close")}
             </Button>
           ) : undefined
         }

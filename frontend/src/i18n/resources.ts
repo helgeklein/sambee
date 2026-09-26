@@ -881,8 +881,8 @@ export const EN_TRANSLATIONS = {
     share: {
       filesOnly: "Only files can be shared. Remove folders from the selection.",
       selectFiles: "Select one or more files to share.",
-      preparing_one: "Preparing {{count}} file to share...",
-      preparing_other: "Preparing {{count}} files to share...",
+      preparing_one: "Downloading {{count}} file to share...",
+      preparing_other: "Downloading {{count}} files to share...",
       ready_one: "{{count}} file ready to share",
       ready_other: "{{count}} files ready to share",
       sharing: "Opening the share sheet...",
