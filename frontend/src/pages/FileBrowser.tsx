@@ -68,6 +68,7 @@ import {
   SETTINGS_CATEGORY_ORDER,
   type SettingsCategory,
 } from "../components/Settings/settingsNavigation";
+import { downloadViewerBlob } from "../components/Viewer/viewerContent";
 import { getEnabledBrowserCommands } from "../config/browserCommands";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, COPY_MOVE_SHORTCUTS, PANE_SHORTCUTS, SELECTION_SHORTCUTS } from "../config/keyboardShortcuts";
 import { useCompanion } from "../hooks/useCompanion";
@@ -477,6 +478,7 @@ const Browser: React.FC = () => {
   const [transferNotice, setTransferNotice] = useState("");
   const [shareNotice, setShareNotice] = useState("");
   const [shareNoticeIsError, setShareNoticeIsError] = useState(false);
+  const [failedShareDownload, setFailedShareDownload] = useState<{ files: File[]; nextIndex: number } | null>(null);
   const [fileShareState, setFileShareState] = useState<FileShareState | null>(null);
   const fileShareRequestRef = React.useRef<{
     controller: AbortController;
@@ -3005,6 +3007,7 @@ const Browser: React.FC = () => {
       if (!getFileListShortcutAvailability("share", { ...context, items }).available || !items.length) return;
       setShareNotice("");
       setShareNoticeIsError(false);
+      setFailedShareDownload(null);
 
       const controller = new AbortController();
       const request = {
@@ -3045,7 +3048,11 @@ const Browser: React.FC = () => {
     setFileShareState({ status: "sharing", files });
     try {
       const result = await shareNativeContent({ files });
-      if (fileShareRequestRef.current === request && result === "unsupported") setShareNotice(t("viewer.share.unsupported"));
+      if (fileShareRequestRef.current === request && result === "unsupported") {
+        setShareNotice(t("viewer.share.unsupported"));
+        setShareNoticeIsError(true);
+        setFailedShareDownload({ files, nextIndex: 0 });
+      }
     } catch (error) {
       if (fileShareRequestRef.current === request) {
         logger.error(
@@ -3054,13 +3061,37 @@ const Browser: React.FC = () => {
           "file-browser",
           error instanceof Error ? error : new Error(String(error))
         );
-        setShareNotice(fileShareErrorMessage(error, t("viewer.share.failed")));
+        setShareNotice(fileShareErrorMessage(error, t("fileBrowser.share.rejected")));
         setShareNoticeIsError(true);
+        setFailedShareDownload({ files, nextIndex: 0 });
       }
     } finally {
       if (fileShareRequestRef.current === request) cancelFileShare();
     }
   }, [cancelFileShare, fileShareState, t]);
+  const downloadFailedShare = useCallback(() => {
+    if (!failedShareDownload) return;
+    const { files, nextIndex } = failedShareDownload;
+    const file = files[nextIndex];
+    if (!file) return;
+    try {
+      downloadViewerBlob(file, file.name);
+      if (nextIndex + 1 === files.length) {
+        setFailedShareDownload(null);
+        setShareNotice("");
+      } else {
+        setFailedShareDownload({ files, nextIndex: nextIndex + 1 });
+      }
+    } catch (error) {
+      logger.error(
+        "Failed to download prepared share file",
+        undefined,
+        "file-browser",
+        error instanceof Error ? error : new Error(String(error))
+      );
+      setShareNotice(fileShareErrorMessage(error, t("fileBrowser.share.downloadFailed")));
+    }
+  }, [failedShareDownload, t]);
 
   const handleUploadRequest = useCallback(
     (paneId: PaneId, folder = false) => {
@@ -4550,13 +4581,34 @@ const Browser: React.FC = () => {
               {t("common.actions.cancel")}
             </Button>
           ) : shareNoticeIsError ? (
-            <Button color="inherit" onClick={() => setShareNotice("")}>
-              {t("common.actions.close")}
-            </Button>
+            <>
+              {failedShareDownload && (
+                <Button color="inherit" onClick={downloadFailedShare}>
+                  {failedShareDownload.files.length === 1
+                    ? t("common.actions.download")
+                    : t("fileBrowser.share.downloadNext", {
+                        current: failedShareDownload.nextIndex + 1,
+                        count: failedShareDownload.files.length,
+                      })}
+                </Button>
+              )}
+              <Button
+                color="inherit"
+                onClick={() => {
+                  setShareNotice("");
+                  setFailedShareDownload(null);
+                }}
+              >
+                {t("common.actions.close")}
+              </Button>
+            </>
           ) : undefined
         }
         onClose={() => {
-          if (!fileShareState) setShareNotice("");
+          if (!fileShareState) {
+            setShareNotice("");
+            setFailedShareDownload(null);
+          }
         }}
       />
       <Snackbar

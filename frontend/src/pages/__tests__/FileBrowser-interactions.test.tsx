@@ -6,6 +6,7 @@
 import { act, cleanup, createEvent, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import * as viewerContent from "../../components/Viewer/viewerContent";
 import api from "../../services/api";
 import { authSession } from "../../services/authSession";
 import { RECENT_DIRECTORIES_CHANGED_EVENT } from "../../services/recentDirectoriesSync";
@@ -3082,6 +3083,7 @@ describe("Browser Component - Interactions", () => {
 
     it("shows the native share error for a downloaded PDF", async () => {
       const { share, restore } = setupCompactNativeShare();
+      const downloadBlob = vi.spyOn(viewerContent, "downloadViewerBlob").mockImplementation(() => {});
 
       try {
         vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) => ({
@@ -3102,10 +3104,60 @@ describe("Browser Component - Interactions", () => {
 
         await waitFor(() => expect(share).toHaveBeenCalledOnce());
         expect((share.mock.calls[0]![0].files as File[])[0]).toMatchObject({ name: "document.pdf", type: "application/pdf" });
-        expect(await screen.findByText("Failed to share file: NotAllowedError: The browser blocked this file")).toBeInTheDocument();
-        await user.click(screen.getByRole("button", { name: "Close" }));
-        expect(screen.queryByText("Failed to share file: NotAllowedError: The browser blocked this file")).not.toBeInTheDocument();
+        expect(
+          await screen.findByText(
+            "Browser could not share these files. Download them instead: NotAllowedError: The browser blocked this file"
+          )
+        ).toBeInTheDocument();
+        await user.click(screen.getByRole("button", { name: "Download" }));
+        expect(downloadBlob).toHaveBeenCalledWith((share.mock.calls[0]![0].files as File[])[0], "document.pdf");
+        expect(api.getOriginalFileBlob).toHaveBeenCalledOnce();
+        expect(
+          screen.queryByText("Browser could not share these files. Download them instead: NotAllowedError: The browser blocked this file")
+        ).not.toBeInTheDocument();
       } finally {
+        downloadBlob.mockRestore();
+        restore();
+      }
+    });
+
+    it("downloads each prepared file separately after a rejected selection share", async () => {
+      const { share, restore } = setupCompactNativeShare();
+      const downloadBlob = vi.spyOn(viewerContent, "downloadViewerBlob").mockImplementation(() => {});
+
+      try {
+        setupRegularFileTransferListing();
+        vi.mocked(api.getOriginalFileBlob).mockImplementation(async (_connectionId, path) => new Blob([path]));
+        share.mockRejectedValueOnce(new DOMException("Permission denied", "NotAllowedError"));
+        const user = userEvent.setup();
+        renderBrowser("/browse/smb/test-server-1");
+
+        await user.click(await screen.findByRole("button", { name: "More actions for Documents" }));
+        await user.click(screen.getByRole("menuitem", { name: "Select" }));
+        await user.click(screen.getByRole("button", { name: "More actions for Pictures" }));
+        await user.click(screen.getByRole("menuitem", { name: "Select" }));
+        await user.click(screen.getByRole("button", { name: "Selection actions" }));
+        await user.click(screen.getByRole("menuitem", { name: "Share" }));
+        await user.click(await screen.findByRole("button", { name: "Share" }));
+
+        expect(
+          await screen.findByText("Browser could not share these files. Download them instead: NotAllowedError: Permission denied")
+        ).toBeInTheDocument();
+        const files = share.mock.calls[0]![0].files as File[];
+        downloadBlob.mockImplementationOnce(() => {
+          throw new Error("Storage unavailable");
+        });
+        await user.click(screen.getByRole("button", { name: "Download 1/2" }));
+        expect(await screen.findByText("Failed to download file: Error: Storage unavailable")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Download 1/2" })).toBeInTheDocument();
+        await user.click(screen.getByRole("button", { name: "Download 1/2" }));
+        expect(downloadBlob).toHaveBeenNthCalledWith(2, files[0], "Documents");
+        await user.click(screen.getByRole("button", { name: "Download 2/2" }));
+        expect(downloadBlob).toHaveBeenNthCalledWith(3, files[1], "Pictures");
+        expect(api.getOriginalFileBlob).toHaveBeenCalledTimes(2);
+        expect(screen.queryByText("Failed to download file: Error: Storage unavailable")).not.toBeInTheDocument();
+      } finally {
+        downloadBlob.mockRestore();
         restore();
       }
     });

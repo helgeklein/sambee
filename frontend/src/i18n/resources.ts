@@ -886,6 +886,9 @@ export const EN_TRANSLATIONS = {
       ready_one: "{{count}} file ready to share",
       ready_other: "{{count}} files ready to share",
       sharing: "Opening the share sheet...",
+      rejected: "Browser could not share these files. Download them instead",
+      downloadNext: "Download {{current}}/{{count}}",
+      downloadFailed: "Failed to download file",
     },
     list: {
       emptyDirectory: "This directory is empty",
