@@ -59,6 +59,36 @@ def test_candidate_workflows_do_not_expose_source_or_version_overrides() -> None
     assert "build_version" in workflow_inputs(companion)
 
 
+def test_docker_release_reuses_only_verified_source_ci_jobs() -> None:
+    workflow = load_workflow("docker-image-preview-publish.yml")
+    validation = workflow["jobs"]["validate-tests"]
+    steps = validation["steps"]
+    lookup = next(step for step in steps if step.get("id") == "source-ci")
+
+    assert validation["permissions"]["actions"] == "read"
+    assert lookup["env"]["SOURCE_SHA"] == "${{ needs.prepare.outputs.checkout_ref }}"
+    assert lookup["run"] == "python .github/scripts/reuse_release_ci_tests.py"
+
+    backend_steps = (
+        "Install backend system dependencies",
+        "Install backend test dependencies",
+        "Generate backend test images",
+        "Run backend type checks",
+        "Run backend tests (excluding performance)",
+        "Run backend performance tests",
+    )
+    frontend_steps = (
+        "Set up Node.js",
+        "Install frontend dependencies",
+        "Run frontend type checks",
+        "Run frontend tests",
+    )
+    for component, names in (("backend", backend_steps), ("frontend", frontend_steps)):
+        for name in names:
+            step = next(step for step in steps if step.get("name") == name)
+            assert step["if"] == f"steps.source-ci.outputs.{component} != 'true'"
+
+
 def test_candidate_matrix_builds_depend_on_shared_preflight() -> None:
     for workflow_name in (
         "docker-image-preview-publish.yml",

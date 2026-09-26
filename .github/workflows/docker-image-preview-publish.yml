@@ -163,6 +163,7 @@ jobs:
         shell: bash
     permissions:
       contents: read
+      actions: read
     steps:
     - name: Checkout source code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -172,31 +173,45 @@ jobs:
     - name: Sync and verify version metadata
       uses: ./.github/actions/sync-version-check
 
+    - name: Check source CI results
+      id: source-ci
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        SOURCE_SHA: ${{ needs.prepare.outputs.checkout_ref }}
+      run: python .github/scripts/reuse_release_ci_tests.py
+
     - name: Install backend system dependencies
+      if: steps.source-ci.outputs.backend != 'true'
       run: bash scripts/install-system-deps
 
     - name: Install backend test dependencies
+      if: steps.source-ci.outputs.backend != 'true'
       run: python -m pip install --require-hashes -r backend/requirements-dev.lock.txt
 
     - name: Generate backend test images
+      if: steps.source-ci.outputs.backend != 'true'
       run: QUIET=1 scripts/setup-test-images
 
     - name: Run backend type checks
+      if: steps.source-ci.outputs.backend != 'true'
       run: cd backend && mypy app
 
     - name: Run backend tests (excluding performance)
+      if: steps.source-ci.outputs.backend != 'true'
       env:
         SECRET_KEY: test-secret-key-for-ci-only-not-for-production-use
         ENCRYPTION_KEY: YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU=
       run: cd backend && pytest -n auto -m 'not performance' -v
 
     - name: Run backend performance tests
+      if: steps.source-ci.outputs.backend != 'true'
       env:
         SECRET_KEY: test-secret-key-for-ci-only-not-for-production-use
         ENCRYPTION_KEY: YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU=
       run: cd backend && pytest -m performance -v
 
     - name: Set up Node.js
+      if: steps.source-ci.outputs.frontend != 'true'
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
         node-version: '24'
@@ -204,12 +219,15 @@ jobs:
         cache-dependency-path: frontend/package-lock.json
 
     - name: Install frontend dependencies
+      if: steps.source-ci.outputs.frontend != 'true'
       run: cd frontend && npm ci --prefer-offline
 
     - name: Run frontend type checks
+      if: steps.source-ci.outputs.frontend != 'true'
       run: cd frontend && npx tsc --noEmit
 
     - name: Run frontend tests
+      if: steps.source-ci.outputs.frontend != 'true'
       run: cd frontend && npm run test:ci
 
   build-and-validate-platforms:
