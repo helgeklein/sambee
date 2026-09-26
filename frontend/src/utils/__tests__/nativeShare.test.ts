@@ -63,6 +63,11 @@ describe("nativeShare", () => {
     expect(createShareFile(new Blob(["hello"]), "hello.txt", "text/plain").type).toBe("text/plain");
   });
 
+  it("uses the listed MIME type when the raw download is generic", () => {
+    const rawBlob = new Blob(["%PDF-1.4"], { type: "application/octet-stream" });
+    expect(createShareFile(rawBlob, "document.pdf", "application/pdf").type).toBe("application/pdf");
+  });
+
   it("shares files when file sharing is supported", async () => {
     const share = vi.fn().mockResolvedValue(undefined);
     const canShare = vi.fn().mockReturnValue(true);

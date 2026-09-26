@@ -43,7 +43,7 @@ export function shouldWarmNativeSharePayload(): boolean {
 }
 
 export function createShareFile(blob: Blob, filename: string, mimeType?: string): File {
-  const fileType = blob.type || mimeType || "application/octet-stream";
+  const fileType = blob.type === "application/octet-stream" ? mimeType || blob.type : blob.type || mimeType || "application/octet-stream";
   return new File([blob], filename, { type: fileType });
 }
 
