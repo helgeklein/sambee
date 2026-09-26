@@ -35,6 +35,54 @@ from app.models.user import User, UserRole
 class TestDatabaseInitialization:
     """Test database initialization."""
 
+    def test_migration_upgrades_existing_download_intents(self, tmp_path: Path):
+        test_engine = create_engine(f"sqlite:///{tmp_path / 'old-download-intents.db'}")
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "CREATE TABLE download_intent ("
+                        "token_hash VARCHAR PRIMARY KEY, user_id CHAR(32) NOT NULL, connection_id CHAR(32) NOT NULL, "
+                        "path VARCHAR NOT NULL, member_path VARCHAR, expires_at DATETIME NOT NULL)"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "INSERT INTO download_intent (token_hash, user_id, connection_id, path, expires_at) "
+                        "VALUES ('old-ticket', :user_id, :connection_id, 'file.psd', '2099-01-01')"
+                    ),
+                    {"user_id": "a" * 32, "connection_id": "b" * 32},
+                )
+                connection.execute(
+                    text(
+                        f"CREATE TABLE {MIGRATION_TABLE_NAME} ("
+                        "version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+                    )
+                )
+                for migration in MIGRATIONS:
+                    if migration.version < 36:
+                        connection.execute(
+                            text(f"INSERT INTO {MIGRATION_TABLE_NAME} (version, name) VALUES (:version, :name)"),
+                            {"version": migration.version, "name": migration.name},
+                        )
+
+            run_migrations(test_engine)
+            run_migrations(test_engine)
+
+            assert "token_version" in {column["name"] for column in inspect(test_engine).get_columns("download_intent")}
+            with test_engine.begin() as connection:
+                assert connection.execute(text("SELECT count(*) FROM download_intent")).scalar_one() == 0
+                connection.execute(
+                    text(
+                        "INSERT INTO download_intent (token_hash, user_id, token_version, connection_id, path, expires_at) "
+                        "VALUES ('new-ticket', :user_id, 12, :connection_id, 'file.psd', '2099-01-01')"
+                    ),
+                    {"user_id": "a" * 32, "connection_id": "b" * 32},
+                )
+                assert connection.execute(text("SELECT token_version FROM download_intent")).scalar_one() == 12
+        finally:
+            test_engine.dispose()
+
     def test_init_db_creates_tables(self):
         """Test that init_db creates all tables."""
         # Create a temporary database
