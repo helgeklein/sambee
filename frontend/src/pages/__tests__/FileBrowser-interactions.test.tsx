@@ -78,6 +78,37 @@ const setupRegularFileTransferListing = () => {
   );
 };
 
+function setupCompactNativeShare() {
+  const originalMatchMedia = window.matchMedia;
+  const originalShare = Object.getOwnPropertyDescriptor(navigator, "share");
+  const originalCanShare = Object.getOwnPropertyDescriptor(navigator, "canShare");
+  const share = vi.fn().mockResolvedValue(undefined);
+  const canShare = vi.fn().mockReturnValue(true);
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches: /max-width/.test(query),
+    media: query,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+  Object.defineProperty(navigator, "share", { configurable: true, value: share });
+  Object.defineProperty(navigator, "canShare", { configurable: true, value: canShare });
+
+  return {
+    share,
+    canShare,
+    restore() {
+      window.matchMedia = originalMatchMedia;
+      if (originalShare) Object.defineProperty(navigator, "share", originalShare);
+      else Reflect.deleteProperty(navigator, "share");
+      if (originalCanShare) Object.defineProperty(navigator, "canShare", originalCanShare);
+      else Reflect.deleteProperty(navigator, "canShare");
+    },
+  };
+}
+
 // Mock the API module
 vi.mock("../../services/api");
 
@@ -2971,6 +3002,132 @@ describe("Browser Component - Interactions", () => {
       await waitFor(() => {
         expect(api.deleteItem).toHaveBeenCalledTimes(2);
       });
+    });
+
+    it("shares the original file from the compact item menu", async () => {
+      const { share, canShare, restore } = setupCompactNativeShare();
+
+      try {
+        setupRegularFileTransferListing();
+        vi.mocked(api.getOriginalFileBlob).mockResolvedValue(new Blob(["original"], { type: "text/plain" }));
+        const user = userEvent.setup();
+        renderBrowser("/browse/smb/test-server-1");
+
+        await user.click(await screen.findByRole("button", { name: "More actions for Documents" }));
+        await user.click(screen.getByRole("menuitem", { name: "Share" }));
+        expect(await screen.findByText("1 file ready to share")).toBeInTheDocument();
+        expect(share).not.toHaveBeenCalled();
+        await user.click(screen.getByRole("button", { name: "Share" }));
+
+        await waitFor(() => expect(share).toHaveBeenCalledOnce());
+        expect(api.getOriginalFileBlob).toHaveBeenCalledWith("conn-1", "Documents", { signal: expect.any(AbortSignal) });
+        const files = share.mock.calls[0]![0].files as File[];
+        expect(files).toHaveLength(1);
+        expect(files[0]).toMatchObject({ name: "Documents", type: "text/plain", size: 8 });
+        expect(canShare).toHaveBeenCalledWith({ files });
+
+        canShare.mockReturnValue(false);
+        await user.click(screen.getByRole("button", { name: "More actions for Documents" }));
+        await user.click(screen.getByRole("menuitem", { name: "Share" }));
+        await user.click(await screen.findByRole("button", { name: "Share" }));
+        expect(await screen.findByText("Sharing is not available on this device or browser")).toBeInTheDocument();
+        expect(share).toHaveBeenCalledOnce();
+      } finally {
+        restore();
+      }
+    });
+
+    it("shares selected files separately in the compact selection menu", async () => {
+      const { share, restore } = setupCompactNativeShare();
+
+      try {
+        setupRegularFileTransferListing();
+        vi.mocked(api.getOriginalFileBlob).mockImplementation(async (_connectionId, path) => new Blob([path], { type: "text/plain" }));
+        const user = userEvent.setup();
+        renderBrowser("/browse/smb/test-server-1");
+
+        await user.click(await screen.findByRole("button", { name: "More actions for Documents" }));
+        await user.click(screen.getByRole("menuitem", { name: "Select" }));
+        await user.click(screen.getByRole("button", { name: "More actions for Pictures" }));
+        await user.click(screen.getByRole("menuitem", { name: "Select" }));
+        await user.click(screen.getByRole("button", { name: "Selection actions" }));
+        await user.click(screen.getByRole("menuitem", { name: "Share" }));
+        expect(await screen.findByText("2 files ready to share")).toBeInTheDocument();
+        await user.click(screen.getByRole("button", { name: "Share" }));
+
+        await waitFor(() => expect(share).toHaveBeenCalledOnce());
+        const files = share.mock.calls[0]![0].files as File[];
+        expect(files.map((file) => file.name)).toEqual(["Documents", "Pictures"]);
+        expect(files.map((file) => file.type)).toEqual(["text/plain", "text/plain"]);
+
+        await user.click(screen.getByRole("button", { name: "Selection actions" }));
+        await user.click(screen.getByRole("menuitem", { name: "Share" }));
+        expect(await screen.findByText("2 files ready to share")).toBeInTheDocument();
+        await user.click(screen.getByRole("button", { name: "Clear selection" }));
+        await waitFor(() => expect(screen.queryByText("2 files ready to share")).not.toBeInTheDocument());
+        expect(share).toHaveBeenCalledOnce();
+      } finally {
+        restore();
+      }
+    });
+
+    it("disables sharing for folder selections and cancels a pending file read", async () => {
+      const { share, restore } = setupCompactNativeShare();
+
+      try {
+        vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) => ({
+          path,
+          items: path ? [] : [{ ...regularTransferTestItems[0]!, type: FileType.DIRECTORY }, regularTransferTestItems[1]!],
+          total: path ? 0 : 2,
+        }));
+        const user = userEvent.setup();
+        renderBrowser("/browse/smb/test-server-1");
+
+        await user.click(await screen.findByRole("button", { name: "More actions for Documents" }));
+        expect(screen.queryByRole("menuitem", { name: "Share" })).not.toBeInTheDocument();
+        await user.click(screen.getByRole("menuitem", { name: "Select" }));
+        await user.click(screen.getByRole("button", { name: "More actions for Pictures" }));
+        await user.click(screen.getByRole("menuitem", { name: "Select" }));
+        await user.click(screen.getByRole("button", { name: "Selection actions" }));
+        expect(screen.getByRole("menuitem", { name: "Share" })).toHaveAttribute("aria-disabled", "true");
+        expect(api.getOriginalFileBlob).not.toHaveBeenCalled();
+
+        await user.keyboard("{Escape}");
+        await user.click(screen.getByRole("button", { name: "Clear selection" }));
+        vi.mocked(api.getOriginalFileBlob).mockImplementation(
+          (_connectionId, _path, options) =>
+            new Promise((_resolve, reject) =>
+              options.signal?.addEventListener("abort", () => reject(new DOMException("Cancelled", "AbortError")), { once: true })
+            )
+        );
+        await user.click(screen.getByRole("button", { name: "More actions for Pictures" }));
+        await user.click(screen.getByRole("menuitem", { name: "Share" }));
+        expect(await screen.findByText("Preparing 1 file to share...")).toBeInTheDocument();
+        const signal = vi.mocked(api.getOriginalFileBlob).mock.calls.at(-1)![2]!.signal;
+        await user.click(screen.getByRole("button", { name: "Cancel" }));
+        expect(signal?.aborted).toBe(true);
+        expect(share).not.toHaveBeenCalled();
+      } finally {
+        restore();
+      }
+    });
+
+    it("hides compact sharing commands when native sharing is unavailable", async () => {
+      const { restore } = setupCompactNativeShare();
+      Reflect.deleteProperty(navigator, "share");
+      try {
+        setupRegularFileTransferListing();
+        const user = userEvent.setup();
+        renderBrowser("/browse/smb/test-server-1");
+
+        await user.click(await screen.findByRole("button", { name: "More actions for Documents" }));
+        expect(screen.queryByRole("menuitem", { name: "Share" })).not.toBeInTheDocument();
+        await user.click(screen.getByRole("menuitem", { name: "Select" }));
+        await user.click(screen.getByRole("button", { name: "Selection actions" }));
+        expect(screen.queryByRole("menuitem", { name: "Share" })).not.toBeInTheDocument();
+      } finally {
+        restore();
+      }
     });
 
     it("deletes every item selected through the compact selection menu", async () => {

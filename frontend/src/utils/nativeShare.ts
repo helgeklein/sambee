@@ -6,6 +6,7 @@ type ShareConnection = {
 
 interface ShareOptions {
   file?: File;
+  files?: readonly File[];
   title?: string;
   text?: string;
   url?: string;
@@ -41,35 +42,40 @@ export function shouldWarmNativeSharePayload(): boolean {
   return !["slow-2g", "2g", "3g"].includes(connection.effectiveType ?? "");
 }
 
-export function createShareFile(blob: Blob, filename: string): File {
-  const fileType = blob.type || "application/octet-stream";
+export function createShareFile(blob: Blob, filename: string, mimeType?: string): File {
+  const fileType = blob.type || mimeType || "application/octet-stream";
   return new File([blob], filename, { type: fileType });
 }
 
-function canShareFiles(file: File): boolean {
+function canShareFiles(files: File[]): boolean {
   const shareNavigator = getShareNavigator();
   if (!shareNavigator || typeof shareNavigator.canShare !== "function") {
     return false;
   }
 
   try {
-    return shareNavigator.canShare({ files: [file] });
+    return shareNavigator.canShare({ files });
   } catch {
     return false;
   }
 }
 
-export async function shareNativeContent({ file, title, text, url }: ShareOptions): Promise<NativeShareResult> {
+export async function shareNativeContent({ file, files, title, text, url }: ShareOptions): Promise<NativeShareResult> {
   const shareNavigator = getShareNavigator();
   if (!shareNavigator?.share) {
     return "unsupported";
   }
 
   const shareData: ShareData = {};
-  const canShareFile = file ? canShareFiles(file) : false;
+  const shareFiles = files ? [...files] : file ? [file] : [];
+  const canShareFile = shareFiles.length > 0 && canShareFiles(shareFiles);
 
-  if (file && canShareFile) {
-    shareData.files = [file];
+  if (files && !canShareFile) {
+    return "unsupported";
+  }
+
+  if (canShareFile) {
+    shareData.files = shareFiles;
   }
 
   if (title) {

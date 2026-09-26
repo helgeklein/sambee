@@ -99,6 +99,7 @@ import type { ConflictInfo, Connection, FileEntry } from "../types";
 import { FileType, isApiError } from "../types";
 import { openExternalUrl } from "../utils/externalLinks";
 import { compareLocalizedStrings } from "../utils/localeFormatting";
+import { createShareFile, shareNativeContent, supportsNativeShare } from "../utils/nativeShare";
 import { getConnectionById, isConnectionReadOnly, isConnectionWritable } from "./FileBrowser/access";
 import { captureDropEntries, manifestFromDrop, manifestFromFiles } from "./FileBrowser/browserUploadManifest";
 import {
@@ -131,7 +132,7 @@ import type {
   PhysicalLocation,
   VirtualLocation,
 } from "./FileBrowser/contentProviders";
-import { isDirectory, physicalLocation, virtualLocation } from "./FileBrowser/contentProviders";
+import { isDirectory, physicalLocation, readContent, virtualLocation } from "./FileBrowser/contentProviders";
 import { FileBrowserPane } from "./FileBrowser/FileBrowserPane";
 import {
   type CapturedDestination,
@@ -176,6 +177,8 @@ const SERVER_WEBSOCKET_RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 5_000] as const
 const COMPANION_WEBSOCKET_RECONNECT_DELAY_MS = 5_000;
 const COMPANION_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
 const TRANSFER_NOTICE_AUTOHIDE_MS = 6_000;
+const MAX_NATIVE_SHARE_FILES = 20;
+const MAX_NATIVE_SHARE_BYTES = 100 * 1024 * 1024;
 
 const COMPANION_STATUS_QUERY_PARAM = "companion_status";
 const IGNORED_REALTIME_MESSAGE_TYPES = new Set(["subscribed", "unsubscribed", "pong"]);
@@ -193,9 +196,12 @@ type FileListShortcutUnavailableReason =
   | "unsupported-source"
   | "unsupported-destination"
   | "companion-unavailable"
+  | "share-files-only"
+  | "share-unsupported"
   | "interaction-blocked";
 type FileListShortcutAvailability = { available: true } | { available: false; reason: FileListShortcutUnavailableReason };
 type UnavailableShortcutNotice = { id: number; message: string };
+type FileShareState = { status: "preparing"; count: number } | { status: "ready" | "sharing"; files: File[] };
 type RecoveryPhase = "pending" | "awaiting-route" | "ready";
 
 const AVAILABLE_FILE_LIST_SHORTCUT: FileListShortcutAvailability = { available: true };
@@ -465,6 +471,13 @@ const Browser: React.FC = () => {
   const [companionHintOpen, setCompanionHintOpen] = useState(false);
   const [unavailableShortcutNotice, setUnavailableShortcutNotice] = useState<UnavailableShortcutNotice | null>(null);
   const [transferNotice, setTransferNotice] = useState("");
+  const [fileShareState, setFileShareState] = useState<FileShareState | null>(null);
+  const fileShareRequestRef = React.useRef<{
+    controller: AbortController;
+    paneId: PaneId;
+    location: ContentLocation;
+    selectedPaths: string[] | null;
+  } | null>(null);
   const pendingUploadPickerRef = React.useRef<HTMLInputElement | null>(null);
   const uploadTriggerRef = React.useRef<HTMLElement | null>(null);
   const uploadMenuFocusRef = React.useRef<HTMLElement | null>(null);
@@ -778,6 +791,30 @@ const Browser: React.FC = () => {
   effectiveActivePaneIdRef.current = effectiveActivePaneId;
   const activePane = effectiveActivePaneId === "left" ? leftPane : rightPane;
   const getPaneForId = useCallback((paneId: PaneId) => (paneId === "left" ? leftPaneRef.current : rightPaneRef.current), []);
+  const cancelFileShare = useCallback(() => {
+    fileShareRequestRef.current?.controller.abort();
+    fileShareRequestRef.current = null;
+    setFileShareState(null);
+  }, []);
+  useEffect(() => {
+    const request = fileShareRequestRef.current;
+    if (!request) return;
+    const pane = request.paneId === "left" ? leftPane : rightPane;
+    if (
+      !areSameContentLocations(pane.currentLocation, request.location) ||
+      (request.selectedPaths &&
+        (pane.selectedFiles.size !== request.selectedPaths.length || request.selectedPaths.some((path) => !pane.selectedFiles.has(path))))
+    ) {
+      cancelFileShare();
+    }
+  }, [cancelFileShare, leftPane, rightPane]);
+  useEffect(
+    () => () => {
+      fileShareRequestRef.current?.controller.abort();
+      fileShareRequestRef.current = null;
+    },
+    []
+  );
   const contentOperationEnvironment = useMemo(
     () => ({
       isCompanionPaired: companion.status === "paired",
@@ -1016,6 +1053,19 @@ const Browser: React.FC = () => {
         return AVAILABLE_FILE_LIST_SHORTCUT;
       }
 
+      if (action === "share") {
+        if (!useCompactLayout || !supportsNativeShare()) return unavailableFileListShortcut("share-unsupported");
+        if (fileShareState) return unavailableFileListShortcut("interaction-blocked");
+        const selected = context.items.length ? context.items : context.focusedItem ? [context.focusedItem] : [];
+        if (!selected.length) return unavailableFileListShortcut("no-selection");
+        if (selected.some((item) => item.entry.type !== FileType.FILE || item.entry.link_target?.target?.type === FileType.DIRECTORY))
+          return unavailableFileListShortcut("share-files-only");
+        if (selected.some((item) => !item.entry.is_readable)) return unavailableFileListShortcut("unsupported-source");
+        if (isLocalDrive(sourceLocation.connectionId) && !contentOperationEnvironment.isCompanionPaired)
+          return unavailableFileListShortcut("companion-unavailable");
+        return sourcePane.contentCapabilities.read ? AVAILABLE_FILE_LIST_SHORTCUT : unavailableFileListShortcut("unsupported-source");
+      }
+
       if (action === "download") {
         if (isDownloading) return unavailableFileListShortcut("interaction-blocked");
         const selected = context.items.length ? context.items : context.focusedItem ? [context.focusedItem] : [];
@@ -1100,7 +1150,9 @@ const Browser: React.FC = () => {
       isBrowserBrowsing,
       isDualMode,
       isDownloading,
+      fileShareState,
       uploadSessionActive,
+      useCompactLayout,
     ]
   );
   const getUnavailableShortcutMessage = useCallback(
@@ -1110,9 +1162,12 @@ const Browser: React.FC = () => {
       if (reason === "read-only-location") return t("fileBrowser.unavailableShortcuts.readOnlyLocation");
       if (reason === "companion-unavailable") return t("fileBrowser.unavailableShortcuts.companionUnavailable");
       if (reason === "interaction-blocked") return t("fileBrowser.unavailableShortcuts.interactionBlocked");
+      if (reason === "share-files-only") return t("fileBrowser.share.filesOnly");
+      if (reason === "share-unsupported") return t("viewer.share.unsupported");
       if (reason === "no-focused-item")
         return t(`fileBrowser.unavailableShortcuts.${action === "delete" ? "selectItemToDelete" : "selectItemToRename"}`);
       if (reason === "no-selection") {
+        if (action === "share") return t("fileBrowser.share.selectFiles");
         if (action === "download") return t("fileBrowser.unavailableShortcuts.selectItemsToDownload");
         if (action === "create-archive") return t("fileBrowser.unavailableShortcuts.selectItemsToArchive");
         if (action === "extract-archive") return t("fileBrowser.unavailableShortcuts.selectArchiveToExtract");
@@ -2938,6 +2993,68 @@ const Browser: React.FC = () => {
     [startDownload]
   );
 
+  const handleFileShareRequest = useCallback(
+    async (context: FileOperationPolicyContext, selectionAction: boolean) => {
+      const items = selectionAction ? context.items : context.focusedItem ? [context.focusedItem] : [];
+      if (!getFileListShortcutAvailability("share", { ...context, items }).available || !items.length) return;
+      if (
+        items.length > MAX_NATIVE_SHARE_FILES ||
+        items.reduce((total, item) => total + (item.entry.size ?? 0), 0) > MAX_NATIVE_SHARE_BYTES
+      ) {
+        setTransferNotice(t("fileBrowser.share.tooLarge", { count: MAX_NATIVE_SHARE_FILES, size: formatFileSize(MAX_NATIVE_SHARE_BYTES) }));
+        return;
+      }
+
+      const controller = new AbortController();
+      const request = {
+        controller,
+        paneId: context.paneId,
+        location: getPaneForId(context.paneId).currentLocation,
+        selectedPaths: selectionAction ? items.map((item) => item.entry.path) : null,
+      };
+      fileShareRequestRef.current = request;
+      setFileShareState({ status: "preparing", count: items.length });
+      try {
+        const files: File[] = [];
+        let totalBytes = 0;
+        for (const item of items) {
+          const blob = await readContent(item.handle, { kind: "raw" }, { signal: controller.signal }, browserContentServices.providers);
+          if (controller.signal.aborted || fileShareRequestRef.current !== request) return;
+          totalBytes += blob.size;
+          if (totalBytes > MAX_NATIVE_SHARE_BYTES) {
+            setTransferNotice(
+              t("fileBrowser.share.tooLarge", { count: MAX_NATIVE_SHARE_FILES, size: formatFileSize(MAX_NATIVE_SHARE_BYTES) })
+            );
+            cancelFileShare();
+            return;
+          }
+          files.push(createShareFile(blob, item.entry.name, item.entry.mime_type));
+        }
+        setFileShareState({ status: "ready", files });
+      } catch (error) {
+        if (controller.signal.aborted || fileShareRequestRef.current !== request) return;
+        logger.error("Failed to prepare file-list share", { error }, "file-browser");
+        cancelFileShare();
+        setTransferNotice(t("viewer.share.failed"));
+      }
+    },
+    [browserContentServices.providers, cancelFileShare, getFileListShortcutAvailability, getPaneForId, t]
+  );
+  const finishFileShare = useCallback(async () => {
+    if (fileShareState?.status !== "ready") return;
+    const files = fileShareState.files;
+    setFileShareState({ status: "sharing", files });
+    try {
+      const result = await shareNativeContent({ files });
+      if (result === "unsupported") setTransferNotice(t("viewer.share.unsupported"));
+    } catch (error) {
+      logger.error("Failed to share file-list selection", { error }, "file-browser");
+      setTransferNotice(t("viewer.share.failed"));
+    } finally {
+      cancelFileShare();
+    }
+  }, [cancelFileShare, fileShareState, t]);
+
   const handleUploadRequest = useCallback(
     (paneId: PaneId, folder = false) => {
       const pane = getPaneForId(paneId);
@@ -3058,6 +3175,7 @@ const Browser: React.FC = () => {
         "create-archive": getFileListShortcutAvailability("create-archive", context),
         "extract-archive": getFileListShortcutAvailability("extract-archive", context),
         download: getFileListShortcutAvailability("download", context),
+        share: getFileListShortcutAvailability("share", context),
         upload: getFileListShortcutAvailability("upload", context),
         refresh: getFileListShortcutAvailability("refresh", context),
       };
@@ -3084,6 +3202,7 @@ const Browser: React.FC = () => {
           "create-archive": t("fileBrowser.toolbar.createArchive"),
           "extract-archive": t("fileBrowser.toolbar.extractArchive"),
           download: t("common.actions.download"),
+          share: t("common.actions.share"),
           upload: t("fileBrowser.toolbar.upload"),
           refresh: t("fileBrowser.toolbar.refresh"),
         },
@@ -3097,6 +3216,7 @@ const Browser: React.FC = () => {
           "create-archive": BROWSER_SHORTCUTS.CREATE_ARCHIVE.label,
           "extract-archive": BROWSER_SHORTCUTS.EXTRACT_ARCHIVE.label,
           download: BROWSER_SHORTCUTS.DOWNLOAD.label,
+          share: "",
           upload: BROWSER_SHORTCUTS.UPLOAD.label,
           refresh: BROWSER_SHORTCUTS.REFRESH.label,
         },
@@ -3140,6 +3260,10 @@ const Browser: React.FC = () => {
                 : invocation
             );
           },
+          share: () => {
+            const invocation = createInvocation();
+            void handleFileShareRequest(invocation, surface === "compact-selection-menu");
+          },
           upload: () => openUploadMenu(createInvocation().paneId),
           refresh: () => getPaneForId(createInvocation().paneId).handleRefresh(),
         },
@@ -3157,6 +3281,7 @@ const Browser: React.FC = () => {
       handleCreateArchiveRequest,
       handleMoveToOtherPane,
       handleDownloadRequest,
+      handleFileShareRequest,
       openUploadMenu,
       isDualMode,
       t,
@@ -3231,11 +3356,20 @@ const Browser: React.FC = () => {
       return [
         ...actions,
         ...buildFileOperationActions("compact-item-menu", context).filter(
-          (action) => action.id !== "extract-archive" || getArchiveExtractionSourceForContext(context) !== null
+          (action) =>
+            (action.id !== "extract-archive" || getArchiveExtractionSourceForContext(context) !== null) &&
+            (action.id !== "share" || (item.entry.type === FileType.FILE && supportsNativeShare()))
         ),
       ];
     },
     [buildFileOperationActions, companion.status, contentOperationEnvironment, getArchiveExtractionSourceForContext, getPaneForId, t]
+  );
+  const buildCompactSelectionActions = useCallback(
+    (context: FileOperationPolicyContext) =>
+      buildFileOperationActions("compact-selection-menu", context).filter(
+        (action) => action.id !== "share" || (useCompactLayout && supportsNativeShare())
+      ),
+    [buildFileOperationActions, useCompactLayout]
   );
   const fileOperationActions = buildFileOperationActions("desktop-toolbar");
 
@@ -4063,7 +4197,7 @@ const Browser: React.FC = () => {
                 modeOptions={quickBarModeOptions}
                 getCompactCreateActions={buildCompactCreateActions}
                 getCompactItemActions={buildCompactItemActions}
-                getCompactSelectionActions={(context) => buildFileOperationActions("compact-selection-menu", context)}
+                getCompactSelectionActions={buildCompactSelectionActions}
               />
 
               {/* Divider + Right Pane — dual mode only */}
@@ -4108,7 +4242,7 @@ const Browser: React.FC = () => {
                     modeOptions={quickBarModeOptions}
                     getCompactCreateActions={buildCompactCreateActions}
                     getCompactItemActions={buildCompactItemActions}
-                    getCompactSelectionActions={(context) => buildFileOperationActions("compact-selection-menu", context)}
+                    getCompactSelectionActions={buildCompactSelectionActions}
                   />
                 </>
               )}
@@ -4376,25 +4510,55 @@ const Browser: React.FC = () => {
       </Menu>
       <Snackbar
         key={
-          uploadProgress ? "upload-progress" : uploadPreparing ? "upload-preparing" : isDownloading ? "download-progress" : transferNotice
+          fileShareState
+            ? `share-${fileShareState.status}`
+            : uploadProgress
+              ? "upload-progress"
+              : uploadPreparing
+                ? "upload-preparing"
+                : isDownloading
+                  ? "download-progress"
+                  : transferNotice
         }
-        open={Boolean(uploadProgress || uploadPreparing || showDownloadNotice || transferNotice)}
-        autoHideDuration={uploadProgress || uploadPreparing || showDownloadNotice ? null : TRANSFER_NOTICE_AUTOHIDE_MS}
+        open={Boolean(fileShareState || uploadProgress || uploadPreparing || showDownloadNotice || transferNotice)}
+        autoHideDuration={fileShareState || uploadProgress || uploadPreparing || showDownloadNotice ? null : TRANSFER_NOTICE_AUTOHIDE_MS}
         message={
-          uploadProgress
-            ? t("fileBrowser.transfers.uploadProgress", {
-                ...uploadProgress,
-                bytes: formatFileSize(uploadProgress.bytes),
-                size: formatFileSize(uploadProgress.size),
-              })
-            : uploadPreparing
-              ? t("fileBrowser.transfers.preparingUpload")
-              : showDownloadNotice
-                ? t(downloadKind === "archive" ? "fileBrowser.transfers.preparingArchive" : "fileBrowser.transfers.downloading")
-                : transferNotice
+          fileShareState
+            ? t(
+                fileShareState.status === "preparing"
+                  ? "fileBrowser.share.preparing"
+                  : fileShareState.status === "ready"
+                    ? "fileBrowser.share.ready"
+                    : "fileBrowser.share.sharing",
+                { count: fileShareState.status === "preparing" ? fileShareState.count : fileShareState.files.length }
+              )
+            : uploadProgress
+              ? t("fileBrowser.transfers.uploadProgress", {
+                  ...uploadProgress,
+                  bytes: formatFileSize(uploadProgress.bytes),
+                  size: formatFileSize(uploadProgress.size),
+                })
+              : uploadPreparing
+                ? t("fileBrowser.transfers.preparingUpload")
+                : showDownloadNotice
+                  ? t(downloadKind === "archive" ? "fileBrowser.transfers.preparingArchive" : "fileBrowser.transfers.downloading")
+                  : transferNotice
         }
         action={
-          uploadProgress || uploadPreparing || showDownloadNotice ? (
+          fileShareState?.status === "ready" ? (
+            <>
+              <Button color="inherit" onClick={cancelFileShare}>
+                {t("common.actions.cancel")}
+              </Button>
+              <Button color="inherit" onClick={() => void finishFileShare()}>
+                {t("common.actions.share")}
+              </Button>
+            </>
+          ) : fileShareState?.status === "preparing" ? (
+            <Button color="inherit" onClick={cancelFileShare}>
+              {t("common.actions.cancel")}
+            </Button>
+          ) : uploadProgress || uploadPreparing || showDownloadNotice ? (
             <Button
               color="inherit"
               onClick={() => {
@@ -4407,7 +4571,7 @@ const Browser: React.FC = () => {
           ) : undefined
         }
         onClose={() => {
-          if (!uploadProgress && !uploadPreparing && !showDownloadNotice) setTransferNotice("");
+          if (!fileShareState && !uploadProgress && !uploadPreparing && !showDownloadNotice) setTransferNotice("");
         }}
       />
     </Box>
