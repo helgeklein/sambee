@@ -525,6 +525,10 @@ describe("PDFViewer", () => {
     it("keeps users informed until the first page has rendered", async () => {
       vi.useFakeTimers();
       mockPageRenderDelayMs = 6000;
+      const downloadClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+        expect(this.download).toBe("document.pdf");
+        expect(this.href).toBe("blob:mock-url-1");
+      });
 
       try {
         renderPDFViewer();
@@ -567,12 +571,14 @@ describe("PDFViewer", () => {
           await Promise.resolve();
         });
         expect(apiService.getOriginalFileBlob).toHaveBeenCalledWith("test-conn-id", "/test/document.pdf", { download: true });
+        expect(downloadClick).toHaveBeenCalledOnce();
 
         await act(async () => {
           await vi.advanceTimersByTimeAsync(6000);
         });
         expect(screen.queryByTestId("pdf-loading-overlay")).not.toBeInTheDocument();
       } finally {
+        downloadClick.mockRestore();
         vi.clearAllTimers();
         vi.useRealTimers();
       }

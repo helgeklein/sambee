@@ -91,7 +91,7 @@ import { RECENT_DIRECTORIES_CHANGED_EVENT } from "../services/recentDirectoriesS
 import { RECENT_FILES_CHANGED_EVENT } from "../services/recentFilesSync";
 import { scheduleRuntimeWarmup } from "../services/runtimeWarmup";
 import { buildServerWebSocketUrl } from "../services/serverWebsocket";
-import type { TargetResolutionPolicy } from "../services/storageContracts";
+import type { ContentTransferResult, TargetResolutionPolicy } from "../services/storageContracts";
 import { getConfirmedCurrentUserSetting, refreshCurrentUserSettings } from "../services/userSettingsStore";
 import { FILE_BROWSER_ROW_HEIGHT } from "../theme/constants";
 import { getMobileViewportShellSx, mobileSafeAreaAppBarSx, mobileSafeAreaToolbarSx, SAFE_AREA_INSET } from "../theme/mobileShell";
@@ -264,23 +264,23 @@ function parseRealtimeMessage(rawMessage: unknown): RealtimeMessage | null {
       return null;
     }
     const message = parsed as Record<string, unknown>;
-    if (typeof message.type === "string" && IGNORED_REALTIME_MESSAGE_TYPES.has(message.type)) {
+    if (typeof message["type"] === "string" && IGNORED_REALTIME_MESSAGE_TYPES.has(message["type"])) {
       return { type: "ignored" };
     }
     if (
-      message.type === "directory_changed" &&
-      typeof message.connection_id === "string" &&
-      message.connection_id.length > 0 &&
-      typeof message.path === "string"
+      message["type"] === "directory_changed" &&
+      typeof message["connection_id"] === "string" &&
+      message["connection_id"].length > 0 &&
+      typeof message["path"] === "string"
     ) {
-      return { type: "directory_changed", change: { connectionId: message.connection_id, path: message.path } };
+      return { type: "directory_changed", change: { connectionId: message["connection_id"], path: message["path"] } };
     }
-    if (message.type === "transfer_progress" && typeof message.bytes_transferred === "number") {
+    if (message["type"] === "transfer_progress" && typeof message["bytes_transferred"] === "number") {
       return {
         type: "transfer_progress",
-        bytesTransferred: message.bytes_transferred,
-        totalBytes: typeof message.total_bytes === "number" ? message.total_bytes : null,
-        itemName: typeof message.item_name === "string" ? message.item_name : "",
+        bytesTransferred: message["bytes_transferred"],
+        totalBytes: typeof message["total_bytes"] === "number" ? message["total_bytes"] : null,
+        itemName: typeof message["item_name"] === "string" ? message["item_name"] : "",
       };
     }
   } catch {
@@ -489,6 +489,7 @@ const Browser: React.FC = () => {
   const [uploadSessionActive, setUploadSessionActive] = useState(false);
   const uploadTriggerRef = React.useRef<HTMLElement | null>(null);
   const uploadMenuFocusRef = React.useRef<HTMLElement | null>(null);
+  const uploadMenuOpenId = React.useRef(0);
   const [uploadMenu, setUploadMenu] = useState<{ anchor: HTMLElement; paneId: PaneId; destination: PhysicalLocation } | null>(null);
   const [uploadPreparing, setUploadPreparing] = useState(false);
   const [uploadConflict, setUploadConflict] = useState<{
@@ -2278,7 +2279,7 @@ const Browser: React.FC = () => {
       }
 
       setCopyMoveMode(mode);
-      setCopyMoveItems(items);
+      setCopyMoveItems([...items]);
       setCopyMoveSourcePaneId(sourcePaneId);
       setCopyMoveDestination(destination);
       setCopyMoveDestinationLabel(
@@ -2377,7 +2378,7 @@ const Browser: React.FC = () => {
                 contentOperationEnvironment
               )
             : executeTransfer({ ...request, targetName, targetResolutionPolicy }, contentOperationEnvironment);
-        const applyTransferResult = (result: import("./services/storageContracts").ContentTransferResult) => {
+        const applyTransferResult = (result: ContentTransferResult) => {
           if (result.status === "completed" || result.status === "skipped") return;
           if (result.status === "completed_with_source_retained") {
             warnings.push(`${item.entry.name}: ${result.error.detail}`);
@@ -2608,7 +2609,7 @@ const Browser: React.FC = () => {
     (invocation?: FileOperationInvocationContext) => {
       const context = invocation ?? getOperationPolicyContext();
       const sources = context.items.map((item) => item.handle);
-      const capturedDestination = context.destination ?? getCapturedDestination(context.paneId);
+      const capturedDestination = invocation?.destination ?? getCapturedDestination(context.paneId);
       const destinationPaneId = capturedDestination.paneId;
       const destination = capturedDestination.location;
       if (!getCreateContainerAvailability({ sources, destination }, contentOperationEnvironment).available) {
@@ -2911,7 +2912,7 @@ const Browser: React.FC = () => {
               memberPaths: selectedMemberPaths,
             },
             undefined,
-            context.destination ?? getCapturedDestination(context.paneId)
+            invocation?.destination ?? getCapturedDestination(context.paneId)
           );
         }
         return;
@@ -3259,6 +3260,7 @@ const Browser: React.FC = () => {
       )
         return;
       uploadMenuFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      uploadMenuOpenId.current += 1;
       setUploadMenu({ anchor, paneId, destination });
     },
     [allConnections, getPaneForId]
@@ -4062,7 +4064,7 @@ const Browser: React.FC = () => {
 
       await companion.refresh();
 
-      let companionDrives = [];
+      let companionDrives: Awaited<ReturnType<typeof browserContentServices.connections.getStoredCompanionDrives>> = [];
       try {
         companionDrives = await browserContentServices.connections.getStoredCompanionDrives();
       } catch (error) {
@@ -4151,9 +4153,12 @@ const Browser: React.FC = () => {
   const effectivePaneMode: PaneMode = useCompactLayout ? "single" : paneMode;
   const getPaneDropUnavailableReason = (paneId: PaneId): string | null => {
     const availability = getFileListShortcutAvailability("upload", getOperationPolicyContext(paneId));
-    if (uploadAbortRef.current || availability.reason === "interaction-blocked") return t("fileBrowser.transfers.dropBusy");
-    if (availability.reason === "companion-unavailable") return t("fileBrowser.unavailableShortcuts.companionUnavailable");
-    if (!availability.available) return t("fileBrowser.transfers.dropUnavailable");
+    if (uploadAbortRef.current) return t("fileBrowser.transfers.dropBusy");
+    if (!availability.available) {
+      if (availability.reason === "interaction-blocked") return t("fileBrowser.transfers.dropBusy");
+      if (availability.reason === "companion-unavailable") return t("fileBrowser.unavailableShortcuts.companionUnavailable");
+      return t("fileBrowser.transfers.dropUnavailable");
+    }
     if (typeof DataTransferItem === "undefined" || !("webkitGetAsEntry" in DataTransferItem.prototype)) {
       return t("fileBrowser.transfers.dropUnsupported");
     }
@@ -4198,7 +4203,6 @@ const Browser: React.FC = () => {
           }
           activePane.setViewInfo(null);
         }}
-        onOpenHelp={() => setShowHelp(true)}
         onOpenDocumentation={handleOpenDocumentation}
         onOpenSettings={handleOpenSettings}
         onLogout={handleLogout}
@@ -4648,7 +4652,7 @@ const Browser: React.FC = () => {
         onResolve={handleConflictResolve}
         onCancel={handleConflictCancel}
       />
-      <Menu anchorEl={uploadMenu?.anchor} open={Boolean(uploadMenu)} onClose={closeUploadMenu} autoFocus>
+      <Menu key={uploadMenuOpenId.current} anchorEl={uploadMenu?.anchor} open={Boolean(uploadMenu)} onClose={closeUploadMenu} autoFocus>
         <MenuItem onClick={() => selectUploadChoice(false)}>{t("fileBrowser.toolbar.uploadChoiceFiles")}</MenuItem>
         <MenuItem onClick={() => selectUploadChoice(true)}>{t("fileBrowser.toolbar.uploadChoiceFolder")}</MenuItem>
       </Menu>

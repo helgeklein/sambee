@@ -59,10 +59,6 @@ Sambee has three different release channels. You select which to follow via the 
 - `beta` for prerelease builds.
 - `test` for preview builds.
 
-{{< admonition type="tip" >}}
-While Sambee is in beta, the `stable` tag may not be available yet.
-{{< /admonition >}}
-
 ## 4. Optional: Create a Local Configuration File
 
 You do not need `config.toml` for a basic deployment. Create it only if you need to override defaults such as logging or Companion download settings. Configure the authentication mode in **Settings** > **Administration** > **Authentication** after signing in.
