@@ -6,6 +6,7 @@ title = "What's New"
 
 ### Other Changes
 
+- Native mobile sharing is now available for single or multiple files from the file list.
 - Single-file downloads are now streamed directly without buffering in memory. This speeds up downloads and effectively removes limits imposed by file size.
 
 ### Bugfixes

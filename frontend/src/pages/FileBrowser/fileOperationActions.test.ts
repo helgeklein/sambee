@@ -11,6 +11,7 @@ const actionIds: FileOperationActionId[] = [
   "create-archive",
   "extract-archive",
   "download",
+  "share",
   "upload",
   "refresh",
 ];
@@ -67,6 +68,7 @@ describe("createFileOperationActions", () => {
       { id: "delete", scope: "item" },
       { id: "extract-archive", scope: "item" },
       { id: "download", scope: "item" },
+      { id: "share", scope: "item" },
     ]);
     expect(createActions.map(({ id, scope }) => ({ id, scope }))).toEqual([
       { id: "new-directory", scope: "pane" },
@@ -79,11 +81,13 @@ describe("createFileOperationActions", () => {
       { id: "create-archive", scope: "selection" },
       { id: "delete", scope: "selection" },
       { id: "download", scope: "selection" },
+      { id: "share", scope: "selection" },
     ]);
     expect(createFileOperationActions({ ...createContext(false), surface: "compact-selection-menu" }).map((action) => action.id)).toEqual([
       "create-archive",
       "delete",
       "download",
+      "share",
     ]);
   });
 });

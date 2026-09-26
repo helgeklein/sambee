@@ -59,6 +59,10 @@ describe("nativeShare", () => {
     expect(file.type).toBe("text/plain");
   });
 
+  it("uses the listed MIME type when raw content lacks one", () => {
+    expect(createShareFile(new Blob(["hello"]), "hello.txt", "text/plain").type).toBe("text/plain");
+  });
+
   it("shares files when file sharing is supported", async () => {
     const share = vi.fn().mockResolvedValue(undefined);
     const canShare = vi.fn().mockReturnValue(true);
@@ -73,6 +77,26 @@ describe("nativeShare", () => {
     expect(result).toBe("shared");
     expect(canShare).toHaveBeenCalledWith({ files: [file] });
     expect(share).toHaveBeenCalledWith({ files: [file], title: "hello.txt" });
+  });
+
+  it("shares multiple original files in one invocation", async () => {
+    const share = vi.fn().mockResolvedValue(undefined);
+    const canShare = vi.fn().mockReturnValue(true);
+    setNavigatorMock({ share, canShare } as Partial<Navigator>);
+
+    const files = [createShareFile(new Blob(["first"]), "first.txt"), createShareFile(new Blob(["second"]), "second.txt")];
+    expect(await shareNativeContent({ files })).toBe("shared");
+    expect(canShare).toHaveBeenCalledWith({ files });
+    expect(share).toHaveBeenCalledWith({ files });
+  });
+
+  it("never falls back to text when a file-only share is unsupported", async () => {
+    const share = vi.fn();
+    setNavigatorMock({ share, canShare: vi.fn().mockReturnValue(false) } as Partial<Navigator>);
+
+    const files = [createShareFile(new Blob(["first"]), "first.txt")];
+    expect(await shareNativeContent({ files, title: "first.txt" })).toBe("unsupported");
+    expect(share).not.toHaveBeenCalled();
   });
 
   it("falls back to text sharing when file sharing is unavailable", async () => {

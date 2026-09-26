@@ -11,6 +11,7 @@ export type FileOperationActionId =
   | "create-archive"
   | "extract-archive"
   | "download"
+  | "share"
   | "upload"
   | "refresh";
 
@@ -139,6 +140,13 @@ const FILE_OPERATION_DEFINITIONS: readonly FileOperationDefinition[] = [
       { surface: "desktop-toolbar", scope: "selection", priority: 9 },
       { surface: "compact-item-menu", scope: "item", priority: 6 },
       { surface: "compact-selection-menu", scope: "selection", priority: 5 },
+    ],
+  },
+  {
+    id: "share",
+    placements: [
+      { surface: "compact-item-menu", scope: "item", priority: 7 },
+      { surface: "compact-selection-menu", scope: "selection", priority: 6 },
     ],
   },
   {
