@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DialogOperationContext } from "../DialogOperationContext";
 
 class ResizeObserverMock {
@@ -33,6 +33,10 @@ class ResizeObserverMock {
 }
 
 describe("DialogOperationContext", () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+  });
+
   afterEach(() => {
     ResizeObserverMock.reset();
     vi.restoreAllMocks();
@@ -53,6 +57,7 @@ describe("DialogOperationContext", () => {
     expect(screen.getByText("Source item:").tagName).toBe("DT");
     expect(screen.getByText("Source item:").parentElement?.querySelector("dd")).not.toBeNull();
     expect(screen.getByText("Destination directory:").tagName).toBe("DT");
+    expect(HTMLCanvasElement.prototype.getContext).toHaveBeenCalled();
   });
 
   it("uses muted labels and primary identifier values", () => {

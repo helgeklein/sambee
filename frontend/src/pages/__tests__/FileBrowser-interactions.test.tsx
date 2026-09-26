@@ -173,6 +173,7 @@ describe("Browser Component - Interactions", () => {
     expect(previousTarget).toHaveFocus();
     fireEvent.keyDown(document, { key: "u", code: "KeyU", ctrlKey: true });
     const shortcutChoice = await screen.findByRole("menuitem", { name: "Files" });
+    expect(shortcutChoice).not.toBe(files);
     await waitFor(() => expect(shortcutChoice).toHaveFocus());
     fireEvent.keyDown(shortcutChoice, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Files" })).not.toBeInTheDocument());
