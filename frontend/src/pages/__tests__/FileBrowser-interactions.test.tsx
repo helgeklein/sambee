@@ -3071,6 +3071,112 @@ describe("Browser Component - Interactions", () => {
       }
     });
 
+    it("shares selections beyond the former count and listed-size limits", async () => {
+      const { share, restore } = setupCompactNativeShare();
+
+      try {
+        const items = Array.from({ length: 21 }, (_, index) => ({
+          ...regularTransferTestItems[0]!,
+          name: `file-${index}.txt`,
+          path: `file-${index}.txt`,
+          size: index === 0 ? 200 * 1024 * 1024 : undefined,
+        }));
+        vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) => ({
+          path,
+          items: path ? [] : items,
+          total: path ? 0 : items.length,
+        }));
+        vi.mocked(api.getOriginalFileBlob).mockResolvedValue(new Blob(["content"], { type: "text/plain" }));
+        const user = userEvent.setup();
+        renderBrowser("/browse/smb/test-server-1");
+
+        const list = await screen.findByTestId("file-list-container");
+        await user.click(list);
+        await user.keyboard("{Control>}a{/Control}");
+        await user.click(screen.getByRole("button", { name: "Selection actions" }));
+        await user.click(screen.getByRole("menuitem", { name: "Share" }));
+        expect(await screen.findByText("21 files ready to share")).toBeInTheDocument();
+        await user.click(screen.getByRole("button", { name: "Share" }));
+
+        await waitFor(() => expect(share).toHaveBeenCalledOnce());
+        expect(share.mock.calls[0]![0].files).toHaveLength(21);
+        expect(api.getOriginalFileBlob).toHaveBeenCalledTimes(21);
+      } finally {
+        restore();
+      }
+    });
+
+    it("keeps an OS share active when selection changes until the share sheet settles", async () => {
+      const { share, restore } = setupCompactNativeShare();
+      let finishShare: (() => void) | undefined;
+      share.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            finishShare = resolve;
+          })
+      );
+
+      try {
+        setupRegularFileTransferListing();
+        vi.mocked(api.getOriginalFileBlob).mockResolvedValue(new Blob(["content"]));
+        const user = userEvent.setup();
+        renderBrowser("/browse/smb/test-server-1");
+
+        await user.click(await screen.findByRole("button", { name: "More actions for Documents" }));
+        await user.click(screen.getByRole("menuitem", { name: "Share" }));
+        await user.click(await screen.findByRole("button", { name: "Share" }));
+        await waitFor(() => expect(share).toHaveBeenCalledOnce());
+
+        await user.click(screen.getByRole("button", { name: "More actions for Pictures" }));
+        await user.click(screen.getByRole("menuitem", { name: "Select" }));
+        expect(screen.getByText("Opening the share sheet...")).toBeInTheDocument();
+        await user.click(screen.getByRole("button", { name: "More actions for Pictures" }));
+        expect(screen.getByRole("menuitem", { name: "Share" })).toHaveAttribute("aria-disabled", "true");
+
+        finishShare?.();
+        await waitFor(() => expect(screen.queryByText("Opening the share sheet...")).not.toBeInTheDocument());
+      } finally {
+        finishShare?.();
+        restore();
+      }
+    });
+
+    it("keeps upload cancellation accessible while preparing and failing to share", async () => {
+      const { canShare, restore } = setupCompactNativeShare();
+
+      try {
+        setupRegularFileTransferListing();
+        vi.mocked(api.getOriginalFileBlob).mockResolvedValue(new Blob(["content"]));
+        const user = userEvent.setup();
+        renderBrowser("/browse/smb/test-server-1");
+        await screen.findByRole("button", { name: "More actions for Documents" });
+
+        const fileEntry = {
+          name: "pending.txt",
+          isFile: true,
+          file: vi.fn(),
+        };
+        fireEvent.drop(screen.getByTestId("file-list-container"), {
+          dataTransfer: { types: ["Files"], items: [{ kind: "file", webkitGetAsEntry: () => fileEntry }] },
+        });
+        expect(await screen.findByText("Preparing upload")).toBeInTheDocument();
+
+        await user.click(screen.getByRole("button", { name: "More actions for Documents" }));
+        await user.click(screen.getByRole("menuitem", { name: "Share" }));
+        expect(await screen.findByText("1 file ready to share")).toBeInTheDocument();
+        expect(screen.getAllByRole("button", { name: "Cancel" })).toHaveLength(2);
+
+        canShare.mockReturnValue(false);
+        await user.click(screen.getByRole("button", { name: "Share" }));
+        expect(await screen.findByText("Sharing is not available on this device or browser")).toBeInTheDocument();
+        expect(screen.getByText("Preparing upload")).toBeInTheDocument();
+        await user.click(screen.getByRole("button", { name: "Cancel" }));
+        await waitFor(() => expect(screen.queryByText("Preparing upload")).not.toBeInTheDocument());
+      } finally {
+        restore();
+      }
+    });
+
     it("disables sharing for folder selections and cancels a pending file read", async () => {
       const { share, restore } = setupCompactNativeShare();
 

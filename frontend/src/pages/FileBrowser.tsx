@@ -177,8 +177,7 @@ const SERVER_WEBSOCKET_RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 5_000] as const
 const COMPANION_WEBSOCKET_RECONNECT_DELAY_MS = 5_000;
 const COMPANION_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
 const TRANSFER_NOTICE_AUTOHIDE_MS = 6_000;
-const MAX_NATIVE_SHARE_FILES = 20;
-const MAX_NATIVE_SHARE_BYTES = 100 * 1024 * 1024;
+const COMPACT_SHARE_SNACKBAR_TOP_PX = 132;
 
 const COMPANION_STATUS_QUERY_PARAM = "companion_status";
 const IGNORED_REALTIME_MESSAGE_TYPES = new Set(["subscribed", "unsubscribed", "pong"]);
@@ -471,6 +470,7 @@ const Browser: React.FC = () => {
   const [companionHintOpen, setCompanionHintOpen] = useState(false);
   const [unavailableShortcutNotice, setUnavailableShortcutNotice] = useState<UnavailableShortcutNotice | null>(null);
   const [transferNotice, setTransferNotice] = useState("");
+  const [shareNotice, setShareNotice] = useState("");
   const [fileShareState, setFileShareState] = useState<FileShareState | null>(null);
   const fileShareRequestRef = React.useRef<{
     controller: AbortController;
@@ -798,7 +798,7 @@ const Browser: React.FC = () => {
   }, []);
   useEffect(() => {
     const request = fileShareRequestRef.current;
-    if (!request) return;
+    if (!request || fileShareState?.status === "sharing") return;
     const pane = request.paneId === "left" ? leftPane : rightPane;
     if (
       !areSameContentLocations(pane.currentLocation, request.location) ||
@@ -807,7 +807,7 @@ const Browser: React.FC = () => {
     ) {
       cancelFileShare();
     }
-  }, [cancelFileShare, leftPane, rightPane]);
+  }, [cancelFileShare, fileShareState?.status, leftPane, rightPane]);
   useEffect(
     () => () => {
       fileShareRequestRef.current?.controller.abort();
@@ -2997,13 +2997,7 @@ const Browser: React.FC = () => {
     async (context: FileOperationPolicyContext, selectionAction: boolean) => {
       const items = selectionAction ? context.items : context.focusedItem ? [context.focusedItem] : [];
       if (!getFileListShortcutAvailability("share", { ...context, items }).available || !items.length) return;
-      if (
-        items.length > MAX_NATIVE_SHARE_FILES ||
-        items.reduce((total, item) => total + (item.entry.size ?? 0), 0) > MAX_NATIVE_SHARE_BYTES
-      ) {
-        setTransferNotice(t("fileBrowser.share.tooLarge", { count: MAX_NATIVE_SHARE_FILES, size: formatFileSize(MAX_NATIVE_SHARE_BYTES) }));
-        return;
-      }
+      setShareNotice("");
 
       const controller = new AbortController();
       const request = {
@@ -3016,18 +3010,9 @@ const Browser: React.FC = () => {
       setFileShareState({ status: "preparing", count: items.length });
       try {
         const files: File[] = [];
-        let totalBytes = 0;
         for (const item of items) {
           const blob = await readContent(item.handle, { kind: "raw" }, { signal: controller.signal }, browserContentServices.providers);
           if (controller.signal.aborted || fileShareRequestRef.current !== request) return;
-          totalBytes += blob.size;
-          if (totalBytes > MAX_NATIVE_SHARE_BYTES) {
-            setTransferNotice(
-              t("fileBrowser.share.tooLarge", { count: MAX_NATIVE_SHARE_FILES, size: formatFileSize(MAX_NATIVE_SHARE_BYTES) })
-            );
-            cancelFileShare();
-            return;
-          }
           files.push(createShareFile(blob, item.entry.name, item.entry.mime_type));
         }
         setFileShareState({ status: "ready", files });
@@ -3035,23 +3020,26 @@ const Browser: React.FC = () => {
         if (controller.signal.aborted || fileShareRequestRef.current !== request) return;
         logger.error("Failed to prepare file-list share", { error }, "file-browser");
         cancelFileShare();
-        setTransferNotice(t("viewer.share.failed"));
+        setShareNotice(t("viewer.share.failed"));
       }
     },
     [browserContentServices.providers, cancelFileShare, getFileListShortcutAvailability, getPaneForId, t]
   );
   const finishFileShare = useCallback(async () => {
-    if (fileShareState?.status !== "ready") return;
+    const request = fileShareRequestRef.current;
+    if (fileShareState?.status !== "ready" || !request) return;
     const files = fileShareState.files;
     setFileShareState({ status: "sharing", files });
     try {
       const result = await shareNativeContent({ files });
-      if (result === "unsupported") setTransferNotice(t("viewer.share.unsupported"));
+      if (fileShareRequestRef.current === request && result === "unsupported") setShareNotice(t("viewer.share.unsupported"));
     } catch (error) {
-      logger.error("Failed to share file-list selection", { error }, "file-browser");
-      setTransferNotice(t("viewer.share.failed"));
+      if (fileShareRequestRef.current === request) {
+        logger.error("Failed to share file-list selection", { error }, "file-browser");
+        setShareNotice(t("viewer.share.failed"));
+      }
     } finally {
-      cancelFileShare();
+      if (fileShareRequestRef.current === request) cancelFileShare();
     }
   }, [cancelFileShare, fileShareState, t]);
 
@@ -4509,19 +4497,11 @@ const Browser: React.FC = () => {
         <MenuItem onClick={() => selectUploadChoice(true)}>{t("fileBrowser.toolbar.uploadChoiceFolder")}</MenuItem>
       </Menu>
       <Snackbar
-        key={
-          fileShareState
-            ? `share-${fileShareState.status}`
-            : uploadProgress
-              ? "upload-progress"
-              : uploadPreparing
-                ? "upload-preparing"
-                : isDownloading
-                  ? "download-progress"
-                  : transferNotice
-        }
-        open={Boolean(fileShareState || uploadProgress || uploadPreparing || showDownloadNotice || transferNotice)}
-        autoHideDuration={fileShareState || uploadProgress || uploadPreparing || showDownloadNotice ? null : TRANSFER_NOTICE_AUTOHIDE_MS}
+        key={fileShareState ? `share-${fileShareState.status}` : `share-notice-${shareNotice}`}
+        open={Boolean(fileShareState || shareNotice)}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+        sx={{ top: `calc(${COMPACT_SHARE_SNACKBAR_TOP_PX}px + env(safe-area-inset-top))` }}
+        autoHideDuration={fileShareState ? null : TRANSFER_NOTICE_AUTOHIDE_MS}
         message={
           fileShareState
             ? t(
@@ -4532,17 +4512,7 @@ const Browser: React.FC = () => {
                     : "fileBrowser.share.sharing",
                 { count: fileShareState.status === "preparing" ? fileShareState.count : fileShareState.files.length }
               )
-            : uploadProgress
-              ? t("fileBrowser.transfers.uploadProgress", {
-                  ...uploadProgress,
-                  bytes: formatFileSize(uploadProgress.bytes),
-                  size: formatFileSize(uploadProgress.size),
-                })
-              : uploadPreparing
-                ? t("fileBrowser.transfers.preparingUpload")
-                : showDownloadNotice
-                  ? t(downloadKind === "archive" ? "fileBrowser.transfers.preparingArchive" : "fileBrowser.transfers.downloading")
-                  : transferNotice
+            : shareNotice
         }
         action={
           fileShareState?.status === "ready" ? (
@@ -4558,7 +4528,39 @@ const Browser: React.FC = () => {
             <Button color="inherit" onClick={cancelFileShare}>
               {t("common.actions.cancel")}
             </Button>
-          ) : uploadProgress || uploadPreparing || showDownloadNotice ? (
+          ) : undefined
+        }
+        onClose={() => {
+          if (!fileShareState) setShareNotice("");
+        }}
+      />
+      <Snackbar
+        key={
+          uploadProgress
+            ? "upload-progress"
+            : uploadPreparing
+              ? "upload-preparing"
+              : isDownloading
+                ? "download-progress"
+                : `transfer-${transferNotice}`
+        }
+        open={Boolean(uploadProgress || uploadPreparing || showDownloadNotice || transferNotice)}
+        autoHideDuration={uploadProgress || uploadPreparing || showDownloadNotice ? null : TRANSFER_NOTICE_AUTOHIDE_MS}
+        message={
+          uploadProgress
+            ? t("fileBrowser.transfers.uploadProgress", {
+                ...uploadProgress,
+                bytes: formatFileSize(uploadProgress.bytes),
+                size: formatFileSize(uploadProgress.size),
+              })
+            : uploadPreparing
+              ? t("fileBrowser.transfers.preparingUpload")
+              : showDownloadNotice
+                ? t(downloadKind === "archive" ? "fileBrowser.transfers.preparingArchive" : "fileBrowser.transfers.downloading")
+                : transferNotice
+        }
+        action={
+          uploadProgress || uploadPreparing || showDownloadNotice ? (
             <Button
               color="inherit"
               onClick={() => {
@@ -4571,7 +4573,7 @@ const Browser: React.FC = () => {
           ) : undefined
         }
         onClose={() => {
-          if (!fileShareState && !uploadProgress && !uploadPreparing && !showDownloadNotice) setTransferNotice("");
+          if (!uploadProgress && !uploadPreparing && !showDownloadNotice) setTransferNotice("");
         }}
       />
     </Box>

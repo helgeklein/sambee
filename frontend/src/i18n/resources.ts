@@ -886,7 +886,6 @@ export const EN_TRANSLATIONS = {
       ready_one: "{{count}} file ready to share",
       ready_other: "{{count}} files ready to share",
       sharing: "Opening the share sheet...",
-      tooLarge: "Select at most {{count}} files totaling {{size}} to share.",
     },
     list: {
       emptyDirectory: "This directory is empty",
