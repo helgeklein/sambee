@@ -33,6 +33,7 @@ vi.mock("../../services/api", () => ({
     removeRecentFile: vi.fn(),
     transferAcrossBackends: vi.fn(),
     downloadFile: vi.fn(),
+    downloadArchiveMember: vi.fn(),
     downloadSelectionArchive: vi.fn(),
     downloadZipSelectionArchive: vi.fn(),
   },
@@ -98,6 +99,52 @@ describe("content operations", () => {
     expect(api.downloadFile).toHaveBeenCalledTimes(2);
   });
 
+  it("shows preparation only when a single-file handoff remains pending", async () => {
+    vi.useFakeTimers();
+    try {
+      const file = physicalItem(physicalLocation("source", "parent"), {
+        name: "report.txt",
+        path: "parent/report.txt",
+        type: FileType.FILE,
+        is_readable: true,
+        is_hidden: false,
+      });
+      let finishDownload: (() => void) | undefined;
+      vi.mocked(api.downloadFile).mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishDownload = resolve;
+          })
+      );
+      const { result } = renderHook(() => useBrowserDownload({} as never, ((key: string) => key) as TFunction, vi.fn()));
+
+      let download: Promise<void> | undefined;
+      act(() => {
+        download = result.current.startDownload([file]);
+      });
+      act(() => {
+        vi.advanceTimersByTime(299);
+      });
+      expect(result.current.showDownloadNotice).toBe(false);
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(result.current.showDownloadNotice).toBe(true);
+      await act(async () => {
+        finishDownload?.();
+        await vi.advanceTimersByTimeAsync(599);
+      });
+      expect(result.current.showDownloadNotice).toBe(true);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+        await download;
+      });
+      expect(result.current.showDownloadNotice).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("routes a regular file directly and a directory through selected-root ZIP creation", async () => {
     const location = physicalLocation("source", "parent");
     const file = physicalItem(location, {
@@ -135,6 +182,20 @@ describe("content operations", () => {
     const signal = new AbortController().signal;
     await downloadContentSelection([directory], {} as never, signal);
     expect(api.downloadZipSelectionArchive).toHaveBeenCalledWith("source", "files.zip", ["inner/folder"], signal);
+  });
+
+  it("routes a single ZIP member to the native download transport", async () => {
+    const location = virtualLocation("zip", "source", physicalLocation("source", "files.zip"), "inner");
+    const member = virtualItem(location, {
+      name: "report.txt",
+      path: "inner/report.txt",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    });
+    const signal = new AbortController().signal;
+    await downloadContentSelection([member], {} as never, signal);
+    expect(api.downloadArchiveMember).toHaveBeenCalledWith("source", "files.zip", "inner/report.txt", "report.txt", signal);
   });
 
   it("rejects virtual transfer and container destinations before invoking physical transport", async () => {

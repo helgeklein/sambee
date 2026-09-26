@@ -506,7 +506,7 @@ const Browser: React.FC = () => {
   /** Server connections merged with companion-provided local drives. */
   const allConnections = useMemo(() => mergeConnections(connections, companion.drives), [connections, companion.drives]);
   const [browserContentServices] = useState(() => createBrowserContentServices(allConnections));
-  const { startDownload, cancelDownload, isDownloading, downloadKind } = useBrowserDownload(
+  const { startDownload, cancelDownload, isDownloading, showDownloadNotice, downloadKind } = useBrowserDownload(
     browserContentServices.providers,
     t,
     setTransferNotice
@@ -4378,8 +4378,8 @@ const Browser: React.FC = () => {
         key={
           uploadProgress ? "upload-progress" : uploadPreparing ? "upload-preparing" : isDownloading ? "download-progress" : transferNotice
         }
-        open={Boolean(uploadProgress || uploadPreparing || isDownloading || transferNotice)}
-        autoHideDuration={uploadProgress || uploadPreparing || isDownloading ? null : TRANSFER_NOTICE_AUTOHIDE_MS}
+        open={Boolean(uploadProgress || uploadPreparing || showDownloadNotice || transferNotice)}
+        autoHideDuration={uploadProgress || uploadPreparing || showDownloadNotice ? null : TRANSFER_NOTICE_AUTOHIDE_MS}
         message={
           uploadProgress
             ? t("fileBrowser.transfers.uploadProgress", {
@@ -4389,12 +4389,12 @@ const Browser: React.FC = () => {
               })
             : uploadPreparing
               ? t("fileBrowser.transfers.preparingUpload")
-              : isDownloading
+              : showDownloadNotice
                 ? t(downloadKind === "archive" ? "fileBrowser.transfers.preparingArchive" : "fileBrowser.transfers.downloading")
                 : transferNotice
         }
         action={
-          uploadProgress || uploadPreparing || isDownloading ? (
+          uploadProgress || uploadPreparing || showDownloadNotice ? (
             <Button
               color="inherit"
               onClick={() => {
@@ -4407,7 +4407,7 @@ const Browser: React.FC = () => {
           ) : undefined
         }
         onClose={() => {
-          if (!uploadProgress && !uploadPreparing && !isDownloading) setTransferNotice("");
+          if (!uploadProgress && !uploadPreparing && !showDownloadNotice) setTransferNotice("");
         }}
       />
     </Box>

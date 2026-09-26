@@ -73,7 +73,7 @@ use super::target_resolution::{
     resolve_target_mutation, resolve_target_mutation_attempt, ContentTransferPlan, TargetMutationAttempt, TargetResolutionDisposition,
     TargetResolutionPolicy, TargetSnapshot,
 };
-use super::AppState;
+use super::{AppState, DownloadIntent};
 
 /// Characters forbidden in file/directory names (matches backend validation).
 const FORBIDDEN_NAME_CHARS: &[char] = &['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
@@ -804,6 +804,115 @@ pub async fn browse_resolve_activation(
 
 // ─── Viewer ──────────────────────────────────────────────────────────────────
 
+const DOWNLOAD_INTENT_TTL: Duration = Duration::from_secs(90);
+const MAX_DOWNLOAD_INTENTS: usize = 1024;
+
+#[derive(Deserialize)]
+pub struct DownloadIntentRequest {
+    drive: String,
+    path: String,
+    member_path: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct DownloadIntentResponse {
+    url: String,
+}
+
+pub async fn create_download_intent(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<DownloadIntentRequest>,
+) -> Result<Json<DownloadIntentResponse>, ApiError> {
+    if request.path.is_empty() || request.member_path.as_deref() == Some("") {
+        return Err(ApiError::BadRequest(
+            "A file path and nonempty member path are required".to_string(),
+        ));
+    }
+    let base_path =
+        drives::resolve_drive_path(&request.drive).ok_or_else(|| ApiError::NotFound("Download drive is unavailable".to_string()))?;
+    let file_path = resolve_safe_path(&base_path, &request.drive, &request.path)?;
+    if !tokio::fs::metadata(&file_path)
+        .await
+        .map_err(|error| map_io_error(error, &file_path))?
+        .is_file()
+    {
+        return Err(ApiError::BadRequest("Download source must be a regular file".to_string()));
+    }
+    if let Some(member_path) = &request.member_path {
+        let presentation = ArchiveMemberReadPresentation::new(member_path.clone(), true);
+        tokio::task::spawn_blocking(move || {
+            resolve_local_archive_inspection_coordinator(file_path, ArchiveInspectionPresentation::MemberRead(presentation))
+                .and_then(|coordinator| coordinator.validated_member_read().map_err(map_local_archive_read_error))
+        })
+        .await
+        .map_err(|error| ApiError::Internal(format!("Archive download validation failed: {error}")))??;
+    }
+
+    let token = uuid::Uuid::new_v4().to_string();
+    let mut intents = state
+        .download_intents
+        .lock()
+        .map_err(|_| ApiError::Internal("Download intents unavailable".to_string()))?;
+    intents.retain(|_, intent| intent.expires_at > Instant::now());
+    if intents.len() >= MAX_DOWNLOAD_INTENTS {
+        return Err(ApiError::TooManyRequests("Too many active download intents".to_string()));
+    }
+    intents.insert(
+        token.clone(),
+        DownloadIntent {
+            drive: request.drive,
+            path: request.path,
+            member_path: request.member_path,
+            expires_at: Instant::now() + DOWNLOAD_INTENT_TTL,
+        },
+    );
+    Ok(Json(DownloadIntentResponse {
+        url: format!("/api/download-intents/{token}"),
+    }))
+}
+
+fn consume_download_intent(intents: &Mutex<HashMap<String, DownloadIntent>>, token: &str) -> Result<DownloadIntent, ApiError> {
+    intents
+        .lock()
+        .map_err(|_| ApiError::Internal("Download intents unavailable".to_string()))?
+        .remove(token)
+        .filter(|intent| intent.expires_at > Instant::now())
+        .ok_or_else(|| ApiError::NotFound("Download expired or unavailable".to_string()))
+}
+
+pub async fn redeem_download_intent(State(state): State<Arc<AppState>>, Path(token): Path<String>) -> Result<Response<Body>, ApiError> {
+    let intent = consume_download_intent(&state.download_intents, &token)?;
+    let mut response = if let Some(member_path) = intent.member_path {
+        viewer_archive_member(
+            Path(intent.drive),
+            Query(ArchiveMemberQuery {
+                archive_path: intent.path,
+                member_path,
+                download: true,
+            }),
+        )
+        .await?
+    } else {
+        viewer_download(
+            Path(intent.drive),
+            Query(ViewerQuery {
+                path: Some(intent.path),
+                viewport_width: None,
+                viewport_height: None,
+                no_resizing: None,
+            }),
+        )
+        .await?
+    };
+    response
+        .headers_mut()
+        .insert("Cache-Control", HeaderValue::from_static("private, no-store"));
+    response
+        .headers_mut()
+        .insert("Referrer-Policy", HeaderValue::from_static("no-referrer"));
+    Ok(response)
+}
+
 #[derive(Deserialize)]
 pub struct ViewerQuery {
     pub path: Option<String>,
@@ -1070,6 +1179,25 @@ fn map_temporary_archive_error(error: LocalArchiveError) -> ApiError {
 }
 
 /// Shared implementation for a parser-validated archive member stream.
+struct VerifiedArchiveStream {
+    reader: tokio::io::DuplexStream,
+    completion: oneshot::Receiver<Result<(), std::io::Error>>,
+}
+
+impl AsyncRead for VerifiedArchiveStream {
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buffer: &mut ReadBuf<'_>) -> Poll<Result<(), std::io::Error>> {
+        let before = buffer.filled().len();
+        match Pin::new(&mut self.reader).poll_read(cx, buffer) {
+            Poll::Ready(Ok(())) if buffer.filled().len() == before => match Pin::new(&mut self.completion).poll(cx) {
+                Poll::Ready(Ok(result)) => Poll::Ready(result),
+                Poll::Ready(Err(_)) => Poll::Ready(Err(std::io::Error::other("Archive stream ended unexpectedly"))),
+                Poll::Pending => Poll::Pending,
+            },
+            other => other,
+        }
+    }
+}
+
 pub async fn viewer_archive_member(Path(drive): Path<String>, Query(query): Query<ArchiveMemberQuery>) -> Result<Response<Body>, ApiError> {
     if query.archive_path.trim().is_empty() || query.member_path.trim().is_empty() {
         return Err(ApiError::BadRequest("Archive and member paths are required".to_string()));
@@ -1100,17 +1228,23 @@ pub async fn viewer_archive_member(Path(drive): Path<String>, Query(query): Quer
     let validated_member =
         validated_member.ok_or_else(|| ApiError::Internal("Archive inspection did not produce a streaming descriptor".to_string()))?;
 
+    let expected_size = validated_member.uncompressed_size;
     let (writer, reader) = tokio::io::duplex(ARCHIVE_COPY_BUFFER_SIZE);
+    let (completion_sender, completion) = oneshot::channel();
     tokio::task::spawn_blocking(move || {
         let mut output = SyncIoBridge::new(writer);
-        if let Err(error) = stream_validated_local_archive_entry(validated_member, &mut output) {
+        let result = stream_validated_local_archive_entry(validated_member, &mut output);
+        drop(output);
+        if let Err(error) = &result {
             warn!("Local archive member stream failed: {error}");
         }
+        let _ = completion_sender.send(result.map_err(|error| std::io::Error::other(error.to_string())));
     });
 
     Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", &member.content_type)
+        .header("Content-Length", expected_size)
         .header("X-Content-Type-Options", "nosniff")
         .header(
             "Content-Disposition",
@@ -1123,7 +1257,7 @@ pub async fn viewer_archive_member(Path(drive): Path<String>, Query(query): Quer
                 HeaderValue::from_str(&member.content_disposition).unwrap_or_else(|_| HeaderValue::from_static("attachment"))
             },
         )
-        .body(Body::from_stream(ReaderStream::new(reader)))
+        .body(Body::from_stream(ReaderStream::new(VerifiedArchiveStream { reader, completion })))
         .map_err(|error| ApiError::Internal(format!("Failed to build archive member response: {error}")))
 }
 
@@ -6659,6 +6793,36 @@ mod tests {
     use crate::server::target_resolution::TargetResolutionPolicy;
 
     #[test]
+    fn local_download_intent_can_be_redeemed_only_once() {
+        let intents = std::sync::Mutex::new(std::collections::HashMap::from([(
+            "ticket".to_string(),
+            crate::server::DownloadIntent {
+                drive: "test".to_string(),
+                path: "report.txt".to_string(),
+                member_path: None,
+                expires_at: std::time::Instant::now() + std::time::Duration::from_secs(90),
+            },
+        )]));
+        assert!(super::consume_download_intent(&intents, "ticket").is_ok());
+        assert!(matches!(
+            super::consume_download_intent(&intents, "ticket"),
+            Err(ApiError::NotFound(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn archive_stream_reports_validation_failure_after_reader_eof() {
+        let (writer, reader) = tokio::io::duplex(8);
+        let (sender, completion) = tokio::sync::oneshot::channel();
+        drop(writer);
+        sender.send(Err(std::io::Error::other("ZIP checksum mismatch"))).unwrap();
+        let mut stream = super::VerifiedArchiveStream { reader, completion };
+        let mut bytes = Vec::new();
+        let error = tokio::io::AsyncReadExt::read_to_end(&mut stream, &mut bytes).await.unwrap_err();
+        assert!(error.to_string().contains("ZIP checksum mismatch"));
+    }
+
+    #[test]
     fn temporary_archive_cap_reports_payload_too_large() {
         let source = tempfile::tempdir().unwrap();
         std::fs::write(source.path().join("sample.txt"), b"sample content").unwrap();
@@ -7454,6 +7618,7 @@ mod tests {
         .await
         .expect("archive member route should succeed");
         assert_eq!(member_response.headers()["content-type"], "text/plain");
+        assert_eq!(member_response.headers()["content-length"], "6");
         assert_eq!(to_bytes(member_response.into_body(), usize::MAX).await.unwrap(), "source");
         assert_eq!(inspection_resolver_call_count(), 3);
 

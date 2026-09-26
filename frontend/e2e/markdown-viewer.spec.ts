@@ -190,6 +190,16 @@ async function mockMarkdownViewerApi(page: Page, { initialMarkdown, includeDirec
       return;
     }
 
+    if (pathname === "/api/viewer/download-intents" && request.method() === "POST") {
+      await fulfillJson(route, { url: "/api/viewer/download-intents/test-ticket" });
+      return;
+    }
+
+    if (pathname === "/api/viewer/download-intents/test-ticket") {
+      await route.fulfill({ status: 200, headers: { "Content-Disposition": 'attachment; filename="download.txt"' }, body: "download" });
+      return;
+    }
+
     if (pathname === `/api/browse/${DEMO_CONNECTION_ID}/lock` && request.method() === "POST") {
       await fulfillJson(route, {
         lock_id: "lock-1",
@@ -244,15 +254,10 @@ for (const layout of ["desktop", "compact"] as const) {
   test(`${layout} Ctrl+D downloads the focused file`, async ({ page }) => {
     if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
     await mockMarkdownViewerApi(page, { initialMarkdown: "hello" });
-    await page.route(`**/api/viewer/${DEMO_CONNECTION_ID}/download?**`, async (route) => {
-      await fulfillJson(route, { detail: "Download intentionally blocked in E2E" }, 503);
-    });
     await page.goto("/browse/smb/demo");
     await page.getByTestId("file-list-container").press("ArrowDown");
     await expect(page.getByRole("button", { name: `File: ${DEMO_PATH}` })).toHaveAttribute("data-selected", "true");
-    const downloadRequest = page.waitForRequest((request) =>
-      request.url().includes(`/api/viewer/${DEMO_CONNECTION_ID}/download?path=${DEMO_PATH}`)
-    );
+    const downloadRequest = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/viewer/download-intents/test-ticket");
     await page.keyboard.press("Control+d");
     expect((await downloadRequest).method()).toBe("GET");
   });
@@ -278,18 +283,13 @@ for (const layout of ["desktop", "compact"] as const) {
   test(`${layout} Ctrl+D downloads a focused ZIP member`, async ({ page }) => {
     if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
     await mockMarkdownViewerApi(page, { initialMarkdown: "hello", includeZip: true });
-    await page.route("**/api/archive/v2/inspection/member?**", async (route) => {
-      await fulfillJson(route, { detail: "Download intentionally blocked in E2E" }, 503);
-    });
     await page.goto("/browse/smb/demo");
     await page.getByRole("button", { name: `File: ${DEMO_ARCHIVE}` }).click();
     await page.getByTestId("file-list-container").press("ArrowDown");
     await expect(page.getByRole("button", { name: "File: member.txt" })).toHaveAttribute("data-selected", "true");
-    const downloadRequest = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/archive/v2/inspection/member");
+    const downloadRequest = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/viewer/download-intents");
     await page.keyboard.press("Control+d");
-    const params = new URL((await downloadRequest).url()).searchParams;
-    expect(params.get("member_path")).toBe("member.txt");
-    expect(params.get("download")).toBe("true");
+    expect((await downloadRequest).postDataJSON()).toMatchObject({ path: DEMO_ARCHIVE, member_path: "member.txt" });
   });
 
   test(`${layout} Ctrl+D asks for a selection when the file list is empty of selections`, async ({ page }) => {
@@ -307,12 +307,7 @@ for (const layout of ["desktop", "compact"] as const) {
   test(`${layout} file menu dispatches a physical download request`, async ({ page }) => {
     if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
     await mockMarkdownViewerApi(page, { initialMarkdown: "hello" });
-    const downloadRequest = page.waitForRequest((request) =>
-      request.url().includes(`/api/viewer/${DEMO_CONNECTION_ID}/download?path=${DEMO_PATH}`)
-    );
-    await page.route(`**/api/viewer/${DEMO_CONNECTION_ID}/download?**`, async (route) => {
-      await fulfillJson(route, { detail: "Download intentionally blocked in E2E" }, 503);
-    });
+    const downloadRequest = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/viewer/download-intents");
     await page.goto("/browse/smb/demo");
     if (layout === "compact") {
       await page.getByRole("button", { name: `More actions for ${DEMO_PATH}` }).click();
@@ -321,7 +316,7 @@ for (const layout of ["desktop", "compact"] as const) {
       await page.getByRole("button", { name: `File: ${DEMO_PATH}` }).click({ button: "right" });
       await page.getByRole("button", { name: "Download" }).click();
     }
-    expect((await downloadRequest).method()).toBe("GET");
+    expect((await downloadRequest).postDataJSON()).toMatchObject({ path: DEMO_PATH });
   });
 
   test(`${layout} directory download requests a temporary ZIP without saving`, async ({ page }) => {
@@ -372,10 +367,7 @@ for (const layout of ["desktop", "compact"] as const) {
   test(`${layout} ZIP file member download requests original content`, async ({ page }) => {
     if (layout === "compact") await page.setViewportSize({ width: 390, height: 780 });
     await mockMarkdownViewerApi(page, { initialMarkdown: "hello", includeZip: true });
-    const downloadRequest = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/archive/v2/inspection/member");
-    await page.route("**/api/archive/v2/inspection/member?**", async (route) => {
-      await fulfillJson(route, { detail: "Download intentionally blocked in E2E" }, 503);
-    });
+    const downloadRequest = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/viewer/download-intents");
     await page.goto("/browse/smb/demo");
     await page.getByRole("button", { name: `File: ${DEMO_ARCHIVE}` }).click();
     if (layout === "compact") {
@@ -387,11 +379,7 @@ for (const layout of ["desktop", "compact"] as const) {
       await page.getByRole("button", { name: "Download" }).click();
     }
     const request = await downloadRequest;
-    const params = new URL(request.url()).searchParams;
-    expect(params.get("archive_path")).toBe(DEMO_ARCHIVE);
-    expect(params.get("member_path")).toBe("member.txt");
-    expect(params.get("download")).toBe("true");
-    expect(params.get("view_kind")).toBe("raw");
+    expect(request.postDataJSON()).toMatchObject({ path: DEMO_ARCHIVE, member_path: "member.txt" });
   });
 
   test(`${layout} directory ZIP preparation reports a size-limit failure`, async ({ page }) => {

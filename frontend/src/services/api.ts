@@ -2022,28 +2022,52 @@ class ApiService {
   }
 
   async downloadFile(connectionId: string, path: string, filename: string, signal?: AbortSignal): Promise<void> {
+    const url = await this.issueBrowserDownloadUrl(connectionId, path, undefined, signal);
+    if (!signal?.aborted) this.startNativeDownload(url, filename);
+  }
+
+  async downloadArchiveMember(
+    connectionId: string,
+    archivePath: string,
+    memberPath: string,
+    filename: string,
+    signal?: AbortSignal
+  ): Promise<void> {
+    const url = await this.issueBrowserDownloadUrl(connectionId, archivePath, memberPath, signal);
+    if (!signal?.aborted) this.startNativeDownload(url, filename);
+  }
+
+  private async issueBrowserDownloadUrl(connectionId: string, path: string, memberPath?: string, signal?: AbortSignal): Promise<string> {
     const baseUrl = getBaseUrl(connectionId);
-    const segment = getBrowseSegment(connectionId);
-    const url = `${baseUrl}/viewer/${segment}/download?path=${encodeURIComponent(path)}`;
+    const localDrive = isLocalDrive(connectionId);
+    const issueUrl = `${baseUrl}/${localDrive ? "download-intents" : "viewer/download-intents"}`;
+    const response = await fetch(issueUrl, {
+      method: "POST",
+      headers: {
+        ...(await this.getTransferFetchHeaders(connectionId, "POST", issueUrl)),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        [localDrive ? "drive" : "connection_id"]: getBrowseSegment(connectionId),
+        path,
+        ...(memberPath === undefined ? {} : { member_path: memberPath }),
+      }),
+      signal,
+    });
+    if (!response.ok) throw new Error(`Download preparation failed (${response.status})`);
+    const { url } = (await response.json()) as { url: string };
+    return new URL(url, new URL(baseUrl, location.href)).href;
+  }
 
-    const headers: Record<string, string> = {};
-    if (isLocalDrive(connectionId)) {
-      const companionHeaders = await this.buildCompanionHeaders("GET", url);
-      Object.assign(headers, companionHeaders);
-    } else {
-      const token = authSession.getAccessToken();
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-    }
-
-    if (signal?.aborted) return;
-    const response = await fetch(url, { headers, signal });
-
-    if (!response.ok) {
-      throw new Error(`Download failed: ${response.statusText}`);
-    }
-
-    const blob = await response.blob();
-    if (!signal?.aborted) this.saveDownloadBlob(blob, filename);
+  private startNativeDownload(url: string, filename: string): void {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.rel = "noreferrer";
+    link.style.display = "none";
+    document.body.append(link);
+    link.click();
+    link.remove();
   }
 
   private async getSelectionDownloadHeaders(connectionId: string, url: string): Promise<Record<string, string>> {

@@ -434,17 +434,68 @@ describe("API Service", () => {
     expect(save).toHaveBeenCalledWith(expect.any(Blob), "Sambee-download.zip");
   });
 
-  it("aborts a physical file download and does not save a cancelled response", async () => {
+  it("aborts preparation before handing a physical file to the browser", async () => {
     const controller = new AbortController();
-    const save = vi.spyOn(apiService, "saveDownloadBlob").mockImplementation(() => {});
-    fetchMock.mockResolvedValueOnce(new Response(new Blob(["file"]), { status: 200 }));
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ url: "/api/viewer/download-intents/scoped-token" }), { status: 200 }));
 
     const download = apiService.downloadFile("destination", "report.txt", "report.txt", controller.signal);
     controller.abort();
     await download;
 
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("report.txt"), expect.objectContaining({ signal: controller.signal }));
-    expect(save).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3000/api/viewer/download-intents",
+      expect.objectContaining({ method: "POST", signal: controller.signal })
+    );
+    expect(click).not.toHaveBeenCalled();
+  });
+
+  it("hands a single file to the browser without fetching its bytes", async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      expect(this.href).toBe("http://localhost:3000/api/viewer/download-intents/scoped-token");
+      expect(this.download).toBe("report.txt");
+    });
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ url: "/api/viewer/download-intents/scoped-token" }), { status: 200 }));
+
+    await apiService.downloadFile("destination", "report.txt", "report.txt");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(click).toHaveBeenCalledOnce();
+  });
+
+  it("hands a ZIP member to the browser through a server download intent", async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ url: "/api/viewer/download-intents/member-token" }), { status: 200 }));
+
+    await apiService.downloadArchiveMember("destination", "files.zip", "inner/report.txt", "report.txt");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3000/api/viewer/download-intents",
+      expect.objectContaining({
+        body: JSON.stringify({ connection_id: "destination", path: "files.zip", member_path: "inner/report.txt" }),
+      })
+    );
+    expect(click).toHaveBeenCalledOnce();
+  });
+
+  it("issues a signed companion intent for a local ZIP member without fetching bytes", async () => {
+    const sign = vi.spyOn(companionSession, "getSigningHeaders").mockResolvedValueOnce({ "X-Companion-Secret": "signed" });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      expect(this.href).toBe("http://localhost:21549/api/download-intents/local-token");
+    });
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ url: "/api/download-intents/local-token" }), { status: 200 }));
+
+    await apiService.downloadArchiveMember("local-drive:test", "files.zip", "inner/report.txt", "report.txt");
+
+    expect(sign).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:21549/api/download-intents",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ drive: "test", path: "files.zip", member_path: "inner/report.txt" }),
+      })
+    );
+    expect(click).toHaveBeenCalledOnce();
   });
 
   it("authenticates local selection ZIPs with both Companion and backend sessions", async () => {

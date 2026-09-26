@@ -6,9 +6,9 @@ import type { ContentTransferResult, StorageBackendRegistry, TargetResolutionPol
 import {
   downloadPhysicalFile,
   downloadPhysicalSelection,
+  downloadVirtualFile,
   downloadZipSelection,
   publishBrowserFile,
-  saveVirtualDownload,
   transferAcrossStorageBackends,
 } from "../../services/storageTransferOperations";
 import { type ConflictInfo, type DirectoryListing, type FileInfo, FileType, isApiError } from "../../types";
@@ -30,7 +30,7 @@ export { publishBrowserFile };
 
 export async function downloadContentSelection(
   items: readonly BrowserItem[],
-  providers: ContentProviderRegistry,
+  _providers: ContentProviderRegistry,
   signal: AbortSignal
 ): Promise<void> {
   const item = items[0];
@@ -62,8 +62,14 @@ export async function downloadContentSelection(
   } else if (item.handle.kind === "physical") {
     await downloadPhysicalFile(item.handle.location.connectionId, item.handle.path, item.entry.name, signal);
   } else {
-    const blob = await providers.get(item.handle.location).read(item.handle, { kind: "raw" }, { download: true, signal });
-    if (!signal.aborted) saveVirtualDownload(blob, item.entry.name);
+    if (item.handle.location.providerId !== "zip") throw new Error("Unsupported virtual download source");
+    await downloadVirtualFile(
+      item.handle.location.connectionId,
+      item.handle.location.source.path,
+      item.handle.path,
+      item.entry.name,
+      signal
+    );
   }
 }
 

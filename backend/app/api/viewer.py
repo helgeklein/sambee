@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import secrets
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timedelta, timezone
@@ -8,7 +9,9 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response, StreamingResponse
-from sqlmodel import Session, select
+from pydantic import BaseModel
+from sqlalchemy import delete
+from sqlmodel import Session, col, select
 
 from app.api._smb_helpers import build_smb_backend, disconnect_backend_safely
 from app.api.companion import (
@@ -22,6 +25,7 @@ from app.core.security import get_current_user_for_token, get_current_user_with_
 from app.core.system_setting_definitions import SystemSettingKey
 from app.db.database import get_session
 from app.models.connection import Connection
+from app.models.download_intent import DownloadIntent
 from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
 from app.models.file import FileInfo, FileType
 from app.models.user import User
@@ -50,6 +54,93 @@ from app.utils.file_type_registry import needs_processing
 
 router = APIRouter()
 logger = get_logger(__name__)
+DOWNLOAD_INTENT_TTL = timedelta(seconds=90)
+
+
+class DownloadIntentRequest(BaseModel):
+    connection_id: uuid.UUID
+    path: str
+    member_path: str | None = None
+
+
+class DownloadIntentResponse(BaseModel):
+    url: str
+
+
+@router.post("/download-intents", response_model=DownloadIntentResponse)
+async def create_download_intent(
+    body: DownloadIntentRequest,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> DownloadIntentResponse:
+    """Authorize one browser-native download without exposing the bearer token."""
+    if not body.path or body.member_path == "":
+        raise HTTPException(status_code=422, detail="A file path and nonempty member path are required")
+    connection = get_accessible_connection_or_404(session, current_user, body.connection_id)
+    backend = build_smb_backend(connection, backend_factory=SMBBackend)
+    reader = None
+    try:
+        await backend.connect()
+        file_info = await backend.get_file_info(body.path)
+        if file_info.type != FileType.FILE:
+            raise HTTPException(status_code=422, detail="Download source must be a regular file")
+        if body.member_path is not None:
+            if file_info.size is None:
+                raise HTTPException(status_code=422, detail="Archive size is unavailable")
+            reader = await backend.open_random_access_reader(body.path)
+            await ZipReader(reader, file_info.size).validate_member_in_record_order(body.member_path)
+    except (ArchiveFormatError, FileNotFoundError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    finally:
+        if reader is not None:
+            await reader.close()
+        await disconnect_backend_safely(backend, logger=logger, context="download intent preparation")
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    session.exec(delete(DownloadIntent).where(col(DownloadIntent.expires_at) < now))
+    session.add(
+        DownloadIntent(
+            token_hash=hashlib.sha256(token.encode()).hexdigest(),
+            user_id=current_user.id,
+            token_version=current_user.token_version,
+            connection_id=body.connection_id,
+            path=body.path,
+            member_path=body.member_path,
+            expires_at=now + DOWNLOAD_INTENT_TTL,
+        )
+    )
+    session.commit()
+    return DownloadIntentResponse(url=f"/api/viewer/download-intents/{token}")
+
+
+@router.get("/download-intents/{token}", response_model=None)
+async def redeem_download_intent(token: str, session: Session = Depends(get_session)) -> Response | StreamingResponse:
+    """Atomically consume a scoped capability before opening its source stream."""
+    intent = session.execute(
+        delete(DownloadIntent)
+        .where(col(DownloadIntent.token_hash) == hashlib.sha256(token.encode()).hexdigest())
+        .returning(
+            col(DownloadIntent.expires_at), col(DownloadIntent.user_id), col(DownloadIntent.token_version),
+            col(DownloadIntent.connection_id), col(DownloadIntent.path), col(DownloadIntent.member_path),
+        )
+    ).one_or_none()
+    session.commit()
+    if intent is None or intent.expires_at.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=404, detail="Download expired or unavailable")
+    current_user = session.get(User, intent.user_id)
+    if current_user is None or not current_user.is_active or current_user.token_version != intent.token_version:
+        raise HTTPException(status_code=404, detail="Download expired or unavailable")
+    get_accessible_connection_or_404(session, current_user, intent.connection_id)
+    if intent.member_path is None:
+        response: Response | StreamingResponse = await _stream_download_file(intent.connection_id, intent.path, current_user, session)
+    else:
+        response = await stream_archive_member(
+            intent.connection_id, intent.path, intent.member_path, True, "raw", "original",
+            None, None, False, None, None, 200, current_user, session,
+        )
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 
 def _inspection_member(entry: ZipEntry) -> ArchiveInspectionManifestMember:
@@ -935,6 +1026,11 @@ async def download_file(
     else:
         current_user = await get_current_user_for_token(token, session)
 
+    return await _stream_download_file(connection_id, path, current_user, session)
+
+
+async def _stream_download_file(connection_id: uuid.UUID, path: str, current_user: User, session: Session) -> StreamingResponse:
+    """Stream an authorized physical file for both bearer and intent requests."""
     set_user(current_user.username)
     logger.info(f"Download file: connection_id={connection_id}, path='{path}'")
 

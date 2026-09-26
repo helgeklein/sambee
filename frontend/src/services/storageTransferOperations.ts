@@ -40,14 +40,20 @@ export function downloadPhysicalFile(connectionId: string, path: string, name: s
   return api.downloadFile(connectionId, path, name, signal);
 }
 
+export function downloadVirtualFile(
+  connectionId: string,
+  archivePath: string,
+  memberPath: string,
+  name: string,
+  signal: AbortSignal
+): Promise<void> {
+  return api.downloadArchiveMember(connectionId, archivePath, memberPath, name, signal);
+}
+
 export function downloadPhysicalSelection(connectionId: string, paths: string[], signal: AbortSignal): Promise<void> {
   return api.downloadSelectionArchive(connectionId, paths, signal);
 }
 
 export function downloadZipSelection(connectionId: string, archivePath: string, paths: string[], signal: AbortSignal): Promise<void> {
   return api.downloadZipSelectionArchive(connectionId, archivePath, paths, signal);
-}
-
-export function saveVirtualDownload(blob: Blob, name: string): void {
-  api.saveDownloadBlob(blob, name);
 }

@@ -8,6 +8,7 @@ title = "What's New"
 
 - Bugfix: Invalid file browser URLs no longer break the page or prevent the other pane from loading.
 - Bugfix: Overlapping download requests were allowed.
+- Single files, including files inside ZIP archives, now stream directly to the browser without buffering the whole download in the app. A preparation notice appears only when the handoff takes longer; the browser handles download progress and cancellation afterward. Multi-item archive downloads remain a separate, size-limited operation.
 - Bugfix: A failed background connection refresh no longer hides a recovered file listing.
 - Bugfix: Uploads and copy or move operations no longer interfere with each other's conflict decisions.
 

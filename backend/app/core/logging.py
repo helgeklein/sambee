@@ -100,12 +100,14 @@ class SensitiveDataLogFilter(logging.Filter):
     _QUERY_STRING_PATTERN = re.compile(r"(?P<target>(?:https?|wss?)://[^\s\"']+|/[^\s\"'?]+)\?[^\s\"']*", re.IGNORECASE)
     _TOKEN_PARAMETER_PATTERN = re.compile(r"(?P<name>\b(?:access_token|id_token|refresh_token|token)\b\s*=\s*)[^\s,;&\"']+", re.IGNORECASE)
     _BEARER_TOKEN_PATTERN = re.compile(r"(?P<scheme>\bBearer\s+)[^\s,;]+", re.IGNORECASE)
+    _DOWNLOAD_INTENT_PATTERN = re.compile(r"(?P<path>/api/viewer/download-intents/)[A-Za-z0-9_-]+")
 
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
         redacted_message = self._QUERY_STRING_PATTERN.sub(r"\g<target>?<redacted>", message)
         redacted_message = self._TOKEN_PARAMETER_PATTERN.sub(r"\g<name><redacted>", redacted_message)
         redacted_message = self._BEARER_TOKEN_PATTERN.sub(r"\g<scheme><redacted>", redacted_message)
+        redacted_message = self._DOWNLOAD_INTENT_PATTERN.sub(r"\g<path><redacted>", redacted_message)
         if redacted_message != message:
             record.msg = redacted_message
             record.args = ()

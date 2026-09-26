@@ -179,11 +179,26 @@ describe("Browser Component - Interactions", () => {
     await user.keyboard(" ");
     await user.click(screen.getByRole("button", { name: "Download", exact: true }));
 
-    expect(await screen.findByText("Downloading")).toBeInTheDocument();
+    expect(await screen.findByText("Preparing download")).toBeInTheDocument();
     const cancel = await screen.findByRole("button", { name: "Cancel" });
     await user.click(cancel);
     expect(downloadSignal?.aborted).toBe(true);
-    await waitFor(() => expect(screen.queryByText("Downloading")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("Preparing download")).not.toBeInTheDocument());
+  });
+
+  it("does not flash a preparation notice for a quick single-file handoff", async () => {
+    setupRegularFileTransferListing();
+    vi.mocked(api.downloadFile).mockResolvedValueOnce(undefined);
+
+    const user = userEvent.setup();
+    renderBrowser("/browse/smb/test-server-1");
+    const listContainer = await screen.findByTestId("virtual-list");
+    await user.click(listContainer);
+    await user.keyboard(" ");
+    await user.click(screen.getByRole("button", { name: "Download", exact: true }));
+
+    await waitFor(() => expect(api.downloadFile).toHaveBeenCalled());
+    expect(screen.queryByText("Preparing download")).not.toBeInTheDocument();
   });
 
   it("shows archive preparation while downloading a directory", async () => {
