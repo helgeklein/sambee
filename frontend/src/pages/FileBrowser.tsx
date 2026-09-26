@@ -3061,7 +3061,11 @@ const Browser: React.FC = () => {
           "file-browser",
           error instanceof Error ? error : new Error(String(error))
         );
-        setShareNotice(fileShareErrorMessage(error, t("fileBrowser.share.rejected")));
+        setShareNotice(
+          error instanceof DOMException && error.name === "NotAllowedError" && error.message === "Permission denied"
+            ? t("fileBrowser.share.fileTypeRejected")
+            : fileShareErrorMessage(error, t("fileBrowser.share.rejected"))
+        );
         setShareNoticeIsError(true);
         setFailedShareDownload({ files, nextIndex: 0 });
       }

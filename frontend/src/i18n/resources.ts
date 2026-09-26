@@ -887,6 +887,8 @@ export const EN_TRANSLATIONS = {
       ready_other: "{{count}} files ready to share",
       sharing: "Opening the share sheet...",
       rejected: "Browser could not share these files. Download them instead",
+      fileTypeRejected:
+        "This browser may not allow sharing these file types. Download them and try sharing them from your device's Files app.",
       downloadNext: "Download {{current}}/{{count}}",
       downloadFailed: "Failed to download file",
     },

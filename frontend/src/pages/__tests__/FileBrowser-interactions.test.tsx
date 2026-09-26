@@ -3141,8 +3141,11 @@ describe("Browser Component - Interactions", () => {
         await user.click(await screen.findByRole("button", { name: "Share" }));
 
         expect(
-          await screen.findByText("Browser could not share these files. Download them instead: NotAllowedError: Permission denied")
+          await screen.findByText(
+            "This browser may not allow sharing these file types. Download them and try sharing them from your device's Files app."
+          )
         ).toBeInTheDocument();
+        expect(screen.queryByText(/Permission denied/)).not.toBeInTheDocument();
         const files = share.mock.calls[0]![0].files as File[];
         downloadBlob.mockImplementationOnce(() => {
           throw new Error("Storage unavailable");
