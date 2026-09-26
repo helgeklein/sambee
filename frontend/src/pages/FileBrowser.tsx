@@ -4516,7 +4516,6 @@ const Browser: React.FC = () => {
         <MenuItem onClick={() => selectUploadChoice(true)}>{t("fileBrowser.toolbar.uploadChoiceFolder")}</MenuItem>
       </Menu>
       <Snackbar
-        key={fileShareState ? `share-${fileShareState.status}` : `share-notice-${shareNotice}`}
         open={Boolean(fileShareState || shareNotice)}
         anchorOrigin={{ vertical: "top", horizontal: "center" }}
         sx={{

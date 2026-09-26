@@ -3,7 +3,7 @@
  * Tests for keyboard navigation, search/filter, sorting, settings, and refresh
  */
 
-import { cleanup, createEvent, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import api from "../../services/api";
@@ -3033,6 +3033,49 @@ describe("Browser Component - Interactions", () => {
         expect(await screen.findByText("Sharing is not available on this device or browser")).toBeInTheDocument();
         expect(share).toHaveBeenCalledOnce();
       } finally {
+        restore();
+      }
+    });
+
+    it("keeps the share notice mounted from download through the native share sheet", async () => {
+      const { share, restore } = setupCompactNativeShare();
+      let finishDownload: ((blob: Blob) => void) | undefined;
+      let finishShare: (() => void) | undefined;
+      vi.mocked(api.getOriginalFileBlob).mockImplementation(
+        () =>
+          new Promise<Blob>((resolve) => {
+            finishDownload = resolve;
+          })
+      );
+      share.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            finishShare = resolve;
+          })
+      );
+
+      try {
+        setupRegularFileTransferListing();
+        const user = userEvent.setup();
+        renderBrowser("/browse/smb/test-server-1");
+
+        await user.click(await screen.findByRole("button", { name: "More actions for Documents" }));
+        await user.click(screen.getByRole("menuitem", { name: "Share" }));
+        const shareBar = (await screen.findByText("Downloading 1 file to share...")).closest(".MuiSnackbar-root");
+        expect(shareBar).not.toBeNull();
+
+        await act(async () => {
+          finishDownload?.(new Blob(["content"]));
+        });
+        expect((await screen.findByText("1 file ready to share")).closest(".MuiSnackbar-root")).toBe(shareBar);
+        await user.click(screen.getByRole("button", { name: "Share" }));
+        expect((await screen.findByText("Opening the share sheet...")).closest(".MuiSnackbar-root")).toBe(shareBar);
+        await act(async () => {
+          finishShare?.();
+        });
+      } finally {
+        finishDownload?.(new Blob(["content"]));
+        finishShare?.();
         restore();
       }
     });
