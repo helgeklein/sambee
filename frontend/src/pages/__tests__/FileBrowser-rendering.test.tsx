@@ -11,8 +11,10 @@ import { authSession } from "../../services/authSession";
 import { markBackendAvailable, markBackendReconnecting, resetBackendAvailabilityForTests } from "../../services/backendAvailability";
 import { emitBackendRecoveryConfirmed } from "../../services/backendRecoveryEvents";
 import { saveBrowserRecoverySnapshot } from "../../services/browserRecoverySnapshot";
+import { logger } from "../../services/logger";
 import {
   type ApiMock,
+  createForbiddenError,
   createMarkdownViewerMock,
   createSettingsDialogMock,
   createTimeoutError,
@@ -80,6 +82,41 @@ describe("Browser Component - Rendering", () => {
     expect((await screen.findAllByText("Documents")).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Loading connections/i)).not.toBeInTheDocument();
   });
+
+  it.each([new Error("offline"), createForbiddenError()])(
+    "keeps a recovered listing visible when background connections fail: %s",
+    async (failure) => {
+      saveBrowserRecoverySnapshot({
+        savedAt: Date.now(),
+        routeUrl: "/browse/smb/test-server-1",
+        activePaneId: "left",
+        paneMode: "single",
+        connections: mockConnections,
+        left: {
+          connectionId: "conn-1",
+          path: "",
+          items: mockDirectoryListing.items,
+          sortBy: "name",
+          sortDirection: "asc",
+          viewMode: "details",
+          focusedIndex: 0,
+          focusedFileName: "Documents",
+          selectedFileNames: [],
+          viewInfo: null,
+          scrollOffset: 0,
+        },
+        right: null,
+      });
+      vi.mocked(api.getConnections).mockRejectedValueOnce(failure);
+      const logSpy = vi.spyOn(logger, "error");
+
+      renderBrowser("/browse/smb/test-server-1");
+      await waitFor(() => expect(logSpy).toHaveBeenCalledWith("Error loading connections", { error: failure }, "browser"));
+      expect((await screen.findAllByText("Documents")).length).toBeGreaterThan(0);
+      expect(screen.queryByText(/Failed to load connections|Access denied/i)).not.toBeInTheDocument();
+      logSpy.mockRestore();
+    }
+  );
 
   it("preserves a recovered viewer while synchronizing a different initial route", async () => {
     saveBrowserRecoverySnapshot({

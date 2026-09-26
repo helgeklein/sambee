@@ -966,6 +966,16 @@ def _apply_per_field_system_settings_migration(connection: Connection) -> None:
         connection.execute(text("DELETE FROM systemsetting WHERE key = :key"), {"key": legacy_key})
 
 
+def _apply_download_intent_token_version_migration(connection: Connection) -> None:
+    inspector = inspect(connection)
+    if not inspector.has_table("download_intent"):
+        return
+    columns = {column["name"] for column in inspector.get_columns("download_intent")}
+    if "token_version" not in columns:
+        connection.execute(text("ALTER TABLE download_intent ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"))
+    connection.execute(text("DELETE FROM download_intent"))
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="ensure_connection_slugs", apply=_apply_connection_slug_migration),
     Migration(version=2, name="add_user_role_and_session_fields", apply=_apply_user_role_migration),
@@ -1004,6 +1014,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=33, name="add_archive_operation_member_selection", apply=_apply_archive_operation_member_selection_migration),
     Migration(version=34, name="add_transfer_operations", apply=_apply_transfer_operations_migration),
     Migration(version=35, name="split_system_setting_policy_blobs", apply=_apply_per_field_system_settings_migration),
+    Migration(version=36, name="add_download_intent_token_version", apply=_apply_download_intent_token_version_migration),
 )
 
 

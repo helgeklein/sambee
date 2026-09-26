@@ -2,6 +2,19 @@
 title = "What's New"
 +++
 
+## File List
+
+### Other Changes
+
+- Single-file downloads are now streamed directly without buffering in memory. This speeds up downloads and effectively removes limits imposed by file size.
+
+### Bugfixes
+
+- Invalid file browser URLs no longer break the page or prevent the other pane from loading.
+- Overlapping download requests were allowed.
+- A failed background connection refresh no longer hides a recovered file listing.
+- Uploads and copy or move operations no longer interfere with each other's conflict decisions.
+
 ## Under the Hood
 
 ### Security Review

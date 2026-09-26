@@ -20,6 +20,7 @@ pub mod watcher;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::http::{header, Method};
 use axum::Router;
@@ -36,6 +37,14 @@ use self::watcher::DirectoryWatcher;
 
 /// The port the local HTTP server listens on.
 pub const SERVER_PORT: u16 = 21549;
+
+pub struct DownloadIntent {
+    pub origin: String,
+    pub drive: String,
+    pub path: String,
+    pub member_path: Option<String>,
+    pub expires_at: Instant,
+}
 
 /// Shared application state accessible from all request handlers.
 #[allow(dead_code)]
@@ -105,6 +114,10 @@ fn build_router(state: Arc<AppState>) -> Router {
         ]);
 
     let public_routes = Router::new()
+        .route(
+            "/api/download-intents/{token}",
+            axum::routing::get(handlers::redeem_download_intent),
+        )
         .route("/api/health", axum::routing::get(handlers::health))
         .route("/api/pair/status", axum::routing::get(handlers::pair_status))
         .route("/api/pair/initiate", axum::routing::post(handlers::pair_initiate))
@@ -112,6 +125,7 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/pair/cancel", axum::routing::post(handlers::pair_cancel));
 
     let authenticated_routes = Router::new()
+        .route("/api/download-intents", axum::routing::post(handlers::create_download_intent))
         .route("/api/pair/test", axum::routing::post(handlers::test_pairing))
         .route("/api/pair/current", axum::routing::delete(handlers::delete_current_pairing))
         .route("/api/localization", axum::routing::post(handlers::sync_localization))

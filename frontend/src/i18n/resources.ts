@@ -838,7 +838,8 @@ export const EN_TRANSLATIONS = {
     transfers: {
       downloadFailed: "Download failed. Try again.",
       downloadSizeLimitExceeded: "The selected ZIP exceeds the temporary download size limit.",
-      preparingDownload: "Preparing download",
+      preparingArchive: "Preparing archive",
+      downloading: "Preparing download",
       preparingUpload: "Preparing upload",
       dropToUpload: "Drop to upload",
       dropUnavailable: "Uploads aren't available in this folder",

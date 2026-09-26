@@ -13,6 +13,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import Response
 
 from app.models.file import FileInfo, FileType
 from app.services.pdf_inspector import PDFScreenAnalysis
@@ -563,6 +564,62 @@ class TestViewerFile:
 
 class TestDownloadFile:
     """Test cases for the file download endpoint."""
+
+    def test_browser_download_intent_streams_once(self, client, auth_headers_user, test_connection, mock_text_file):
+        with patch("app.api.viewer.SMBBackend") as mock:
+            backend_instance = AsyncMock()
+            backend_instance.get_file_info.return_value = mock_text_file
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([b"first", b"second"])
+            mock.return_value = backend_instance
+
+            issued = client.post(
+                "/api/viewer/download-intents",
+                headers=auth_headers_user,
+                json={"connection_id": str(test_connection.id), "path": "/document.txt"},
+            )
+            assert issued.status_code == 200
+            url = issued.json()["url"]
+            assert "/document.txt" not in url
+            assert client.get(url).content == b"firstsecond"
+            assert client.get(url).status_code == 404
+
+    def test_large_file_intent_does_not_read_or_limit_file_bytes(self, client, auth_headers_user, test_connection, mock_text_file):
+        with patch("app.api.viewer.SMBBackend") as backend_mock:
+            backend = AsyncMock()
+            backend.get_file_info.return_value = mock_text_file.model_copy(update={"size": 5 * 1024**3})
+            backend_mock.return_value = backend
+
+            response = client.post(
+                "/api/viewer/download-intents",
+                headers=auth_headers_user,
+                json={"connection_id": str(test_connection.id), "path": "/large.bin"},
+            )
+            assert response.status_code == 200
+            backend.read_file.assert_not_called()
+
+    def test_browser_archive_member_intent_uses_raw_stream(self, client, auth_headers_user, test_connection, mock_text_file):
+        with (
+            patch("app.api.viewer.SMBBackend") as backend_mock,
+            patch("app.api.viewer.ZipReader") as reader_mock,
+            patch("app.api.viewer.stream_archive_member", new_callable=AsyncMock) as stream_mock,
+        ):
+            backend = AsyncMock()
+            backend.get_file_info.return_value = mock_text_file
+            backend_mock.return_value = backend
+            reader_mock.return_value.validate_member_in_record_order = AsyncMock()
+            stream_mock.return_value = Response(content=b"member", headers={"Content-Disposition": "attachment"})
+
+            issued = client.post(
+                "/api/viewer/download-intents",
+                headers=auth_headers_user,
+                json={"connection_id": str(test_connection.id), "path": "archive.zip", "member_path": "inner/member.txt"},
+            )
+            assert issued.status_code == 200
+            reader_mock.return_value.validate_member_in_record_order.assert_awaited_once_with("inner/member.txt")
+            response = client.get(issued.json()["url"])
+            assert response.status_code == 200
+            assert response.content == b"member"
+            assert stream_mock.await_args.args[:6] == (test_connection.id, "archive.zip", "inner/member.txt", True, "raw", "original")
 
     def test_download_file_success(self, client, auth_headers_user, test_connection, mock_text_file):
         """Test successful file download."""
