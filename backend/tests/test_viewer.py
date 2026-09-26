@@ -598,9 +598,11 @@ class TestDownloadFile:
             backend.read_file.assert_not_called()
 
     def test_browser_archive_member_intent_uses_raw_stream(self, client, auth_headers_user, test_connection, mock_text_file):
-        with patch("app.api.viewer.SMBBackend") as backend_mock, patch("app.api.viewer.ZipReader") as reader_mock, patch(
-            "app.api.viewer.stream_archive_member", new_callable=AsyncMock
-        ) as stream_mock:
+        with (
+            patch("app.api.viewer.SMBBackend") as backend_mock,
+            patch("app.api.viewer.ZipReader") as reader_mock,
+            patch("app.api.viewer.stream_archive_member", new_callable=AsyncMock) as stream_mock,
+        ):
             backend = AsyncMock()
             backend.get_file_info.return_value = mock_text_file
             backend_mock.return_value = backend

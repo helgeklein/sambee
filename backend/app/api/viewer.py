@@ -120,8 +120,12 @@ async def redeem_download_intent(token: str, session: Session = Depends(get_sess
         delete(DownloadIntent)
         .where(col(DownloadIntent.token_hash) == hashlib.sha256(token.encode()).hexdigest())
         .returning(
-            col(DownloadIntent.expires_at), col(DownloadIntent.user_id), col(DownloadIntent.token_version),
-            col(DownloadIntent.connection_id), col(DownloadIntent.path), col(DownloadIntent.member_path),
+            col(DownloadIntent.expires_at),
+            col(DownloadIntent.user_id),
+            col(DownloadIntent.token_version),
+            col(DownloadIntent.connection_id),
+            col(DownloadIntent.path),
+            col(DownloadIntent.member_path),
         )
     ).one_or_none()
     session.commit()
@@ -135,8 +139,20 @@ async def redeem_download_intent(token: str, session: Session = Depends(get_sess
         response: Response | StreamingResponse = await _stream_download_file(intent.connection_id, intent.path, current_user, session)
     else:
         response = await stream_archive_member(
-            intent.connection_id, intent.path, intent.member_path, True, "raw", "original",
-            None, None, False, None, None, 200, current_user, session,
+            intent.connection_id,
+            intent.path,
+            intent.member_path,
+            True,
+            "raw",
+            "original",
+            None,
+            None,
+            False,
+            None,
+            None,
+            200,
+            current_user,
+            session,
         )
     response.headers["Cache-Control"] = "private, no-store"
     response.headers["Referrer-Policy"] = "no-referrer"

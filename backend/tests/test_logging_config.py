@@ -37,8 +37,13 @@ def test_sensitive_data_log_filter_redacts_access_credentials() -> None:
     assert websocket_record.getMessage() == '127.0.0.1 - "WebSocket /api/ws?<redacted>" 403'
 
     download_record = logging.LogRecord(
-        "uvicorn.access", logging.INFO, __file__, 0,
-        '127.0.0.1 - "GET /api/viewer/download-intents/secret-token HTTP/1.1" 200', (), None,
+        "uvicorn.access",
+        logging.INFO,
+        __file__,
+        0,
+        '127.0.0.1 - "GET /api/viewer/download-intents/secret-token HTTP/1.1" 200',
+        (),
+        None,
     )
     assert log_filter.filter(download_record)
     assert "/api/viewer/download-intents/<redacted>" in download_record.getMessage()
