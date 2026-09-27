@@ -27,11 +27,24 @@ interface ThemeEditorDialogProps {
   selectedThemeId: string;
   isAdmin: boolean;
   onClose: () => void;
-  onSaved: (themeId: string) => Promise<void>;
+  onSaved: (themeId: string, isCopy: boolean) => Promise<void>;
   onPreview: (theme: ThemeConfig | null) => void;
 }
 
 const GROUPS = ["Core", "Viewers", "Markdown", "Search", "Alerts"] as const;
+const COPY_SUFFIX = " (copy)";
+
+function getCopyName(name: string, scope: StoredTheme["scope"], storedThemes: StoredTheme[]): string {
+  const existingNames = new Set(
+    storedThemes.filter((candidate) => candidate.scope === scope).map((candidate) => candidate.definition.name.trim().toLocaleLowerCase())
+  );
+  if (!existingNames.has(name.toLocaleLowerCase())) return name;
+  let copyName = `${name}${COPY_SUFFIX}`;
+  for (let number = 2; existingNames.has(copyName.toLocaleLowerCase()); number++) {
+    copyName = `${name} (copy ${number})`;
+  }
+  return copyName;
+}
 
 export function ThemeEditorDialog({
   theme,
@@ -51,11 +64,8 @@ export function ThemeEditorDialog({
   const [scope, setScope] = useState<StoredTheme["scope"]>(stored?.scope === "site" && isAdmin ? "site" : "user");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
-  const [saveAsTarget, setSaveAsTarget] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const writable = Boolean(stored && (stored.scope === "user" || isAdmin));
-  const target = storedThemes.find((candidate) => candidate.id === saveAsTarget);
 
   useEffect(() => {
     onPreview(draft.id === selectedThemeId ? draft : null);
@@ -76,7 +86,7 @@ export function ThemeEditorDialog({
     }
   };
 
-  const save = async (asNew: boolean) => {
+  const save = async (isCopy: boolean) => {
     const invalid = Object.entries(inputColors).find(([, value]) => !HEX_COLOR_PATTERN.test(value));
     const validationError = invalid ? `${invalid[0]}: enter #RRGGBB or #RRGGBBAA.` : validateThemeDefinition(draft);
     if (validationError) {
@@ -88,30 +98,21 @@ export function ThemeEditorDialog({
       requestAnimationFrame(() => document.getElementById(role ? `${role.path}-input` : "theme-name")?.focus());
       return;
     }
-    if (!asNew && !writable) return;
-    if (asNew && !target && stored?.scope === scope && stored && draft.name.trim().toLowerCase() === theme.name.trim().toLowerCase()) {
-      setError("Choose a different name for the new theme, or use Save to update this theme.");
-      document.getElementById("theme-name")?.focus();
-      return;
-    }
-    if (asNew && target && !confirmOverwrite) {
-      setConfirmOverwrite(true);
-      return;
-    }
+    if (!isCopy && (!writable || stored?.scope !== scope)) return;
+    const name = isCopy ? getCopyName(draft.name.trim(), scope, storedThemes) : draft.name.trim();
+    if (name !== draft.name.trim()) setDraft((previous) => ({ ...previous, name }));
     setPending(true);
     setError(null);
     try {
-      const definition = editableDefinition({ ...draft, name: draft.name.trim() });
-      const saved =
-        asNew && !target ? await api.createTheme(definition, scope) : await api.updateTheme(asNew ? target! : stored!, definition);
+      const definition = editableDefinition({ ...draft, name });
+      const saved = isCopy ? await api.createTheme(definition, scope) : await api.updateTheme(stored!, definition);
       onPreview(null);
-      await onSaved(saved.id);
+      await onSaved(saved.id, isCopy);
       onClose();
     } catch (cause) {
       setError(getThemeRequestError(cause));
     } finally {
       setPending(false);
-      setConfirmOverwrite(false);
     }
   };
 
@@ -142,302 +143,254 @@ export function ThemeEditorDialog({
   };
 
   return (
-    <>
-      <ResponsiveDialogShell
-        open
-        onClose={close}
-        disableClose={pending}
-        title={`Edit ${theme.name}`}
-        maxWidth="md"
-        actionNotice={error ? <Alert severity="error">{error}</Alert> : null}
-        actions={
-          <Box sx={adminDialogSplitActionRowSx}>
-            <Box sx={{ display: "flex", gap: 1, width: { xs: "100%", sm: "auto" }, flexWrap: "wrap" }}>
-              <Button
-                variant="outlined"
-                onClick={() => fileInput.current?.click()}
-                disabled={pending}
-                sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
-              >
-                Import
-              </Button>
-              <Button variant="outlined" onClick={exportDraft} disabled={pending} sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}>
-                Export
-              </Button>
-            </Box>
-            <Box sx={adminDialogActionGroupSx}>
-              <Button variant="outlined" onClick={close} disabled={pending} sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}>
-                Cancel
-              </Button>
-              <Button
-                variant="outlined"
-                onClick={() => void save(true)}
-                disabled={pending}
-                sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
-              >
-                Save as
-              </Button>
-              <Button
-                variant="contained"
-                onClick={() => void save(false)}
-                disabled={!writable || pending}
-                sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
-              >
-                Save
-              </Button>
-            </Box>
-          </Box>
-        }
-      >
-        <input
-          ref={fileInput}
-          type="file"
-          accept="application/json,.json"
-          hidden
-          tabIndex={-1}
-          onChange={(event) => void importFile(event)}
-        />
-        <FormSurface>
-          <FormGroup>
-            <FormRow>
-              <Box sx={{ display: { xs: "none", md: "block" } }}>
-                <FormFieldLabel
-                  label="Name"
-                  description="Name shown in the theme grid"
-                  descriptionId="theme-name-help"
-                  htmlFor="theme-name"
-                />
-              </Box>
-              <TextField
-                id="theme-name"
-                label="Name"
-                slotProps={{ htmlInput: { "aria-label": "Name" } }}
-                value={draft.name}
-                onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-                fullWidth
-                sx={formOutlinedControlSx}
-              />
-            </FormRow>
-            <FormRow>
-              <Box sx={{ display: { xs: "none", md: "block" } }}>
-                <FormFieldLabel
-                  label="Description"
-                  description="Optional detail for this theme"
-                  descriptionId="theme-description-help"
-                  htmlFor="theme-description"
-                />
-              </Box>
-              <TextField
-                id="theme-description"
-                label="Description"
-                slotProps={{ htmlInput: { "aria-label": "Description" } }}
-                value={draft.description ?? ""}
-                onChange={(event) => setDraft({ ...draft, description: event.target.value })}
-                fullWidth
-                sx={formOutlinedControlSx}
-              />
-            </FormRow>
-            <FormRow>
-              <Box sx={{ display: { xs: "none", md: "block" } }}>
-                <FormFieldLabel
-                  label="Mode"
-                  description="Light or dark application surfaces"
-                  descriptionId="theme-mode-help"
-                  htmlFor="theme-mode"
-                />
-              </Box>
-              <TextField
-                select
-                id="theme-mode"
-                label="Mode"
-                value={draft.mode}
-                onChange={(event) => setDraft({ ...draft, mode: event.target.value as ThemeConfig["mode"] })}
-                fullWidth
-                sx={formOutlinedControlSx}
-              >
-                <MenuItem value="light">Light</MenuItem>
-                <MenuItem value="dark">Dark</MenuItem>
-              </TextField>
-            </FormRow>
-            <FormRow>
-              <Box sx={{ display: { xs: "none", md: "block" } }}>
-                <FormFieldLabel
-                  label="Storage"
-                  description="Where Save as creates a new theme"
-                  descriptionId="theme-storage-help"
-                  htmlFor="theme-storage"
-                />
-              </Box>
-              <TextField
-                select
-                id="theme-storage"
-                label="Storage"
-                value={scope}
-                onChange={(event) => {
-                  setScope(event.target.value as StoredTheme["scope"]);
-                  setSaveAsTarget("");
-                }}
-                fullWidth
-                sx={formOutlinedControlSx}
-              >
-                <MenuItem value="user">Your themes</MenuItem>
-                {isAdmin && <MenuItem value="site">Site themes</MenuItem>}
-              </TextField>
-            </FormRow>
-            <FormRow>
-              <Box sx={{ display: { xs: "none", md: "block" } }}>
-                <FormFieldLabel
-                  label="Save as target"
-                  description="Create a new theme or explicitly replace an existing one"
-                  descriptionId="theme-target-help"
-                  htmlFor="theme-target"
-                />
-              </Box>
-              <TextField
-                select
-                id="theme-target"
-                label="Save as target"
-                value={saveAsTarget}
-                onChange={(event) => setSaveAsTarget(event.target.value)}
-                fullWidth
-                sx={formOutlinedControlSx}
-              >
-                <MenuItem value="">New theme</MenuItem>
-                {storedThemes
-                  .filter((candidate) => candidate.scope === scope)
-                  .map((candidate) => (
-                    <MenuItem key={candidate.id} value={candidate.id}>
-                      {candidate.definition.name}
-                    </MenuItem>
-                  ))}
-              </TextField>
-            </FormRow>
-          </FormGroup>
-          {GROUPS.map((section) => (
-            <Accordion
-              key={section}
-              expanded={group === section}
-              onChange={(_, expanded) => setGroup(expanded ? section : null)}
-              disableGutters
-              sx={{ bgcolor: "transparent", boxShadow: "none" }}
+    <ResponsiveDialogShell
+      open
+      onClose={close}
+      disableClose={pending}
+      title={`Edit ${theme.name}`}
+      maxWidth="md"
+      actionNotice={error ? <Alert severity="error">{error}</Alert> : null}
+      actions={
+        <Box sx={adminDialogSplitActionRowSx}>
+          <Box sx={{ display: "flex", gap: 1, width: { xs: "100%", sm: "auto" }, flexWrap: "wrap" }}>
+            <Button
+              variant="outlined"
+              onClick={() => fileInput.current?.click()}
+              disabled={pending}
+              sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
             >
-              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Typography variant="subtitle1">{section}</Typography>
-              </AccordionSummary>
-              <AccordionDetails sx={{ p: 0 }}>
-                <FormGroup>
-                  {COLOR_ROLES.filter((role) => role.group === section).map((role) => {
-                    const color = colorAt(draft, role.path) ?? "";
-                    const input = inputColors[role.path] ?? color;
-                    const invalid = inputColors[role.path] !== undefined && !HEX_COLOR_PATTERN.test(input);
-                    return (
-                      <FormRow key={role.path}>
-                        <Box sx={{ display: { xs: "none", md: "block" } }}>
-                          <FormFieldLabel
-                            label={role.label}
-                            description={role.description}
-                            descriptionId={`${role.path}-help`}
-                            htmlFor={`${role.path}-input`}
-                            feedback={invalid ? { severity: "error", message: "Use #RRGGBB or #RRGGBBAA." } : null}
-                          />
-                        </Box>
-                        <Box sx={{ display: "flex", gap: 1, alignItems: "center", minWidth: 0 }}>
-                          <Box
-                            component="button"
-                            type="button"
-                            aria-label={`Choose ${role.label} color`}
-                            onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
-                              setAnchor(event.currentTarget);
-                              setActiveColor(role.path);
-                            }}
-                            sx={{
-                              width: 36,
-                              height: 36,
-                              flexShrink: 0,
-                              borderRadius: 1,
-                              border: "1px solid",
-                              borderColor: "divider",
-                              cursor: "pointer",
-                              backgroundImage:
-                                "linear-gradient(45deg, #8884 25%, transparent 25%, transparent 75%, #8884 75%), linear-gradient(45deg, #8884 25%, transparent 25%, transparent 75%, #8884 75%)",
-                              backgroundSize: "12px 12px",
-                              backgroundPosition: "0 0, 6px 6px",
-                            }}
-                          >
-                            <Box sx={{ width: "100%", height: "100%", bgcolor: color }} />
-                          </Box>
-                          <TextField
-                            id={`${role.path}-input`}
-                            label={role.label}
-                            slotProps={{
-                              htmlInput: { "aria-label": role.label },
-                              formHelperText: { sx: { display: { md: "none" } } },
-                            }}
-                            value={input}
-                            onChange={(event) => changeColor(role.path, event.target.value)}
-                            onBlur={() => {
-                              if (HEX_COLOR_PATTERN.test(input))
-                                setInputColors((previous) => ({ ...previous, [role.path]: normalizeHexColor(input) }));
-                            }}
-                            error={invalid}
-                            helperText={invalid ? "Use #RRGGBB or #RRGGBBAA." : undefined}
-                            fullWidth
-                            sx={formOutlinedControlSx}
-                          />
-                        </Box>
-                      </FormRow>
-                    );
-                  })}
-                </FormGroup>
-              </AccordionDetails>
-            </Accordion>
-          ))}
-        </FormSurface>
-        <Popover
-          open={Boolean(anchor)}
-          anchorEl={anchor}
-          onClose={() => {
-            setAnchor(null);
-            setActiveColor(null);
-          }}
-          anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
-          transformOrigin={{ vertical: "top", horizontal: "left" }}
-        >
-          {activeColor && (
-            <Box
-              sx={{
-                p: 2,
-                ".react-colorful__alpha": {
-                  backgroundImage:
-                    "linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%)",
-                  backgroundSize: "12px 12px",
-                  backgroundPosition: "0 0, 6px 6px",
-                },
-              }}
-            >
-              <HexAlphaColorPicker
-                color={colorAt(draft, activeColor) ?? "#000000"}
-                onChange={(value) => changeColor(activeColor, normalizeHexColor(value))}
-              />
-            </Box>
-          )}
-        </Popover>
-      </ResponsiveDialogShell>
-      <ResponsiveDialogShell
-        open={confirmOverwrite}
-        onClose={() => setConfirmOverwrite(false)}
-        title="Overwrite theme?"
-        actions={
-          <>
-            <Button onClick={() => setConfirmOverwrite(false)}>Cancel</Button>
-            <Button color="error" onClick={() => void save(true)}>
-              Overwrite
+              Import
             </Button>
-          </>
-        }
+            <Button variant="outlined" onClick={exportDraft} disabled={pending} sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}>
+              Export
+            </Button>
+          </Box>
+          <Box sx={adminDialogActionGroupSx}>
+            <Button variant="outlined" onClick={close} disabled={pending} sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}>
+              Cancel
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => void save(true)}
+              disabled={pending}
+              sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
+            >
+              Save copy
+            </Button>
+            <Button
+              variant="contained"
+              onClick={() => void save(false)}
+              disabled={!writable || scope !== stored?.scope || pending}
+              sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+            >
+              Save
+            </Button>
+          </Box>
+        </Box>
+      }
+    >
+      <input
+        ref={fileInput}
+        type="file"
+        accept="application/json,.json"
+        hidden
+        tabIndex={-1}
+        onChange={(event) => void importFile(event)}
+      />
+      <FormSurface>
+        <FormGroup>
+          <FormRow>
+            <Box sx={{ display: { xs: "none", md: "block" } }}>
+              <FormFieldLabel
+                label="Name"
+                description="Name shown in the theme grid"
+                descriptionId="theme-name-help"
+                htmlFor="theme-name"
+              />
+            </Box>
+            <TextField
+              id="theme-name"
+              label="Name"
+              slotProps={{ htmlInput: { "aria-label": "Name" } }}
+              value={draft.name}
+              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+              fullWidth
+              sx={formOutlinedControlSx}
+            />
+          </FormRow>
+          <FormRow>
+            <Box sx={{ display: { xs: "none", md: "block" } }}>
+              <FormFieldLabel
+                label="Description"
+                description="Optional detail for this theme"
+                descriptionId="theme-description-help"
+                htmlFor="theme-description"
+              />
+            </Box>
+            <TextField
+              id="theme-description"
+              label="Description"
+              slotProps={{ htmlInput: { "aria-label": "Description" } }}
+              value={draft.description ?? ""}
+              onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+              fullWidth
+              sx={formOutlinedControlSx}
+            />
+          </FormRow>
+          <FormRow>
+            <Box sx={{ display: { xs: "none", md: "block" } }}>
+              <FormFieldLabel
+                label="Mode"
+                description="Light or dark application surfaces"
+                descriptionId="theme-mode-help"
+                htmlFor="theme-mode"
+              />
+            </Box>
+            <TextField
+              select
+              id="theme-mode"
+              label="Mode"
+              value={draft.mode}
+              onChange={(event) => setDraft({ ...draft, mode: event.target.value as ThemeConfig["mode"] })}
+              fullWidth
+              sx={formOutlinedControlSx}
+            >
+              <MenuItem value="light">Light</MenuItem>
+              <MenuItem value="dark">Dark</MenuItem>
+            </TextField>
+          </FormRow>
+          <FormRow>
+            <Box sx={{ display: { xs: "none", md: "block" } }}>
+              <FormFieldLabel
+                label="Storage"
+                description="Where Save copy creates a new theme"
+                descriptionId="theme-storage-help"
+                htmlFor="theme-storage"
+              />
+            </Box>
+            <TextField
+              select
+              id="theme-storage"
+              label="Storage"
+              value={scope}
+              onChange={(event) => setScope(event.target.value as StoredTheme["scope"])}
+              fullWidth
+              sx={formOutlinedControlSx}
+            >
+              <MenuItem value="user">Your themes</MenuItem>
+              {isAdmin && <MenuItem value="site">Site themes</MenuItem>}
+            </TextField>
+          </FormRow>
+        </FormGroup>
+        {GROUPS.map((section) => (
+          <Accordion
+            key={section}
+            expanded={group === section}
+            onChange={(_, expanded) => setGroup(expanded ? section : null)}
+            disableGutters
+            sx={{ bgcolor: "transparent", boxShadow: "none" }}
+          >
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="subtitle1">{section}</Typography>
+            </AccordionSummary>
+            <AccordionDetails sx={{ p: 0 }}>
+              <FormGroup>
+                {COLOR_ROLES.filter((role) => role.group === section).map((role) => {
+                  const color = colorAt(draft, role.path) ?? "";
+                  const input = inputColors[role.path] ?? color;
+                  const invalid = inputColors[role.path] !== undefined && !HEX_COLOR_PATTERN.test(input);
+                  return (
+                    <FormRow key={role.path}>
+                      <Box sx={{ display: { xs: "none", md: "block" } }}>
+                        <FormFieldLabel
+                          label={role.label}
+                          description={role.description}
+                          descriptionId={`${role.path}-help`}
+                          htmlFor={`${role.path}-input`}
+                          feedback={invalid ? { severity: "error", message: "Use #RRGGBB or #RRGGBBAA." } : null}
+                        />
+                      </Box>
+                      <Box sx={{ display: "flex", gap: 1, alignItems: "center", minWidth: 0 }}>
+                        <Box
+                          component="button"
+                          type="button"
+                          aria-label={`Choose ${role.label} color`}
+                          onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
+                            setAnchor(event.currentTarget);
+                            setActiveColor(role.path);
+                          }}
+                          sx={{
+                            width: 36,
+                            height: 36,
+                            flexShrink: 0,
+                            borderRadius: 1,
+                            border: "1px solid",
+                            borderColor: "divider",
+                            cursor: "pointer",
+                            backgroundImage:
+                              "linear-gradient(45deg, #8884 25%, transparent 25%, transparent 75%, #8884 75%), linear-gradient(45deg, #8884 25%, transparent 25%, transparent 75%, #8884 75%)",
+                            backgroundSize: "12px 12px",
+                            backgroundPosition: "0 0, 6px 6px",
+                          }}
+                        >
+                          <Box sx={{ width: "100%", height: "100%", bgcolor: color }} />
+                        </Box>
+                        <TextField
+                          id={`${role.path}-input`}
+                          label={role.label}
+                          slotProps={{
+                            htmlInput: { "aria-label": role.label },
+                            formHelperText: { sx: { display: { md: "none" } } },
+                          }}
+                          value={input}
+                          onChange={(event) => changeColor(role.path, event.target.value)}
+                          onBlur={() => {
+                            if (HEX_COLOR_PATTERN.test(input))
+                              setInputColors((previous) => ({ ...previous, [role.path]: normalizeHexColor(input) }));
+                          }}
+                          error={invalid}
+                          helperText={invalid ? "Use #RRGGBB or #RRGGBBAA." : undefined}
+                          fullWidth
+                          sx={formOutlinedControlSx}
+                        />
+                      </Box>
+                    </FormRow>
+                  );
+                })}
+              </FormGroup>
+            </AccordionDetails>
+          </Accordion>
+        ))}
+      </FormSurface>
+      <Popover
+        open={Boolean(anchor)}
+        anchorEl={anchor}
+        onClose={() => {
+          setAnchor(null);
+          setActiveColor(null);
+        }}
+        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+        transformOrigin={{ vertical: "top", horizontal: "left" }}
       >
-        <Typography>Replace {target?.definition.name} with this draft? Other tabs with older edits will need to refresh.</Typography>
-      </ResponsiveDialogShell>
-    </>
+        {activeColor && (
+          <Box
+            sx={{
+              p: 2,
+              ".react-colorful__alpha": {
+                backgroundImage:
+                  "linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%)",
+                backgroundSize: "12px 12px",
+                backgroundPosition: "0 0, 6px 6px",
+              },
+            }}
+          >
+            <HexAlphaColorPicker
+              color={colorAt(draft, activeColor) ?? "#000000"}
+              onChange={(value) => changeColor(activeColor, normalizeHexColor(value))}
+            />
+          </Box>
+        )}
+      </Popover>
+    </ResponsiveDialogShell>
   );
 }

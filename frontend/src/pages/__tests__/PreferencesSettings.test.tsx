@@ -35,20 +35,8 @@ vi.mock("../../theme", () => ({
       text: { primary: "#111111" },
     },
     availableThemes: [
-      {
-        id: "sambee-light",
-        name: "Sambee light",
-        primary: { main: "#1976d2" },
-        background: { default: "#ffffff" },
-        text: { primary: "#111111" },
-      },
-      {
-        id: "sambee-dark",
-        name: "Sambee dark",
-        primary: { main: "#d4a020" },
-        background: { default: "#1f262b" },
-        text: { primary: "#f6f1e8" },
-      },
+      builtInThemes[0]!,
+      builtInThemes[1]!,
       ...themeContextState.storedThemes.map((entry) => ({ ...entry.definition, id: entry.id })),
     ],
   }),
@@ -161,6 +149,22 @@ describe("AppearanceSettings", () => {
     await user.click(screen.getByRole("button", { name: "Copy" }));
 
     await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Sambee light (copy)" }), "user"));
+    expect(themeCommitMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("radio", { name: "Sambee light" })).toBeChecked();
+  });
+
+  it("does not apply a copy saved from the theme editor", async () => {
+    const user = userEvent.setup();
+    const create = vi
+      .spyOn(api, "createTheme")
+      .mockResolvedValue({ id: "new-id", scope: "user", version: 1, definition: builtInThemes[0]! });
+    render(<AppearanceSettings />);
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getByRole("button", { name: "Save copy" }));
+
+    await waitFor(() => expect(create).toHaveBeenCalledOnce());
+    await waitFor(() => expect(themeContextState.refreshThemes).toHaveBeenCalledOnce());
     expect(themeCommitMock).not.toHaveBeenCalled();
     expect(screen.getByRole("radio", { name: "Sambee light" })).toBeChecked();
   });

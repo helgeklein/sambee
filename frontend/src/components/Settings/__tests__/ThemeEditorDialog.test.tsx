@@ -49,7 +49,7 @@ describe("ThemeEditorDialog", () => {
     expect(screen.getByRole("textbox", { name: /Main/ })).toHaveAttribute("aria-invalid", "true");
     expect(screen.getAllByText("Use #RRGGBB or #RRGGBBAA.")).toHaveLength(2);
     expect(onPreview).not.toHaveBeenCalledWith(expect.objectContaining({ primary: { main: "#bad" } }));
-    await user.click(screen.getByRole("button", { name: "Save as" }));
+    await user.click(screen.getByRole("button", { name: "Save copy" }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: /Main/ })).toHaveFocus());
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onPreview).toHaveBeenLastCalledWith(null);
@@ -67,14 +67,14 @@ describe("ThemeEditorDialog", () => {
     await user.type(screen.getByRole("textbox", { name: /Name/ }), "Custom light");
     await user.clear(screen.getByRole("textbox", { name: /Main/ }));
     await user.type(screen.getByRole("textbox", { name: /Main/ }), "#11223388");
-    await user.click(screen.getByRole("button", { name: "Save as" }));
+    await user.click(screen.getByRole("button", { name: "Save copy" }));
     await waitFor(() =>
       expect(created).toHaveBeenCalledWith(
         expect.objectContaining({ name: "Custom light", primary: expect.objectContaining({ main: "#11223388" }) }),
         "user"
       )
     );
-    expect(onSaved).toHaveBeenCalledWith("server-id");
+    expect(onSaved).toHaveBeenCalledWith("server-id", true);
   });
 
   it("shows and saves opaque eight-digit input as six-digit hex", async () => {
@@ -88,7 +88,7 @@ describe("ThemeEditorDialog", () => {
 
     expect(main).toHaveValue("#112233");
     expect(onPreview).toHaveBeenLastCalledWith(expect.objectContaining({ primary: expect.objectContaining({ main: "#112233" }) }));
-    await user.click(screen.getByRole("button", { name: "Save as" }));
+    await user.click(screen.getByRole("button", { name: "Save copy" }));
     await waitFor(() =>
       expect(create).toHaveBeenCalledWith(expect.objectContaining({ primary: expect.objectContaining({ main: "#112233" }) }), "user")
     );
@@ -119,7 +119,7 @@ describe("ThemeEditorDialog", () => {
     await user.click(screen.getByRole("button", { name: "Save", exact: true }));
 
     await waitFor(() => expect(update).toHaveBeenCalledWith(stored, expect.objectContaining({ name: "Updated" })));
-    expect(onSaved).toHaveBeenCalledWith(stored.id);
+    expect(onSaved).toHaveBeenCalledWith(stored.id, false);
   });
 
   it("exports a versioned draft without an editable identity", async () => {
@@ -174,11 +174,67 @@ describe("ThemeEditorDialog", () => {
     expect(screen.getByDisplayValue("Imported light")).toBeInTheDocument();
   });
 
-  it("confirms an overwrite and retains the draft after a stale version error", async () => {
+  it("saves a personal copy under a distinct name without updating the original", async () => {
     const user = userEvent.setup();
-    const existing = { id: "existing-id", scope: "user" as const, version: 2, definition: { ...theme, name: "Existing" } };
-    const update = vi.spyOn(api, "updateTheme").mockRejectedValueOnce(new Error("Theme changed in another tab. Refresh and try again"));
+    const personalTheme = { ...theme, id: "personal-id", name: "Personal" };
+    const original = { id: personalTheme.id, scope: "user" as const, version: 2, definition: editableDefinition(personalTheme) };
+    const existingCopy = { ...original, id: "previous-copy", definition: { ...original.definition, name: "Personal (copy)" } };
+    const create = vi.spyOn(api, "createTheme").mockResolvedValue({ ...original, id: "new-copy", version: 1 });
+    const update = vi.spyOn(api, "updateTheme");
     const onSaved = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ThemeEditorDialog
+        theme={personalTheme}
+        stored={original}
+        storedThemes={[original, existingCopy]}
+        selectedThemeId={personalTheme.id}
+        isAdmin={false}
+        onClose={vi.fn()}
+        onSaved={onSaved}
+        onPreview={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByRole("combobox", { name: "Save as target" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save copy" }));
+    expect(update).not.toHaveBeenCalled();
+    await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Personal (copy 2)" }), "user"));
+    expect(onSaved).toHaveBeenCalledWith("new-copy", true);
+  });
+
+  it("only copies into a new storage group when storage changes", async () => {
+    const user = userEvent.setup();
+    const siteTheme = { ...theme, id: "site-id", name: "Site theme" };
+    const stored = { id: siteTheme.id, scope: "site" as const, version: 2, definition: editableDefinition(siteTheme) };
+    const create = vi.spyOn(api, "createTheme").mockResolvedValue({ ...stored, id: "personal-copy", scope: "user" });
+    const update = vi.spyOn(api, "updateTheme");
+    render(
+      <ThemeEditorDialog
+        theme={siteTheme}
+        stored={stored}
+        storedThemes={[stored]}
+        selectedThemeId={siteTheme.id}
+        isAdmin
+        onClose={vi.fn()}
+        onSaved={vi.fn().mockResolvedValue(undefined)}
+        onPreview={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+    await user.click(screen.getByRole("combobox", { name: "Storage" }));
+    await user.click(screen.getByRole("option", { name: "Your themes" }));
+    expect(screen.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Save copy" }));
+
+    await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Site theme" }), "user"));
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("retains an automatically renamed draft after a copy request fails", async () => {
+    const user = userEvent.setup();
+    const existing = { id: "existing-id", scope: "user" as const, version: 2, definition: editableDefinition(theme) };
+    vi.spyOn(api, "createTheme").mockRejectedValueOnce(new Error("Theme changed in another tab. Refresh and try again"));
     render(
       <ThemeEditorDialog
         theme={theme}
@@ -187,21 +243,13 @@ describe("ThemeEditorDialog", () => {
         selectedThemeId={theme.id}
         isAdmin={false}
         onClose={vi.fn()}
-        onSaved={onSaved}
+        onSaved={vi.fn()}
         onPreview={vi.fn()}
       />
     );
 
-    await user.click(screen.getByRole("combobox", { name: "Save as target" }));
-    await user.click(screen.getByRole("option", { name: "Existing" }));
-    await user.clear(screen.getByDisplayValue(theme.name));
-    await user.type(screen.getByRole("textbox", { name: /Name/ }), "Replacement");
-    await user.click(screen.getByRole("button", { name: "Save as" }));
-    expect(update).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Overwrite" }));
-    await waitFor(() => expect(update).toHaveBeenCalledWith(existing, expect.objectContaining({ name: "Replacement" })));
+    await user.click(screen.getByRole("button", { name: "Save copy" }));
     expect(await screen.findByText("Theme changed in another tab. Refresh and try again")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Replacement")).toBeInTheDocument();
-    expect(onSaved).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue(`${theme.name} (copy)`);
   });
 });

@@ -334,9 +334,9 @@ export function AppearanceSettings() {
               isAdmin={isAdmin}
               onClose={() => setEditing(null)}
               onPreview={setDraftPreview ?? (() => undefined)}
-              onSaved={async (themeId) => {
+              onSaved={async (themeId, isCopy) => {
                 await refreshThemes?.();
-                if (editing.id === selectedThemeId && themeId !== selectedThemeId) await themeSetting.commit(themeId);
+                if (!isCopy && editing.id === selectedThemeId && themeId !== selectedThemeId) await themeSetting.commit(themeId);
               }}
             />
           )}
