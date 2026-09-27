@@ -342,9 +342,9 @@ export function ThemeEditorDialog({ theme, stored, storedThemes, isAdmin, onClos
                           }}
                           sx={{
                             width: 36,
-                            height: 36,
+                            height: { xs: 54, md: 38 },
                             flexShrink: 0,
-                            mt: { xs: 1.25, md: 0.25 },
+                            mt: "1px",
                             borderRadius: 1,
                             border: "1px solid",
                             borderColor: "divider",
