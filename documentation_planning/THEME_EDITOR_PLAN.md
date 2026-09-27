@@ -58,7 +58,8 @@
 
 - Store user and site themes as individual rows in one theme table, with a globally unique ID primary key, an owner for user themes, and no owner for site themes. Replace bulk writes to `appearance.custom_themes` with per-theme create, update, and delete endpoints; expose only the current user's themes and shared site themes. There are no existing custom themes to migrate from the setting.
 - Generate fresh IDs on the server and reserve built-in IDs. Enforce ownership, admin permissions, and uniqueness in the same database transaction as each write; report a conflict rather than replacing an existing theme. Use a row version (or equivalent conditional update) to reject stale edits and overwrites from another tab instead of silently losing changes.
-- Allow deletion of any user or site theme with the required permission; built-ins cannot be deleted. In the deletion transaction, clear explicit selections referencing the deleted ID. If it was the site default, clear that setting too. A user with no remaining override uses the site default when it exists, otherwise Sambee light. An explicit selection of another theme stays unchanged.
+- Allow deletion of any user or site theme with the required permission; built-ins cannot be deleted. Require the version read by the client for deletion, too; return a conflict and refresh the theme if it has changed. In the deletion transaction, clear explicit selections referencing the deleted ID. If it was the site default, clear that setting too. A user with no remaining override uses the site default when it exists, otherwise Sambee light. An explicit selection of another theme stays unchanged.
+- Read site themes and the site default together. Refresh them alongside the user's selection on initial load, when the tab regains focus or becomes visible, and after local theme or default changes. Keep the displayed theme and default consistent with the refreshed data without requiring live updates or polling.
 - Preserve an explicitly selected built-in ID across upgrades even if its definition changes.
 
 ## Theme Editor Dialog
@@ -93,8 +94,8 @@
 	 - Audit remaining theme-dependent fixed colors. Keep IDs and selection independent of palette revisions.
 2. **Persistence and permissions**
 	 - Add per-theme storage and operations, site default, authorization, and server validation; integrate them with theme IDs and selection.
-	 - Test permissions, ID collisions, stale edits, referenced-theme and site-default deletion, built-in site defaults, and users with no override versus an explicit Sambee light selection.
+	 - Test permissions, ID collisions, stale edits and deletes, referenced-theme and site-default deletion, built-in site defaults, and users with no override versus an explicit Sambee light selection.
 3. **Selection and editor**
 	 - Build the grid and form with the existing dialog system.
 	 - Test copy, Save, Save as, overwrite confirmation, Import/Export, draft preview and revert, invalid colors, alpha preservation, and keyboard use.
-	 - Check phone and desktop layouts in light and dark themes. Confirm that updating a built-in definition preserves its selected ID.
+	 - Check phone and desktop layouts in light and dark themes. Test refreshing shared themes and the default after focus and local writes. Confirm that updating a built-in definition preserves its selected ID.
