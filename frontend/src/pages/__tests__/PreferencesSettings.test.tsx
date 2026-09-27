@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StoredTheme } from "../../services/api";
@@ -176,6 +176,21 @@ describe("AppearanceSettings", () => {
     await user.click(screen.getByRole("button", { name: "Set as default" }));
 
     await waitFor(() => expect(setDefault).toHaveBeenCalledWith("sambee-dark"));
+  });
+
+  it("targets a theme from radio focus without a name tab stop or applying it", async () => {
+    const user = userEvent.setup();
+    render(<AppearanceSettings />);
+
+    const nameButton = screen.getByRole("button", { name: "Target Sambee dark for actions" });
+    expect(nameButton).toHaveAttribute("tabindex", "-1");
+    act(() => screen.getByRole("radio", { name: "Sambee dark" }).focus());
+
+    expect(nameButton).toHaveAttribute("aria-pressed", "true");
+    expect(themeCommitMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("radio", { name: "Sambee light" })).toBeChecked();
+    await user.tab();
+    expect(nameButton).not.toHaveFocus();
   });
 
   it("refreshes a stale theme after a delete conflict without retrying the old version", async () => {

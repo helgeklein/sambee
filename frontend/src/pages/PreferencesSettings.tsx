@@ -246,7 +246,10 @@ export function AppearanceSettings() {
                           checked={selectedThemeId === themeOption.id}
                           disabled={themeSelectionPending}
                           slotProps={{ input: { "aria-label": themeOption.name } }}
-                          onFocus={() => restoreThemeFocus()}
+                          onFocus={() => {
+                            restoreThemeFocus();
+                            setSelectedTileId(themeOption.id);
+                          }}
                           onClick={() => handleThemeSelect(themeOption.id)}
                           onKeyDown={(event) => {
                             if (event.key === "Enter") {
@@ -258,6 +261,7 @@ export function AppearanceSettings() {
                         <Box
                           component="button"
                           type="button"
+                          tabIndex={-1}
                           aria-label={`Target ${themeOption.name} for actions`}
                           aria-pressed={selectedTile?.id === themeOption.id}
                           onClick={() => setSelectedTileId(themeOption.id)}
