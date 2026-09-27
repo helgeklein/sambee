@@ -412,6 +412,7 @@ pub async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> 
     Json(HealthResponse {
         status: "healthy".to_string(),
         paired: state.pairing.has_any_pairing(),
+        auth_protocol_version: auth::AUTH_PROTOCOL_VERSION,
     })
 }
 

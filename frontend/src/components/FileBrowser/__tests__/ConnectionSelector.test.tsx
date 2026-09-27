@@ -73,4 +73,24 @@ describe("ConnectionSelector", () => {
     expect(screen.getByRole("combobox", { name: "[Šéĺéćť ćóńńéćťíóń]" })).toBeInTheDocument();
     expect(screen.getByText("[Šéĺéćť ćóńńéćťíóń]")).toBeInTheDocument();
   });
+
+  it("keeps Local Drives settings reachable when Companion needs an update", async () => {
+    const user = userEvent.setup();
+    const openSettings = vi.fn();
+    render(
+      <SambeeThemeProvider>
+        <ConnectionSelector
+          connections={connections}
+          selectedConnectionId="server-1"
+          onConnectionChange={vi.fn()}
+          companionStatus="update_required"
+          onOpenConnectionsSettings={openSettings}
+        />
+      </SambeeThemeProvider>
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "Select connection" }));
+    await user.click(screen.getByText("Manage Local Drives..."));
+    expect(openSettings).toHaveBeenCalledOnce();
+  });
 });

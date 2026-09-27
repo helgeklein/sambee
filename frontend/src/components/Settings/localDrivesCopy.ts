@@ -52,6 +52,12 @@ export const LOCAL_DRIVES_PAGE_COPY = {
   get summaryRepairTitle() {
     return translate("settings.localDrives.summaryRepairTitle");
   },
+  get summaryUpdateRequiredTitle() {
+    return translate("settings.localDrives.summaryUpdateRequiredTitle");
+  },
+  get summaryVerificationUnavailableTitle() {
+    return translate("settings.localDrives.summaryVerificationUnavailableTitle");
+  },
   get summaryUnavailableTitle() {
     return translate("settings.localDrives.summaryUnavailableTitle");
   },
@@ -121,6 +127,12 @@ export const LOCAL_DRIVES_PAGE_COPY = {
   get pairingTestFailed() {
     return translate("settings.localDrives.pairingTestFailed");
   },
+  get pairingTestUnavailable() {
+    return translate("settings.localDrives.pairingTestUnavailable");
+  },
+  get reloadButton() {
+    return translate("settings.localDrives.reloadButton");
+  },
   get pairingTestSucceeded() {
     return translate("settings.localDrives.pairingTestSucceeded");
   },
@@ -135,6 +147,12 @@ export const LOCAL_DRIVES_PAGE_COPY = {
   },
   get statusRecoverable() {
     return translate("settings.localDrives.statusRecoverable");
+  },
+  get statusUpdateRequired() {
+    return translate("settings.localDrives.statusUpdateRequired");
+  },
+  get statusVerificationUnavailable() {
+    return translate("settings.localDrives.statusVerificationUnavailable");
   },
   get statusUnpaired() {
     return translate("settings.localDrives.statusUnpaired");

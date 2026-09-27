@@ -13,6 +13,7 @@
  */
 
 import axios, { type AxiosInstance } from "axios";
+import { isApiError } from "../types";
 import { companionSession } from "./companionSession";
 import { logger } from "./logger";
 
@@ -20,6 +21,22 @@ import { logger } from "./logger";
 
 /** The base URL for the companion's local API server. */
 export const COMPANION_BASE_URL = "http://localhost:21549/api";
+export const COMPANION_AUTH_PROTOCOL_VERSION = 2;
+const COMPANION_AUTH_SIGNATURE_MISMATCH_CODE = "companion_auth_signature_mismatch";
+const COMPANION_BROWSER_UPDATE_REQUIRED_CODE = "companion_browser_update_required";
+
+export function isCompanionAuthSignatureMismatch(error: unknown): boolean {
+  if (!isApiError(error) || error.response?.status !== 403) return false;
+  return (
+    error.response.data?.code === COMPANION_AUTH_SIGNATURE_MISMATCH_CODE ||
+    error.response.data?.code === COMPANION_BROWSER_UPDATE_REQUIRED_CODE ||
+    error.response.data?.detail === "Invalid authentication"
+  );
+}
+
+export function isCompanionAuthProtocolCompatible(health: CompanionHealthResponse): boolean {
+  return health.auth_protocol_version === COMPANION_AUTH_PROTOCOL_VERSION;
+}
 
 /** Timeout in milliseconds for the health-check probe. */
 const HEALTH_CHECK_TIMEOUT_MS = 1500;
@@ -45,6 +62,7 @@ export const COMPANION_PAIR_CONFIRMATION_PENDING_CODE = "pair_confirmation_pendi
 export interface CompanionHealthResponse {
   status: string;
   paired: boolean;
+  auth_protocol_version?: number;
 }
 
 /** Public pairing status for the current browser origin. */

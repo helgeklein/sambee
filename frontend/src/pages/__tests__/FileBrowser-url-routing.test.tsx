@@ -21,7 +21,7 @@ import { type ApiMock, createMarkdownViewerMock, createSettingsDialogMock, setup
 import { FileType } from "../../types";
 import { parseBrowseRoute, serializeBrowseRoute } from "../FileBrowser/routing";
 import { ACTIVE_PANE_QUERY_KEY, RIGHT_PANE_QUERY_KEY } from "../FileBrowser/types";
-import { renderBrowser } from "./FileBrowser.test.utils";
+import { mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
 
 const expectDirectoryLoad = (connectionId: string, path: string) => {
   expect(api.listDirectory).toHaveBeenCalledWith(
@@ -464,6 +464,51 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
       await waitFor(() => {
         expectDirectoryLoad("local-drive:c", "Users");
       });
+    });
+
+    it("opens local-drive recovery rather than retrying a rejected left-pane signature", async () => {
+      vi.mocked(api.listDirectory).mockRejectedValue({
+        response: { status: 403, data: { code: "companion_auth_signature_mismatch", detail: "Invalid authentication" } },
+      });
+
+      renderBrowser("/browse/local/c/Users");
+
+      expect(await screen.findByText(/Sambee Companion rejected this browser's pairing/i)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Reload Sambee" })).toBeInTheDocument();
+      await userEvent.setup().click(screen.getByRole("button", { name: "Local Drives" }));
+      expect(await screen.findByTestId("settings-dialog")).toHaveAttribute("data-category", "local-drives");
+    });
+
+    it("identifies the failing pane when a local drive rejects a signature in dual-pane mode", async () => {
+      vi.mocked(api.listDirectory).mockImplementation(async (connectionId) => {
+        if (connectionId === "local-drive:c") {
+          throw { response: { status: 403, data: { code: "companion_auth_signature_mismatch", detail: "Invalid authentication" } } };
+        }
+        return mockDirectoryListing;
+      });
+
+      renderBrowser("/browse/smb/test-server-1?p2=local/c/Users");
+
+      const alert = (await screen.findByText(/Sambee Companion rejected this browser's pairing/i)).closest("[role='alert']");
+      expect(alert).toHaveTextContent("Right pane:");
+      expect(alert).toHaveTextContent(/Sambee Companion rejected this browser's pairing/i);
+      expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    });
+
+    it("recognizes the old browser signing protocol without presenting Retry", async () => {
+      vi.mocked(api.listDirectory).mockRejectedValue({
+        response: {
+          status: 403,
+          data: { code: "companion_browser_update_required", detail: "Sambee browser is out of date. Reload the page." },
+        },
+      });
+
+      renderBrowser("/browse/local/c/Users");
+
+      expect(await screen.findByText(/Sambee Companion rejected this browser's pairing/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Reload Sambee" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
     });
   });
 });

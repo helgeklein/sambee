@@ -204,6 +204,7 @@ export interface UseFileBrowserPaneReturn {
   loading: boolean;
   error: string | null;
   setError: React.Dispatch<React.SetStateAction<string | null>>;
+  companionPairingError: boolean;
 
   // ── UI Preferences ─────────────────────────────────────────────────────
   sortBy: SortField;

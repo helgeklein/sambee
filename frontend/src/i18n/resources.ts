@@ -293,6 +293,8 @@ export const EN_TRANSLATIONS = {
       summaryPairingRequiredTitle: "Pair this browser for local-drive access",
       summaryPendingApprovalTitle: "Finish approval in Sambee Companion",
       summaryRepairTitle: "Repair this browser pairing",
+      summaryUpdateRequiredTitle: "Update Sambee Companion",
+      summaryVerificationUnavailableTitle: "Local-drive access could not be verified",
       summaryUnavailableTitle: "Start Sambee Companion on this computer",
       companionRunningChecklistLabel: "Companion app is running",
       browserFullyPairedChecklistLabel: "This browser is paired",
@@ -305,7 +307,7 @@ export const EN_TRANSLATIONS = {
       pairingSectionPendingApproval:
         "A pairing request is already waiting in Sambee Companion. Approve or reject it there before starting another pairing attempt.",
       pairingSectionRepair:
-        "This browser needs to pair again to restore local-drive access. Starting a new pairing will replace the missing browser-side secret.",
+        "Reload this page first to update Sambee's connection to Companion. If local-drive access still fails, pair this browser again.",
       verificationSectionTitle: "Verify local access",
       verificationSectionDescription: "Run a quick check to confirm this browser can still reach local drives.",
       verificationSectionReady: "Run a quick access check before you open local files from Sambee.",
@@ -318,14 +320,20 @@ export const EN_TRANSLATIONS = {
       pairingRemoved: "This browser has been unpaired.",
       pairingRemoveFailed: "Failed to remove pairing.",
       pairingTestSucceeded: "Pairing verified. This browser can access local drives.",
-      pairingTestFailed: "Pairing test failed. Pair this browser again to restore local drive access.",
+      pairingTestFailed:
+        "Companion rejected this browser's signature. Reload Sambee first; if the test still fails, pair this browser again.",
+      pairingTestUnavailable: "Could not verify local-drive access. Check that Companion is running, then try the test again.",
+      reloadButton: "Reload Sambee",
       statusUnavailable:
         "Sambee Companion is not running on this computer. Start it, then return here to pair this browser, test local-drive access, or launch local files from Sambee.",
       statusPaired: "This browser is paired with Sambee Companion and ready to browse and launch local files from Sambee.",
       statusPendingApproval:
         "A pairing request from this browser is waiting for approval in Sambee Companion. Finish that request there before trying again.",
       statusRecoverable:
-        "This browser was previously paired with Sambee Companion, but its browser-side pairing secret is missing. Pair again to restore local-drive access.",
+        "Companion cannot verify this browser's pairing. Reload Sambee first to pick up any update; if access still fails, pair this browser again.",
+      statusUpdateRequired:
+        "This Companion version uses an older authentication protocol. Update Companion and restart it, then reload Sambee. Re-pairing will not fix a version mismatch.",
+      statusVerificationUnavailable: "Companion is reachable, but the pairing check could not complete. Try the pairing test again.",
       statusUnpaired: "This browser is not currently paired with Sambee Companion.",
       downloadSectionTitle: "Install Sambee Companion",
       downloadSectionDescription:
@@ -1030,6 +1038,10 @@ export const EN_TRANSLATIONS = {
         linkTargetUnsupported: "Shortcut target is not a file or folder",
       },
       alerts: {
+        leftPane: "Left pane",
+        rightPane: "Right pane",
+        localDrivePairingRejected:
+          "{{connection}}: Sambee Companion rejected this browser's pairing. Reload Sambee to pick up any update; if it still fails, open Local Drives to check the pairing.",
         welcomeTitle: "Welcome to Sambee!",
         adminOnboardingPrefix: "Get started by ",
         adminOnboardingLink: "adding your first SMB network share",

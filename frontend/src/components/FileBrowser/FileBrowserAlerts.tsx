@@ -2,7 +2,7 @@
 // FileBrowserAlerts
 //
 
-import { Alert, Box, Button, Link, Typography } from "@mui/material";
+import { Alert, Box, Button, Link, Stack, Typography } from "@mui/material";
 import { useTranslation } from "react-i18next";
 import type { BackendAvailabilityStatus } from "../../services/backendAvailability";
 import { EmptyStateIllustration } from "./EmptyStateIllustration";
@@ -32,6 +32,9 @@ interface FileBrowserAlertsProps {
   onOpenConnectionsSettings?: () => void;
   onDismissCompanionLifecycleStatus?: () => void;
   onRetry?: () => void;
+  companionPairingError?: boolean;
+  onOpenLocalDrivesSettings?: () => void;
+  paneLabel?: string;
 }
 
 /**
@@ -52,6 +55,9 @@ export function FileBrowserAlerts({
   onOpenConnectionsSettings,
   onDismissCompanionLifecycleStatus,
   onRetry,
+  companionPairingError,
+  onOpenLocalDrivesSettings,
+  paneLabel,
 }: FileBrowserAlertsProps) {
   const { t } = useTranslation();
 
@@ -107,13 +113,23 @@ export function FileBrowserAlerts({
           severity="error"
           sx={{ mb: 2, mx: 2 }}
           action={
-            onRetry ? (
+            companionPairingError && onOpenLocalDrivesSettings ? (
+              <Stack direction="row" flexWrap="wrap">
+                <Button color="inherit" size="small" onClick={() => window.location.reload()}>
+                  {t("settings.localDrives.reloadButton")}
+                </Button>
+                <Button color="inherit" size="small" onClick={onOpenLocalDrivesSettings}>
+                  {t("settings.localDrives.headerTitle")}
+                </Button>
+              </Stack>
+            ) : onRetry ? (
               <Button color="inherit" size="small" onClick={onRetry}>
                 {t("common.actions.retry")}
               </Button>
             ) : undefined
           }
         >
+          {paneLabel && <strong>{paneLabel}: </strong>}
           {error}
         </Alert>
       )}

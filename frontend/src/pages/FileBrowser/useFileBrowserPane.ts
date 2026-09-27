@@ -19,10 +19,12 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useDirectorySearchProvider } from "../../components/FileBrowser/search";
+import { translate } from "../../i18n";
 import { isClientTimeoutError, isLocalAbortError } from "../../services/backendAvailability";
 import { isLocalDrive, normalizeLocalDrivePath } from "../../services/backendRouter";
 import { browserHistoryService } from "../../services/browserHistoryService";
 import { browserLinkTargetService } from "../../services/browserLinkTargetService";
+import { isCompanionAuthSignatureMismatch } from "../../services/companion";
 import { logger } from "../../services/logger";
 import { publishRecentDirectoriesChanged } from "../../services/recentDirectoriesSync";
 import { publishRecentFilesChanged } from "../../services/recentFilesSync";
@@ -297,6 +299,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const [items, setItems] = useState<BrowserItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [companionPairingErrorMessage, setCompanionPairingErrorMessage] = useState<string | null>(null);
   const files = useMemo(() => items.map((item) => item.entry), [items]);
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -859,6 +862,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       if (physicalRequestOwnsLocation(requestId, targetConnectionId, targetPath)) {
         setLoading(!shouldKeepVisibleContent);
         setError(null);
+        setCompanionPairingErrorMessage(null);
       }
 
       try {
@@ -913,9 +917,16 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
         logger.error("Error loading directory", { error: err, connectionId: targetConnectionId, path: targetPath }, "browser");
 
-        let errorMessage = DIRECTORY_LOAD_GENERIC_ERROR;
+        const pairingRejected = isLocalDrive(targetConnectionId) && isCompanionAuthSignatureMismatch(err);
+        let errorMessage = pairingRejected
+          ? translate("fileBrowser.chrome.alerts.localDrivePairingRejected", {
+              connection: getConnectionById(connections, targetConnectionId)?.name ?? targetConnectionId,
+            })
+          : DIRECTORY_LOAD_GENERIC_ERROR;
 
-        if (isClientTimeoutError(err)) {
+        if (pairingRejected) {
+          setCompanionPairingErrorMessage(errorMessage);
+        } else if (isClientTimeoutError(err)) {
           errorMessage = DIRECTORY_LOAD_TIMEOUT_ERROR;
         } else if (err && typeof err === "object" && "message" in err) {
           const error = err as Error & { code?: string };
@@ -954,7 +965,14 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         }
       }
     },
-    [clearPendingRecentDirectoryVisit, loadLocalLinkTargets, physicalRequestOwnsLocation, providerRegistry, recordRecentDirectoryVisit]
+    [
+      clearPendingRecentDirectoryVisit,
+      connections,
+      loadLocalLinkTargets,
+      physicalRequestOwnsLocation,
+      providerRegistry,
+      recordRecentDirectoryVisit,
+    ]
   );
 
   useEffect(() => {
@@ -3467,6 +3485,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     loading,
     error,
     setError,
+    companionPairingError: error !== null && error === companionPairingErrorMessage && isLocalDrive(connectionId),
 
     // UI preferences
     sortBy,

@@ -2643,6 +2643,17 @@ const Browser: React.FC = () => {
     setSettingsOpen(true);
   }, [useCompactLayout]);
 
+  const openLocalDrivesSettings = useCallback(() => {
+    if (useCompactLayout) {
+      setMobileSettingsInitialView("local-drives");
+      setMobileSettingsOpen(true);
+      return;
+    }
+
+    setSettingsInitialCategory("local-drives");
+    setSettingsOpen(true);
+  }, [useCompactLayout]);
+
   const focusQuickBarInput = useCallback(
     (sourcePaneId: PaneId) => {
       setTimeout(() => {
@@ -4172,6 +4183,9 @@ const Browser: React.FC = () => {
       >
         <FileBrowserAlerts
           error={leftPane.error}
+          paneLabel={isDualMode ? t("fileBrowser.chrome.alerts.leftPane") : undefined}
+          companionPairingError={leftPane.companionPairingError}
+          onOpenLocalDrivesSettings={openLocalDrivesSettings}
           companionLifecycleStatus={companionLifecycleStatus}
           loadingConnections={loadingConnections}
           connectionsCount={connections.length}
@@ -4188,6 +4202,18 @@ const Browser: React.FC = () => {
             }
           }}
         />
+        {isDualMode && rightPane.error && (
+          <FileBrowserAlerts
+            error={rightPane.error}
+            paneLabel={t("fileBrowser.chrome.alerts.rightPane")}
+            companionPairingError={rightPane.companionPairingError}
+            onOpenLocalDrivesSettings={openLocalDrivesSettings}
+            onRetry={rightPane.handleRefresh}
+            loadingConnections={false}
+            connectionsCount={connections.length}
+            backendAvailabilityStatus="available"
+          />
+        )}
 
         {/* Pane content area — single or dual-pane layout */}
         {leftPane.connectionId && (

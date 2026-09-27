@@ -1,6 +1,11 @@
 import { primeCachedAsyncData } from "../../hooks/useCachedAsyncData";
 import api from "../../services/api";
-import companionService, { type PairStatusResponse } from "../../services/companion";
+import companionService, {
+  hasStoredSecret,
+  isCompanionAuthProtocolCompatible,
+  isCompanionAuthSignatureMismatch,
+  type PairStatusResponse,
+} from "../../services/companion";
 import { logger } from "../../services/logger";
 import type {
   AboutSettings,
@@ -33,6 +38,8 @@ export const SETTINGS_DATA_CACHE_KEYS = {
 export interface LocalDrivesSettingsData {
   companionAvailable: boolean;
   currentPairStatus: PairStatusResponse | null;
+  authProtocolCompatible: boolean | null;
+  pairingVerified: boolean | null;
   downloadMetadata: CompanionDownloadMetadata | null;
   downloadError: string | null;
 }
@@ -129,6 +136,8 @@ export async function loadAuthenticationSettingsData(): Promise<OidcAdminConfigu
 export async function loadLocalDrivesSettingsData(): Promise<LocalDrivesSettingsData> {
   let companionAvailable = false;
   let currentPairStatus: PairStatusResponse | null = null;
+  let authProtocolCompatible: boolean | null = null;
+  let pairingVerified: boolean | null = null;
   let downloadMetadata: CompanionDownloadMetadata | null = null;
   let downloadError: string | null = null;
 
@@ -136,8 +145,18 @@ export async function loadLocalDrivesSettingsData(): Promise<LocalDrivesSettings
     const health = await companionService.checkHealth();
 
     companionAvailable = health !== null;
-    if (companionAvailable) {
+    if (health) {
+      authProtocolCompatible = isCompanionAuthProtocolCompatible(health);
       currentPairStatus = await companionService.getPairStatus();
+      if (authProtocolCompatible && currentPairStatus.status === "paired" && hasStoredSecret()) {
+        try {
+          await companionService.testPairing();
+          pairingVerified = true;
+        } catch (error) {
+          pairingVerified = isCompanionAuthSignatureMismatch(error) ? false : null;
+          logger.warn("Failed to verify local drive pairing", { error }, "companion");
+        }
+      }
     }
   } catch (error) {
     logger.warn("Failed to refresh local drives companion status", { error }, "companion");
@@ -153,6 +172,8 @@ export async function loadLocalDrivesSettingsData(): Promise<LocalDrivesSettings
   return {
     companionAvailable,
     currentPairStatus,
+    authProtocolCompatible,
+    pairingVerified,
     downloadMetadata,
     downloadError,
   };
