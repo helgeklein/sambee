@@ -4,7 +4,7 @@
 
 - In Settings > Appearance, let users select, copy, edit, import, and export themes. Let administrators manage site themes and set the site default.
 - Keep theme selection stable across upgrades and make the editor usable despite a large palette.
-- Do not migrate pre-existing custom themes or promise compatibility with older exports. Require new, copied, and imported themes to satisfy the new validation contract.
+- There are no existing custom themes to migrate. Do not promise compatibility with older exports. Require new, copied, and imported themes to satisfy the new validation contract.
 
 ## Current State
 
@@ -14,7 +14,7 @@
 	- No user override: use the site default (initially Sambee light).
 	- An explicit selection, including Sambee light: retain that selection when the site default changes.
 - Keep built-in IDs stable. An upgrade may update a built-in definition without changing the ID or replacing a user's selection with a frozen copy.
-- IDs must be unique across built-in, user, and site themes.
+- IDs must be unique across built-in, user, and site themes. Generate IDs on the server; users edit names, not IDs.
 
 ## Preparation: Editable Palette
 
@@ -37,7 +37,7 @@
 
 - Require both built-in themes to define every editable role explicitly. Newly saved and imported themes must use the same complete shape.
 - Accept `#RRGGBB` and `#RRGGBBAA`. Validate both in the editor and on the server; the current backend checks only ID, name, mode, and nonempty primary color.
-	- Reject malformed JSON, invalid colors, missing roles, duplicate IDs, and collisions with built-in or site IDs before changing stored data.
+	- Reject malformed JSON, invalid colors, missing roles, and conflicting write targets before changing stored data. Imported IDs do not assign identity to newly created themes; the server issues a fresh ID on creation.
 - Resolve the validated palette at one boundary shared by the app, viewers, previews, and editor.
 	- Consumers read the same effective colors instead of providing local defaults.
 	- Keep explicit role values separate from derived presentation effects. Do not substitute a universal hard-coded color for an omitted brand role.
@@ -52,13 +52,13 @@
 	- **Copy:** Keep writable copies in the source group; copy read-only themes to Your themes. Append ` (copy)` to the name and allocate a new unique ID.
 	- **Edit:** Open the editor even for read-only themes, but disable Save when the user lacks write permission.
 	- **Delete:** Disable for built-ins and for site themes without admin permission.
-	- **Set as default:** Disable except for site themes. Require admin permission. This changes the default for users without an explicit selection, not their individual preferences.
+	- **Set as default:** Allow built-in and site themes, not user themes. Require admin permission. This changes the default for users without an explicit selection, not their individual preferences.
 
 ### Storage And Permissions
 
-- Add shared storage and admin-managed endpoints for site themes. The per-user `appearance.custom_themes` setting is not site-theme storage.
-- Enforce ownership, admin permissions, and ID uniqueness on the server as well as in the UI, including edits, deletion, default changes, and overwrites.
-- When a theme is deleted that is being used/selected by users, treat it as new user: apply the site default (if existing) or the built-in default.
+- Store user and site themes as individual rows in one theme table, with a globally unique ID primary key, an owner for user themes, and no owner for site themes. Replace bulk writes to `appearance.custom_themes` with per-theme create, update, and delete endpoints; expose only the current user's themes and shared site themes. There are no existing custom themes to migrate from the setting.
+- Generate fresh IDs on the server and reserve built-in IDs. Enforce ownership, admin permissions, and uniqueness in the same database transaction as each write; report a conflict rather than replacing an existing theme. Use a row version (or equivalent conditional update) to reject stale edits and overwrites from another tab instead of silently losing changes.
+- Allow deletion of any user or site theme with the required permission; built-ins cannot be deleted. In the deletion transaction, clear explicit selections referencing the deleted ID. If it was the site default, clear that setting too. A user with no remaining override uses the site default when it exists, otherwise Sambee light. An explicit selection of another theme stays unchanged.
 - Preserve an explicitly selected built-in ID across upgrades even if its definition changes.
 
 ## Theme Editor Dialog
@@ -92,8 +92,8 @@
 	 - Define and test the role catalog, built-in completeness, color normalization, and shared resolution boundary.
 	 - Audit remaining theme-dependent fixed colors. Keep IDs and selection independent of palette revisions.
 2. **Persistence and permissions**
-	 - Add site-theme storage, site default, authorization, and server validation; integrate them with user-theme IDs and selection.
-	 - Test permissions, collisions, referenced-theme deletion, and users with no override versus an explicit Sambee light selection.
+	 - Add per-theme storage and operations, site default, authorization, and server validation; integrate them with theme IDs and selection.
+	 - Test permissions, ID collisions, stale edits, referenced-theme and site-default deletion, built-in site defaults, and users with no override versus an explicit Sambee light selection.
 3. **Selection and editor**
 	 - Build the grid and form with the existing dialog system.
 	 - Test copy, Save, Save as, overwrite confirmation, Import/Export, draft preview and revert, invalid colors, alpha preservation, and keyboard use.
