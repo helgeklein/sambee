@@ -309,9 +309,23 @@ export function ThemeEditorDialog({
             expanded={group === section}
             onChange={(_, expanded) => setGroup(expanded ? section : null)}
             disableGutters
-            sx={{ bgcolor: "transparent", boxShadow: "none" }}
+            sx={{
+              bgcolor: "transparent",
+              boxShadow: "none",
+              "&.Mui-expanded::before": { opacity: 1 },
+              "&.Mui-expanded + &::before": { display: "block" },
+              "&:has(.MuiAccordionSummary-root.Mui-focusVisible)::before": { opacity: 0, transition: "none" },
+            }}
           >
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <AccordionSummary
+              expandIcon={<ExpandMoreIcon />}
+              sx={{
+                width: (theme) => `calc(100% + ${theme.spacing(2)})`,
+                mx: -1,
+                px: 1,
+                "&.Mui-focusVisible": { bgcolor: "transparent", boxShadow: (theme) => `inset 0 0 0 2px ${theme.palette.primary.main}` },
+              }}
+            >
               <Typography variant="subtitle1">{section}</Typography>
             </AccordionSummary>
             <AccordionDetails sx={{ p: 0 }}>
