@@ -162,6 +162,7 @@ describe("AppearanceSettings", () => {
 
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.click(screen.getByRole("button", { name: "Save copy" }));
+    await user.click(screen.getByRole("menuitem", { name: "Your themes" }));
 
     await waitFor(() => expect(create).toHaveBeenCalledOnce());
     await waitFor(() => expect(themeContextState.refreshThemes).toHaveBeenCalledOnce());

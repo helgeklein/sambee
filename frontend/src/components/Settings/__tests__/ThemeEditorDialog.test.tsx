@@ -27,6 +27,11 @@ function renderEditor(onPreview = vi.fn()) {
   return { onClose, onSaved, onPreview };
 }
 
+async function chooseCopyDestination(user: ReturnType<typeof userEvent.setup>, destination = "Your themes") {
+  await user.click(screen.getByRole("button", { name: "Save copy" }));
+  await user.click(screen.getByRole("menuitem", { name: destination }));
+}
+
 describe("ThemeEditorDialog", () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -49,7 +54,7 @@ describe("ThemeEditorDialog", () => {
     expect(screen.getByRole("textbox", { name: /Main/ })).toHaveAttribute("aria-invalid", "true");
     expect(screen.getAllByText("Use #RRGGBB or #RRGGBBAA.")).toHaveLength(2);
     expect(onPreview).not.toHaveBeenCalledWith(expect.objectContaining({ primary: { main: "#bad" } }));
-    await user.click(screen.getByRole("button", { name: "Save copy" }));
+    await chooseCopyDestination(user);
     await waitFor(() => expect(screen.getByRole("textbox", { name: /Main/ })).toHaveFocus());
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onPreview).toHaveBeenLastCalledWith(null);
@@ -67,7 +72,7 @@ describe("ThemeEditorDialog", () => {
     await user.type(screen.getByRole("textbox", { name: /Name/ }), "Custom light");
     await user.clear(screen.getByRole("textbox", { name: /Main/ }));
     await user.type(screen.getByRole("textbox", { name: /Main/ }), "#11223388");
-    await user.click(screen.getByRole("button", { name: "Save copy" }));
+    await chooseCopyDestination(user);
     await waitFor(() =>
       expect(created).toHaveBeenCalledWith(
         expect.objectContaining({ name: "Custom light", primary: expect.objectContaining({ main: "#11223388" }) }),
@@ -88,7 +93,7 @@ describe("ThemeEditorDialog", () => {
 
     expect(main).toHaveValue("#112233");
     expect(onPreview).toHaveBeenLastCalledWith(expect.objectContaining({ primary: expect.objectContaining({ main: "#112233" }) }));
-    await user.click(screen.getByRole("button", { name: "Save copy" }));
+    await chooseCopyDestination(user);
     await waitFor(() =>
       expect(create).toHaveBeenCalledWith(expect.objectContaining({ primary: expect.objectContaining({ main: "#112233" }) }), "user")
     );
@@ -195,14 +200,16 @@ describe("ThemeEditorDialog", () => {
       />
     );
 
-    expect(screen.queryByRole("combobox", { name: "Save as target" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Storage" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save copy" }));
+    expect(screen.queryByRole("menuitem", { name: "Site themes" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "Your themes" }));
     expect(update).not.toHaveBeenCalled();
     await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Personal (copy 2)" }), "user"));
     expect(onSaved).toHaveBeenCalledWith("new-copy", true);
   });
 
-  it("only copies into a new storage group when storage changes", async () => {
+  it("lets an administrator choose the copy group without changing Save's target", async () => {
     const user = userEvent.setup();
     const siteTheme = { ...theme, id: "site-id", name: "Site theme" };
     const stored = { id: siteTheme.id, scope: "site" as const, version: 2, definition: editableDefinition(siteTheme) };
@@ -221,14 +228,40 @@ describe("ThemeEditorDialog", () => {
       />
     );
 
+    expect(screen.queryByRole("combobox", { name: "Storage" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
-    await user.click(screen.getByRole("combobox", { name: "Storage" }));
-    await user.click(screen.getByRole("option", { name: "Your themes" }));
-    expect(screen.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "Save copy" }));
+    await chooseCopyDestination(user);
 
     await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Site theme" }), "user"));
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it("offers site storage only to admins and closes the copy menu on Escape", async () => {
+    const user = userEvent.setup();
+    const create = vi.spyOn(api, "createTheme").mockResolvedValue({ id: "site-copy", scope: "site", version: 1, definition: theme });
+    render(
+      <ThemeEditorDialog
+        theme={theme}
+        stored={undefined}
+        storedThemes={[]}
+        selectedThemeId={theme.id}
+        isAdmin
+        onClose={vi.fn()}
+        onSaved={vi.fn().mockResolvedValue(undefined)}
+        onPreview={vi.fn()}
+      />
+    );
+
+    const button = screen.getByRole("button", { name: "Save copy" });
+    await user.click(button);
+    expect(screen.getByRole("menuitem", { name: "Site themes" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menuitem", { name: "Site themes" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: `Edit ${theme.name}` })).toBeInTheDocument();
+    await waitFor(() => expect(button).toHaveFocus());
+    await chooseCopyDestination(user, "Site themes");
+
+    await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: theme.name }), "site"));
   });
 
   it("retains an automatically renamed draft after a copy request fails", async () => {
@@ -248,7 +281,7 @@ describe("ThemeEditorDialog", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "Save copy" }));
+    await chooseCopyDestination(user);
     expect(await screen.findByText("Theme changed in another tab. Refresh and try again")).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue(`${theme.name} (copy)`);
   });

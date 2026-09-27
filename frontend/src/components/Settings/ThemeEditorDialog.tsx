@@ -1,5 +1,17 @@
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, MenuItem, Popover, TextField, Typography } from "@mui/material";
+import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
+  Alert,
+  Box,
+  Button,
+  Menu,
+  MenuItem,
+  Popover,
+  TextField,
+  Typography,
+} from "@mui/material";
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
 import { HexAlphaColorPicker } from "react-colorful";
 import api, { getThemeRequestError, type StoredTheme } from "../../services/api";
@@ -61,7 +73,7 @@ export function ThemeEditorDialog({
   const [group, setGroup] = useState<string | null>("Core");
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [activeColor, setActiveColor] = useState<string | null>(null);
-  const [scope, setScope] = useState<StoredTheme["scope"]>(stored?.scope === "site" && isAdmin ? "site" : "user");
+  const [copyMenuAnchor, setCopyMenuAnchor] = useState<HTMLElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -86,7 +98,7 @@ export function ThemeEditorDialog({
     }
   };
 
-  const save = async (isCopy: boolean) => {
+  const save = async (copyScope?: StoredTheme["scope"]) => {
     const invalid = Object.entries(inputColors).find(([, value]) => !HEX_COLOR_PATTERN.test(value));
     const validationError = invalid ? `${invalid[0]}: enter #RRGGBB or #RRGGBBAA.` : validateThemeDefinition(draft);
     if (validationError) {
@@ -98,16 +110,16 @@ export function ThemeEditorDialog({
       requestAnimationFrame(() => document.getElementById(role ? `${role.path}-input` : "theme-name")?.focus());
       return;
     }
-    if (!isCopy && (!writable || stored?.scope !== scope)) return;
-    const name = isCopy ? getCopyName(draft.name.trim(), scope, storedThemes) : draft.name.trim();
+    if (!copyScope && !writable) return;
+    const name = copyScope ? getCopyName(draft.name.trim(), copyScope, storedThemes) : draft.name.trim();
     if (name !== draft.name.trim()) setDraft((previous) => ({ ...previous, name }));
     setPending(true);
     setError(null);
     try {
       const definition = editableDefinition({ ...draft, name });
-      const saved = isCopy ? await api.createTheme(definition, scope) : await api.updateTheme(stored!, definition);
+      const saved = copyScope ? await api.createTheme(definition, copyScope) : await api.updateTheme(stored!, definition);
       onPreview(null);
-      await onSaved(saved.id, isCopy);
+      await onSaved(saved.id, Boolean(copyScope));
       onClose();
     } catch (cause) {
       setError(getThemeRequestError(cause));
@@ -171,20 +183,50 @@ export function ThemeEditorDialog({
             </Button>
             <Button
               variant="outlined"
-              onClick={() => void save(true)}
+              onClick={(event) => setCopyMenuAnchor(event.currentTarget)}
               disabled={pending}
+              aria-haspopup="menu"
+              aria-controls={copyMenuAnchor ? "theme-save-copy-menu" : undefined}
+              aria-expanded={Boolean(copyMenuAnchor)}
               sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
             >
               Save copy
             </Button>
             <Button
               variant="contained"
-              onClick={() => void save(false)}
-              disabled={!writable || scope !== stored?.scope || pending}
+              onClick={() => void save()}
+              disabled={!writable || pending}
               sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
             >
               Save
             </Button>
+            <Menu
+              id="theme-save-copy-menu"
+              anchorEl={copyMenuAnchor}
+              open={Boolean(copyMenuAnchor)}
+              onClose={() => setCopyMenuAnchor(null)}
+              autoFocus
+              sx={{ zIndex: (currentTheme) => currentTheme.zIndex.modal + 2 }}
+            >
+              <MenuItem
+                onClick={() => {
+                  setCopyMenuAnchor(null);
+                  void save("user");
+                }}
+              >
+                Your themes
+              </MenuItem>
+              {isAdmin && (
+                <MenuItem
+                  onClick={() => {
+                    setCopyMenuAnchor(null);
+                    void save("site");
+                  }}
+                >
+                  Site themes
+                </MenuItem>
+              )}
+            </Menu>
           </Box>
         </Box>
       }
@@ -257,28 +299,6 @@ export function ThemeEditorDialog({
             >
               <MenuItem value="light">Light</MenuItem>
               <MenuItem value="dark">Dark</MenuItem>
-            </TextField>
-          </FormRow>
-          <FormRow>
-            <Box sx={{ display: { xs: "none", md: "block" } }}>
-              <FormFieldLabel
-                label="Storage"
-                description="Where Save copy creates a new theme"
-                descriptionId="theme-storage-help"
-                htmlFor="theme-storage"
-              />
-            </Box>
-            <TextField
-              select
-              id="theme-storage"
-              label="Storage"
-              value={scope}
-              onChange={(event) => setScope(event.target.value as StoredTheme["scope"])}
-              fullWidth
-              sx={formOutlinedControlSx}
-            >
-              <MenuItem value="user">Your themes</MenuItem>
-              {isAdmin && <MenuItem value="site">Site themes</MenuItem>}
             </TextField>
           </FormRow>
         </FormGroup>
