@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import companionService, { type DriveInfo, hasStoredSecret, isCompanionAuthProtocolCompatible } from "../services/companion";
+import companionService, { type DriveInfo, getCompanionAuthProtocolStatus, hasStoredSecret } from "../services/companion";
 import { syncCurrentLocalizationToCompanion } from "../services/companionLocalizationSync";
 import { companionSession } from "../services/companionSession";
 import { logger } from "../services/logger";
@@ -90,7 +90,7 @@ export function useCompanion(): UseCompanionResult {
         return;
       }
 
-      if (!isCompanionAuthProtocolCompatible(health)) {
+      if (getCompanionAuthProtocolStatus(health) !== "compatible") {
         setStatus("update_required");
         setDrivesIfChanged([]);
         return;

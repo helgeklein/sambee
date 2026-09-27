@@ -45,7 +45,12 @@ vi.mock("../../services/companion", () => ({
   },
   clearStoredSecret: vi.fn(),
   hasStoredSecret: mockHasStoredSecret,
-  isCompanionAuthProtocolCompatible: (health: { auth_protocol_version?: number }) => health.auth_protocol_version === 2,
+  getCompanionAuthProtocolStatus: (health: { auth_protocol_version?: number }) =>
+    (health.auth_protocol_version ?? 0) < 2
+      ? "companion_update_required"
+      : health.auth_protocol_version === 2
+        ? "compatible"
+        : "browser_update_required",
   isCompanionAuthSignatureMismatch: vi.fn(() => false),
 }));
 

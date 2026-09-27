@@ -294,6 +294,7 @@ export const EN_TRANSLATIONS = {
       summaryPendingApprovalTitle: "Finish approval in Sambee Companion",
       summaryRepairTitle: "Repair this browser pairing",
       summaryUpdateRequiredTitle: "Update Sambee Companion",
+      summaryBrowserUpdateRequiredTitle: "Update Sambee",
       summaryVerificationUnavailableTitle: "Local-drive access could not be verified",
       summaryUnavailableTitle: "Start Sambee Companion on this computer",
       companionRunningChecklistLabel: "Companion app is running",
@@ -333,7 +334,9 @@ export const EN_TRANSLATIONS = {
         "Companion cannot verify this browser's pairing. Reload Sambee first to pick up any update; if access still fails, pair this browser again.",
       statusUpdateRequired:
         "This Companion version uses an older authentication protocol. Update Companion and restart it, then reload Sambee. Re-pairing will not fix a version mismatch.",
-      statusVerificationUnavailable: "Companion is reachable, but the pairing check could not complete. Try the pairing test again.",
+      statusBrowserUpdateRequired:
+        "Companion uses a newer authentication protocol than this Sambee page supports. Reload Sambee; if the mismatch remains, update Sambee. Re-pairing will not fix it.",
+      statusVerificationUnavailable: "Companion is reachable, but its pairing status could not be verified. Try again.",
       statusUnpaired: "This browser is not currently paired with Sambee Companion.",
       downloadSectionTitle: "Install Sambee Companion",
       downloadSectionDescription:

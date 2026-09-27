@@ -48,7 +48,7 @@ const ANDROID_USER_AGENT_TOKEN = "android";
 
 function getLocalDrivesStatusPollInterval(
   companionAvailable: boolean,
-  pairStatus: LocalDrivesSettingsData["currentPairStatus"]["status"] | null
+  pairStatus: NonNullable<LocalDrivesSettingsData["currentPairStatus"]>["status"] | null
 ): number {
   if (pairStatus === "pending_local_approval") {
     return LOCAL_DRIVES_PENDING_STATUS_POLL_INTERVAL_MS;
@@ -100,6 +100,7 @@ type LocalDrivesViewState =
   | "needs_repair"
   | "verification_unavailable"
   | "update_required"
+  | "browser_update_required"
   | "paired";
 type PairingTestResult = {
   severity: "success" | "error";
@@ -110,7 +111,7 @@ type PairingTestResult = {
 const EMPTY_LOCAL_DRIVES_STATE: LocalDrivesSettingsData = {
   companionAvailable: false,
   currentPairStatus: null,
-  authProtocolCompatible: null,
+  authProtocolStatus: null,
   pairingVerified: null,
   downloadMetadata: null,
   downloadError: null,
@@ -267,8 +268,16 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
       return "unavailable";
     }
 
-    if (state.authProtocolCompatible === false) {
+    if (state.authProtocolStatus === "companion_update_required") {
       return "update_required";
+    }
+
+    if (state.authProtocolStatus === "browser_update_required") {
+      return "browser_update_required";
+    }
+
+    if (state.currentPairStatus === null) {
+      return "verification_unavailable";
     }
 
     if (state.currentPairStatus?.status === "pending_local_approval") {
@@ -285,9 +294,9 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
   }, [
     browserHasStoredSecret,
     pairingTestResult,
-    state.authProtocolCompatible,
+    state.authProtocolStatus,
     state.companionAvailable,
-    state.currentPairStatus?.status,
+    state.currentPairStatus,
     state.pairingVerified,
   ]);
   const downloadEntries = useMemo(
@@ -382,6 +391,13 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
           title: LOCAL_DRIVES_PAGE_COPY.summaryUpdateRequiredTitle,
           message: LOCAL_DRIVES_PAGE_COPY.statusUpdateRequired,
         };
+      case "browser_update_required":
+        return {
+          badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelActionRequired,
+          badgeVariant: "themed" as const,
+          title: LOCAL_DRIVES_PAGE_COPY.summaryBrowserUpdateRequiredTitle,
+          message: LOCAL_DRIVES_PAGE_COPY.statusBrowserUpdateRequired,
+        };
       case "unpaired":
         return {
           badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelActionRequired,
@@ -462,6 +478,16 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
                       </Stack>
                     ))}
                   </Stack>
+                  {viewState === "verification_unavailable" && !browserHasStoredSecret && (
+                    <Button variant="outlined" onClick={() => void refresh()} disabled={loading} sx={settingsUtilityButtonSx}>
+                      {LOCAL_DRIVES_PAGE_COPY.retryButton}
+                    </Button>
+                  )}
+                  {viewState === "browser_update_required" && (
+                    <Button variant="outlined" onClick={() => window.location.reload()} sx={settingsUtilityButtonSx}>
+                      {LOCAL_DRIVES_PAGE_COPY.reloadButton}
+                    </Button>
+                  )}
                 </Stack>
               ) : (
                 <SettingsLoadingState compact />

@@ -44,7 +44,8 @@ Pairing is specific to the current browser origin.
 If a local drive reports a pairing error, open **Settings** > **Local Drives** from the file-list alert. **Ready** means the browser has passed an authenticated pairing check; having a stored pairing alone is not enough.
 
 1. If Companion needs an update, install the available version, restart Companion, and reload the Sambee page. Re-pairing will not resolve an incompatible version.
+1. If Sambee needs an update, reload the page. If the version mismatch remains, update Sambee. Updating Companion or re-pairing will not fix a newer Companion protocol.
 1. If Companion rejects the browser's signature, reload the Sambee page first. A page left open across an update may still use the previous authentication protocol.
 1. Run **Test Current Pairing**. If it still fails with a signature error after reloading, use **Pair This Browser** and approve the new code in Companion.
 
-Companion pairing secrets do not expire on a 30-day timer. An unavailable Companion or a temporary failed check does not mean you need to re-pair.
+If Sambee cannot check the pairing status, select **Retry**. Wait for a confirmed status before starting a new pairing. Companion pairing secrets do not expire on a 30-day timer. An unavailable Companion or a temporary failed check does not mean you need to re-pair.

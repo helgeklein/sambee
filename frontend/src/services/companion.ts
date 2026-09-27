@@ -24,6 +24,7 @@ export const COMPANION_BASE_URL = "http://localhost:21549/api";
 export const COMPANION_AUTH_PROTOCOL_VERSION = 2;
 const COMPANION_AUTH_SIGNATURE_MISMATCH_CODE = "companion_auth_signature_mismatch";
 const COMPANION_BROWSER_UPDATE_REQUIRED_CODE = "companion_browser_update_required";
+export type CompanionAuthProtocolStatus = "compatible" | "companion_update_required" | "browser_update_required";
 
 export function isCompanionAuthSignatureMismatch(error: unknown): boolean {
   if (!isApiError(error) || error.response?.status !== 403) return false;
@@ -34,8 +35,11 @@ export function isCompanionAuthSignatureMismatch(error: unknown): boolean {
   );
 }
 
-export function isCompanionAuthProtocolCompatible(health: CompanionHealthResponse): boolean {
-  return health.auth_protocol_version === COMPANION_AUTH_PROTOCOL_VERSION;
+export function getCompanionAuthProtocolStatus(health: CompanionHealthResponse): CompanionAuthProtocolStatus {
+  const version = health.auth_protocol_version ?? 0;
+  if (version < COMPANION_AUTH_PROTOCOL_VERSION) return "companion_update_required";
+  if (version > COMPANION_AUTH_PROTOCOL_VERSION) return "browser_update_required";
+  return "compatible";
 }
 
 /** Timeout in milliseconds for the health-check probe. */

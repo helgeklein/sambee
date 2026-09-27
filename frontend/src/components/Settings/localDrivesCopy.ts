@@ -55,6 +55,9 @@ export const LOCAL_DRIVES_PAGE_COPY = {
   get summaryUpdateRequiredTitle() {
     return translate("settings.localDrives.summaryUpdateRequiredTitle");
   },
+  get summaryBrowserUpdateRequiredTitle() {
+    return translate("settings.localDrives.summaryBrowserUpdateRequiredTitle");
+  },
   get summaryVerificationUnavailableTitle() {
     return translate("settings.localDrives.summaryVerificationUnavailableTitle");
   },
@@ -133,6 +136,9 @@ export const LOCAL_DRIVES_PAGE_COPY = {
   get reloadButton() {
     return translate("settings.localDrives.reloadButton");
   },
+  get retryButton() {
+    return translate("common.actions.retry");
+  },
   get pairingTestSucceeded() {
     return translate("settings.localDrives.pairingTestSucceeded");
   },
@@ -150,6 +156,9 @@ export const LOCAL_DRIVES_PAGE_COPY = {
   },
   get statusUpdateRequired() {
     return translate("settings.localDrives.statusUpdateRequired");
+  },
+  get statusBrowserUpdateRequired() {
+    return translate("settings.localDrives.statusBrowserUpdateRequired");
   },
   get statusVerificationUnavailable() {
     return translate("settings.localDrives.statusVerificationUnavailable");

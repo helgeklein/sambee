@@ -1,10 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  COMPANION_AUTH_PROTOCOL_VERSION,
   COMPANION_PAIR_CONFIRMATION_PENDING_CODE,
   COMPANION_PAIR_CONFIRMATION_PENDING_DETAIL,
   default as companionService,
+  getCompanionAuthProtocolStatus,
 } from "../companion";
 import { companionSession } from "../companionSession";
+
+describe("companion authentication protocol", () => {
+  it("distinguishes older, matching, and newer Companion versions", () => {
+    const health = { status: "healthy", paired: true };
+    expect(getCompanionAuthProtocolStatus(health)).toBe("companion_update_required");
+    expect(getCompanionAuthProtocolStatus({ ...health, auth_protocol_version: COMPANION_AUTH_PROTOCOL_VERSION - 1 })).toBe(
+      "companion_update_required"
+    );
+    expect(getCompanionAuthProtocolStatus({ ...health, auth_protocol_version: COMPANION_AUTH_PROTOCOL_VERSION })).toBe("compatible");
+    expect(getCompanionAuthProtocolStatus({ ...health, auth_protocol_version: COMPANION_AUTH_PROTOCOL_VERSION + 1 })).toBe(
+      "browser_update_required"
+    );
+  });
+});
 
 describe("companion request signatures", () => {
   it("binds method and URL while normalizing query order", async () => {
