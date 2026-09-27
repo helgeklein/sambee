@@ -1,38 +1,100 @@
 # Theme Editor Plan
 
-## Goal And Current State
+## Goal And Scope
 
-Let people select, copy, edit, import, and export themes from Settings > Appearance, while administrators can manage site themes and choose the site default. Keep the editor usable despite a large palette and preserve the existing theme-selection behavior.
+- In Settings > Appearance, let users select, copy, edit, import, and export themes. Let administrators manage site themes and set the site default.
+- Keep theme selection stable across upgrades and make the editor usable despite a large palette.
+- Do not migrate pre-existing custom themes or promise compatibility with older exports. Require new, copied, and imported themes to satisfy the new validation contract.
 
-Today Sambee ships `sambee-light` and `sambee-dark`. The frontend selects a theme by persistent ID, and the backend stores per-user custom themes; site themes and a site default do not exist yet. Keep built-in IDs stable across upgrades: a user who selected `sambee-light` should see its updated definition after an upgrade, not a frozen copy. A site default applies when a user has no explicit selection; it must not overwrite an existing selection. Currently the backend returns `sambee-light` even when no preference is stored: distinguish an absent user override from an explicit selection before adding site defaults. New user-theme and site-theme IDs must not collide with each other or with built-in IDs.
+## Current State
 
-Migrating any pre-existing custom themes is out of scope. Newly created, copied, and imported themes must pass the new validation contract; do not silently accept incomplete new definitions or promise compatibility with older exports.
+- Sambee ships two built-in themes: `sambee-light` and `sambee-dark`.
+- The frontend selects themes by persistent ID; the backend stores per-user custom themes. Site themes and a site default do not yet exist.
+- The backend returns `sambee-light` even when no user preference is stored. Before adding a site default, distinguish:
+	- No user override: use the site default (initially Sambee light).
+	- An explicit selection, including Sambee light: retain that selection when the site default changes.
+- Keep built-in IDs stable. An upgrade may update a built-in definition without changing the ID or replacing a user's selection with a frozen copy.
+- IDs must be unique across built-in, user, and site themes.
 
-## Preparation: One Editable Palette
+## Preparation: Editable Palette
 
-1. Define a typed contract for **user-editable color roles**, with labels and descriptions for the editor. Audit `frontend/src/theme/types.ts`, `palette.ts`, `viewerStyles.ts`, `commonStyles.ts`, and the theme preview in `PreferencesSettings.tsx` for duplicated defaults. Ensure the contract includes primary, backgrounds, text, selection, links, search highlights, viewer surfaces/toolbars, and alert colors. The existing `THEME_SCHEMA` omits links and alerts; update it or replace it with an explicit editor field catalog that is checked against the contract. A field catalog must describe the UI, not become a generic form engine.
-2. Include Markdown document colors used for code and tables, as well as blockquotes and heading borders. Audit other fixed colors used for theme-dependent app surfaces (including dark app chrome and dialog surfaces); either make them named editable roles or explicitly document why they remain derived. Do not include file-type icons, content/syntax colors, or unrelated fixed asset colors in the palette.
-3. Make both built-in theme definitions provide every editable role explicitly, including light and dark Markdown values. Require the same complete shape when saving or importing a new theme, with valid `#RRGGBB` or `#RRGGBBAA` values. Validate on the server as well as in the editor; the current backend checks only ID, name, mode, and a nonempty primary color. Reject malformed JSON, invalid colors, missing roles, duplicate IDs, and collisions with built-in or site IDs before changing stored data.
-4. Keep **derived effects** outside the editable palette: opacity-adjusted focus/search rings, scrollbar shades, MUI-generated colors, and compatibility values such as `background.paper` (which currently resolves to `background.default`). Retire or explicitly account for legacy fields such as `action.focus` and fallback-only aliases such as `action.selectedDarker`; do not present ignored fields as editable. Do not replace a brand color with a hard-coded universal fallback simply because a new field was omitted.
-5. Resolve the validated palette at one boundary for the app, viewer styles, previews, and editor. Consumers should read the same effective colors, not each supply their own default. Keep explicit built-in values separate from calculated presentation effects; avoid multiplying editable roles for every derived shade.
+### Roles And Boundaries
+
+- Define one typed contract for **user-editable color roles**, with matching labels and descriptions in the editor.
+	- Include primary, backgrounds, text, selection, links, search highlights, viewer surfaces and toolbars, and alert colors.
+	- Include Markdown document colors for code, tables, blockquotes, and heading borders, with explicit light and dark values in the built-in themes.
+	- Audit fixed colors in theme-dependent app surfaces, including dark app chrome and dialogs. Make each an editable role or document why it remains derived.
+	- Exclude file-type icons, content/syntax colors, and unrelated fixed asset colors.
+- Audit `frontend/src/theme/types.ts`, `palette.ts`, `viewerStyles.ts`, `commonStyles.ts`, and the theme preview in `PreferencesSettings.tsx` for missing roles and duplicated defaults.
+	- The existing `THEME_SCHEMA` omits links and alerts. Complete it or replace it with an editor field catalog checked against the typed contract.
+	- Keep the catalog focused on labels, grouping, and descriptions; do not build a generic form engine.
+- Keep calculated effects out of the editable palette:
+	- Opacity-adjusted focus/search rings, scrollbar shades, and MUI-generated colors.
+	- Compatibility values such as `background.paper`, which currently resolves to `background.default`.
+	- Retire or explicitly account for legacy `action.focus` and fallback-only `action.selectedDarker`; do not show ignored fields as editable.
+
+### Validation And Resolution
+
+- Require both built-in themes to define every editable role explicitly. Newly saved and imported themes must use the same complete shape.
+- Accept `#RRGGBB` and `#RRGGBBAA`. Validate both in the editor and on the server; the current backend checks only ID, name, mode, and nonempty primary color.
+	- Reject malformed JSON, invalid colors, missing roles, duplicate IDs, and collisions with built-in or site IDs before changing stored data.
+- Resolve the validated palette at one boundary shared by the app, viewers, previews, and editor.
+	- Consumers read the same effective colors instead of providing local defaults.
+	- Keep explicit role values separate from derived presentation effects. Do not substitute a universal hard-coded color for an omitted brand role.
 
 ## Theme Selection
 
-- Use a responsive grid of theme previews, grouped in this order: Your themes, Site themes, Built-in themes. Omit empty groups. A compact badge inside the tile marks the site default; selection needs a distinct visual and accessible state. Initially the site default is Sambee light.
-- Keep selection and the site default separate. Selecting a theme changes only the current user's preference; setting the site default requires admin permission and affects users without an explicit selection. Maintain the selected ID on upgrades even if a built-in theme definition changes.
-- Place Copy, Edit, Delete, and Set as default below the grid; they act on the selected tile. Edit opens the editor for read-only inspection when the theme cannot be modified; Save and Delete are disabled for built-ins and for site themes without admin rights. Copy a writable theme into its own group, or a read-only theme into Your themes. Append ` (copy)` to its name and allocate a new unique ID; never reuse the source ID.
-- Enforce authorization and ID uniqueness on the server, not just with disabled buttons. Site themes need shared storage and admin-managed endpoints; the per-user `appearance.custom_themes` setting is not a site-theme store. Protect edits, deletion, default changes, and overwrites with the same ownership rules. Define what happens to selections and the site default before deleting a referenced theme; do not leave a dangling ID.
+### Grid And Actions
+
+- Use a responsive preview grid. Show nonempty groups in this order: Your themes, Site themes, Built-in themes.
+- Mark the site default with a compact badge inside its tile; mark the selected theme separately, visually and accessibly.
+- Put Copy, Edit, Delete, and Set as default below the grid. Each action applies to the selected tile:
+	- **Copy:** Keep writable copies in the source group; copy read-only themes to Your themes. Append ` (copy)` to the name and allocate a new unique ID.
+	- **Edit:** Open the editor even for read-only themes, but disable Save when the user lacks write permission.
+	- **Delete:** Disable for built-ins and for site themes without admin permission.
+	- **Set as default:** Require admin permission. This changes the default for users without an explicit selection, not their individual preferences.
+
+### Storage And Permissions
+
+- Add shared storage and admin-managed endpoints for site themes. The per-user `appearance.custom_themes` setting is not site-theme storage.
+- Enforce ownership, admin permissions, and ID uniqueness on the server as well as in the UI, including edits, deletion, default changes, and overwrites.
+- Define how to handle user selections and the site default before deleting a referenced theme; never leave a dangling ID.
+- Preserve an explicitly selected built-in ID across upgrades even if its definition changes.
 
 ## Theme Editor Dialog
 
-- Use `ResponsiveDialogShell` and the shared settings-form layout for one responsive form. Keep Name, Description, Light/Dark, and Storage (Your themes or Site themes) at the top. Only administrators may save to Site themes. IDs are internal and should not be editable as names.
-- Show the palette in collapsible groups, with core colors first and viewer, Markdown, search, and alert colors below. Show each role's label, hex value, and a small swatch; a short description explains non-obvious roles. On phones, keep one group open at a time. Avoid nested scrolling; the dialog body scrolls while actions remain reachable.
-- Use the browser's native `<input type="color">` for RGB selection, alongside a MUI hex text field and MUI opacity slider in a small popover. No additional picker dependency is needed. Native color inputs cannot reliably edit alpha across browsers: preserve the current alpha when choosing RGB, and let the hex field or slider set it. Display opaque colors as `#RRGGBB` and translucent colors as `#RRGGBBAA`; normalize valid entries and leave invalid text in the field with an inline error until corrected. Show transparency on a checkerboard swatch. The swatch, field, and slider need accessible names and keyboard operation; keep the picker usable inside the responsive dialog.
-- Do not add a separate preview panel. While editing the currently selected theme, apply valid draft changes to the app without persisting them; an invalid partially typed hex value must not break rendering. Editing a different theme must not silently switch the user's selection. Cancel/close restores the last persisted theme; successful Save or Save as clears the preview and uses the persisted result. Closing after changes should make the discard behavior clear.
-- Save updates only a writable theme. Save as creates a new theme in an allowed storage group, or overwrites a writable existing theme after explicit confirmation. Never overwrite a built-in or an unauthorized site theme. Preserve the target's identity on overwrite and use a fresh ID on create; detect name/ID conflicts rather than silently replacing a theme. Import reads and validates JSON into the draft without saving it; Export downloads the current draft in the same versioned definition format accepted by Import. A failed import or save must retain the previous draft and show a specific, actionable error.
+### Layout And Color Controls
 
-## Implementation And Checks
+- Use `ResponsiveDialogShell` and the shared settings-form layout as one responsive form.
+- Put Name, Description, Light/Dark, and Storage (Your themes or Site themes) first. Only administrators may save to Site themes; IDs are internal, not editable names.
+- Organize color roles into collapsible groups: core colors first, then viewer, Markdown, search, and alert colors.
+	- Show each role's label, hex value, and small swatch; describe unfamiliar roles briefly.
+	- Keep one group open at a time on phones. Scroll the dialog body, not a nested color panel, and keep actions reachable.
+- Use native `<input type="color">` for RGB selection, with a MUI hex field and opacity slider in a small popover; add no picker dependency.
+	- Native pickers cannot reliably change alpha across browsers. Preserve alpha when changing RGB; use the hex field or slider to change opacity.
+	- Show opaque values as `#RRGGBB` and translucent values as `#RRGGBBAA`. Normalize valid entries; retain invalid text with an inline error until corrected.
+	- Show transparency on a checkerboard swatch. Give the swatch, field, and slider accessible names and keyboard operation inside the dialog.
 
-1. Define and test the editable role catalog, built-in completeness, color normalization, and shared resolution boundary; audit remaining theme-dependent fixed colors. Keep IDs and selected-theme persistence independent of palette revisions.
-2. Add server-side site-theme storage, default selection, authorization, and validation; integrate them with user theme IDs and selection. Test permissions, collisions, deletion of referenced themes, and default behavior for users with no override versus users who explicitly selected Sambee light.
-3. Build the grid and editor using the existing dialog/form system. Test copy, save, save as, overwrite confirmation, import/export, draft preview and revert, invalid colors, alpha preservation, keyboard use, and phone/desktop layouts in both light and dark modes. Verify that an upgraded built-in definition keeps the previously selected ID active.
+### Draft Preview And Actions
+
+- Do not add a separate preview panel. When editing the currently selected theme, apply valid draft changes to the app without persisting them.
+	- An incomplete or invalid hex entry must not break rendering. Editing another theme must not silently change the user's selection.
+	- Closing or canceling restores the last persisted theme and makes discarding changes clear. Successful Save or Save as clears the draft preview and uses the persisted result.
+- **Save:** Update only a writable theme; disable for built-ins and site themes without admin permission.
+- **Save as:** Create a theme in an allowed group with a fresh ID, or overwrite a writable target after explicit confirmation. Preserve the target ID on overwrite; never overwrite a built-in or unauthorized site theme. Detect name and ID conflicts rather than silently replacing a theme.
+- **Import:** Validate JSON and replace the draft without saving it. A failed import leaves the previous draft intact.
+- **Export:** Download the current draft in the same versioned definition format accepted by Import.
+- On a failed save, keep the draft and show a specific, actionable error.
+
+## Delivery And Verification
+
+1. **Palette foundation**
+	 - Define and test the role catalog, built-in completeness, color normalization, and shared resolution boundary.
+	 - Audit remaining theme-dependent fixed colors. Keep IDs and selection independent of palette revisions.
+2. **Persistence and permissions**
+	 - Add site-theme storage, site default, authorization, and server validation; integrate them with user-theme IDs and selection.
+	 - Test permissions, collisions, referenced-theme deletion, and users with no override versus an explicit Sambee light selection.
+3. **Selection and editor**
+	 - Build the grid and form with the existing dialog system.
+	 - Test copy, Save, Save as, overwrite confirmation, Import/Export, draft preview and revert, invalid colors, alpha preservation, and keyboard use.
+	 - Check phone and desktop layouts in light and dark themes. Confirm that updating a built-in definition preserves its selected ID.
