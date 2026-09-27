@@ -215,6 +215,7 @@ export function AppearanceSettings() {
                       key={themeOption.id}
                       onClick={() => setSelectedTileId(themeOption.id)}
                       sx={{
+                        position: "relative",
                         p: 3,
                         border: selectedTile?.id === themeOption.id ? 2 : 1,
                         borderColor: selectedTile?.id === themeOption.id ? "primary.main" : "divider",
@@ -231,6 +232,15 @@ export function AppearanceSettings() {
                             }),
                       }}
                     >
+                      {siteDefaultId === themeOption.id && (
+                        <Chip
+                          label="Default"
+                          title="Site default"
+                          size="small"
+                          variant="outlined"
+                          sx={{ position: "absolute", top: 8, right: 8, bgcolor: "background.paper" }}
+                        />
+                      )}
                       <Box sx={{ display: "flex", alignItems: "center", mb: 1, minWidth: 0 }}>
                         <Radio
                           checked={selectedThemeId === themeOption.id}
@@ -279,12 +289,6 @@ export function AppearanceSettings() {
                           </Box>
                         ) : null}
                       </Box>
-                      {(siteDefaultId === themeOption.id || selectedThemeId === themeOption.id) && (
-                        <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-                          {siteDefaultId === themeOption.id && <Chip label="Site default" size="small" />}
-                          {selectedThemeId === themeOption.id && <Chip label="Selected" size="small" color="primary" />}
-                        </Box>
-                      )}
                       {themeOption.description && (
                         <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
                           {themeOption.description}

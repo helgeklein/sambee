@@ -132,9 +132,13 @@ describe("AppearanceSettings", () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);
 
+    expect(screen.getByText("Default", { exact: true })).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Site default" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Selected")).not.toBeInTheDocument();
     await user.click(screen.getByRole("radio", { name: "Sambee dark" }));
 
     await waitFor(() => expect(themeCommitMock).toHaveBeenCalledWith("sambee-dark"));
+    expect(screen.getByText("Default", { exact: true })).toBeInTheDocument();
   });
 
   it("lets users explicitly select the currently inherited theme", async () => {
