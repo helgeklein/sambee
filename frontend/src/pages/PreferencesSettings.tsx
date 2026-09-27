@@ -301,17 +301,22 @@ export function AppearanceSettings() {
               </Box>
             );
           })}
-          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mt: 2 }}>
-            <Button onClick={copyTheme} disabled={!selectedTile || themeActionPending}>
+          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+            <Button variant="outlined" onClick={copyTheme} disabled={!selectedTile || themeActionPending}>
               Copy
             </Button>
-            <Button onClick={() => selectedTile && setEditing(selectedTile)} disabled={!selectedTile || themeActionPending}>
+            <Button
+              variant="outlined"
+              onClick={() => selectedTile && setEditing(selectedTile)}
+              disabled={!selectedTile || themeActionPending}
+            >
               Edit
             </Button>
-            <Button onClick={() => setConfirmDelete(true)} disabled={!selectedWritable || themeActionPending}>
+            <Button variant="outlined" onClick={() => setConfirmDelete(true)} disabled={!selectedWritable || themeActionPending}>
               Delete
             </Button>
             <Button
+              variant="outlined"
               onClick={() =>
                 selectedTile &&
                 void runThemeAction(async () => {
