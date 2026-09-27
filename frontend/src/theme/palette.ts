@@ -10,6 +10,8 @@ const DARK_SURFACE_LIGHTEN_AMOUNT = 0.08;
 const DARK_CHROME_SURFACE = "#382c0a";
 const DARK_DIALOG_BACKDROP_OPACITY = 0.92;
 const DARK_DIALOG_FORM_SURFACE_BLACK_MIX_PERCENT = 12;
+const LIGHT_FOCUS_OPACITY = 0.57;
+const DARK_FOCUS_OPACITY = 0.94;
 
 export const VIEWER_FALLBACKS = {
   TOOLBAR_BG: "rgba(0,0,0,0.8)",
@@ -101,8 +103,7 @@ export function resolveThemePalette(theme: ThemeConfig): ResolvedThemePalette {
   const textPrimary = theme.text?.primary ?? defaultText;
   const textSecondary = theme.text?.secondary ?? alpha(textPrimary, 0.7);
   const selected = theme.action?.selected ?? alpha(theme.primary.main, isDark ? 0.22 : 0.16);
-  const controlAccent = getControlAccentColor(theme);
-  const focus = theme.action?.focus ?? controlAccent;
+  const focus = alpha(textPrimary, isDark ? DARK_FOCUS_OPACITY : LIGHT_FOCUS_OPACITY);
   const appBarBackground = isDark ? getDarkChromeSurfaceColor(theme) : theme.primary.main;
   const appBarText = isDark ? textPrimary : (theme.primary.contrastText ?? textPrimary);
   const linkMain = theme.components?.link?.main ?? theme.primary.main;

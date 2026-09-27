@@ -31,7 +31,6 @@ export const builtInThemes: ThemeConfig[] = [
     },
     action: {
       selected: "#F4C43029", // 16% opacity
-      focus: "#1F262B91", // High-contrast focus ring on golden controls
     },
     components: {
       link: {
@@ -122,7 +121,6 @@ export const builtInThemes: ThemeConfig[] = [
     },
     action: {
       selected: "#D4A02038", // 22% opacity
-      focus: "#F6F1E8F0", // High-contrast focus ring on golden controls
     },
     components: {
       link: {

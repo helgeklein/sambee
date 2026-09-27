@@ -42,7 +42,7 @@ export interface ThemeConfig {
     selected?: string;
     /** Darker selected state for controls that need stronger contrast than the default selection fill. */
     selectedDarker?: string;
-    /** Legacy custom-theme focus override. New themes derive focus from the primary palette. */
+    /** Legacy stored value, ignored: focus is derived from text.primary. */
     focus?: string;
   };
   /** Component-specific semantic colors */

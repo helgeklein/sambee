@@ -394,12 +394,12 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
             disableFocusRipple: true,
           },
           styleOverrides: {
-            root: ({ theme }) => ({
+            root: {
               "&.Mui-focusVisible": {
-                outline: `${FOCUS_OUTLINE_WIDTH_PX}px solid ${theme.palette.primary.main}`,
+                outline: `${FOCUS_OUTLINE_WIDTH_PX}px solid ${focusColor}`,
                 outlineOffset: `${FOCUS_OUTLINE_OFFSET_PX}px`,
               },
-            }),
+            },
           },
         },
         // Keep form labels readable when focused (don't use primary yellow color)

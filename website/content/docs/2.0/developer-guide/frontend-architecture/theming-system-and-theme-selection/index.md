@@ -20,7 +20,7 @@ Sambee has two built-in themes (`sambee-light` and `sambee-dark`), user-owned th
 
 Each editable theme has its own server row with a globally unique ID, scope, owner (for user themes), and version. Built-in definitions remain in frontend code. A new theme ID is assigned by the server; an ID in an imported file does not claim or replace a stored theme.
 
-New and imported themes must define every editable color role. Colors use `#RRGGBB` or `#RRGGBBAA`; the server normalizes valid hex to uppercase. The role catalog includes primary, backgrounds, text, selection, links, viewer surfaces, Markdown document surfaces, search highlights, and alerts. File-type icons and document syntax colors aren't theme roles. Derived colors such as scrollbar shades, focus rings, and `background.paper` compatibility aren't editor fields.
+New and imported themes must define every editable color role. Colors use `#RRGGBB` or `#RRGGBBAA`; the server normalizes valid hex to uppercase. The role catalog includes primary, backgrounds, text, selection, links, viewer surfaces, Markdown document surfaces, search highlights, and alerts. File-type icons and document syntax colors aren't theme roles. Derived colors such as scrollbar shades, focus rings, and `background.paper` compatibility aren't editor fields. Keyboard focus rings follow the theme's primary text color: 57% opacity in light mode and 94% in dark mode. Changing that text color changes the focus color too, including in copied themes; legacy saved focus colors are ignored. Choose primary text that remains readable against the theme's surfaces.
 
 ## Selection And Defaults
 

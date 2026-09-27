@@ -2,6 +2,12 @@
 title = "What's New"
 +++
 
+## Theme Editor
+
+UI themes are an integral part of an app's visual presentation. As so often, flexibility is key. Some like it dark, others colorful, some require high-contrast, others prefer muted colors.
+
+Sambee now has a visual theme editor.
+
 ## File List
 
 ### Other Changes
