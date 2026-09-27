@@ -221,7 +221,7 @@ export function ThemeEditorDialog({ theme, stored, storedThemes, isAdmin, onClos
             <Box sx={{ display: { xs: "none", md: "block" } }}>
               <FormFieldLabel
                 label="Name"
-                description="Name shown in the theme grid"
+                description="Name shown in the theme picker"
                 descriptionId="theme-name-help"
                 htmlFor="theme-name"
               />
@@ -240,7 +240,7 @@ export function ThemeEditorDialog({ theme, stored, storedThemes, isAdmin, onClos
             <Box sx={{ display: { xs: "none", md: "block" } }}>
               <FormFieldLabel
                 label="Description"
-                description="Optional detail for this theme"
+                description="Optional text below the theme name"
                 descriptionId="theme-description-help"
                 htmlFor="theme-description"
               />
@@ -259,7 +259,7 @@ export function ThemeEditorDialog({ theme, stored, storedThemes, isAdmin, onClos
             <Box sx={{ display: { xs: "none", md: "block" } }}>
               <FormFieldLabel
                 label="Mode"
-                description="Light or dark application surfaces"
+                description="Is this a light or dark theme?"
                 descriptionId="theme-mode-help"
                 htmlFor="theme-mode"
               />

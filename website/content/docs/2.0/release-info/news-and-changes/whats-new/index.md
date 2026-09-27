@@ -6,7 +6,9 @@ title = "What's New"
 
 UI themes are an integral part of an app's visual presentation. As so often, flexibility is key. Some like it dark, others colorful, some require high-contrast, others prefer muted colors.
 
-Sambee now has a visual theme editor.
+Sambee now has a multi-layer theme system. It differentiates between built-in themes, site-wide themes which only admins can manage, and users personal themes. Admins can designate a default theme for new users.
+
+Sambee's new theme editor
 
 ## File List
 

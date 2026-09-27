@@ -190,38 +190,38 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
   },
   mode: {
     label: "Theme Mode",
-    description: "Controls whether the theme uses light backgrounds with dark text or vice versa",
+    description: "Use light or dark backgrounds and text",
     type: "select",
     required: true,
     options: ["light", "dark"] as const,
   },
   primary: {
     label: "Primary Color",
-    description: "Defines default, high-emphasis, and pressed interactive color roles",
+    description: "Colors for buttons and selected items",
     type: "color",
     required: true,
     fields: {
       main: {
         label: "Main",
-        description: "Default color for primary controls and selected navigation",
+        description: "Main color for buttons and selected navigation",
         type: "color",
         required: true,
       },
       light: {
         label: "Light Variant",
-        description: "High-emphasis color for dark-mode hover and emphasis states",
+        description: "Lighter shade used for emphasis in dark mode",
         type: "color",
         required: false,
       },
       dark: {
         label: "Dark Variant",
-        description: "Pressed and contrast-sensitive color for light-mode controls",
+        description: "Darker shade used for pressed buttons in light mode",
         type: "color",
         required: false,
       },
       contrastText: {
         label: "Contrast Text",
-        description: "Text color on primary backgrounds - ensures readability on primary colored elements",
+        description: "Text on buttons with the main color",
         type: "color",
         required: false,
       },
@@ -229,7 +229,7 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
   },
   background: {
     label: "Background Colors",
-    description: "Controls the standard application surface and MUI compatibility values",
+    description: "Colors behind pages and app bars",
     type: "color",
     required: false,
     fields: {
@@ -241,7 +241,7 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
       },
       paper: {
         label: "Paper Background",
-        description: "Compatibility value for Material UI; standard app surfaces use Default Background",
+        description: "Background for Material UI components",
         type: "color",
         required: false,
       },
@@ -250,19 +250,19 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
   },
   text: {
     label: "Text Colors",
-    description: "Controls the color of text throughout the application",
+    description: "Colors for main and secondary text",
     type: "color",
     required: false,
     fields: {
       primary: {
         label: "Primary Text",
-        description: "Main body text color for maximum readability",
+        description: "Headings and important text",
         type: "color",
         required: false,
       },
       secondary: {
         label: "Secondary Text",
-        description: "Muted text for less important information and labels",
+        description: "Descriptions, captions, and less important text",
         type: "color",
         required: false,
       },
@@ -270,7 +270,7 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
   },
   action: {
     label: "Action Colors",
-    description: "Controls the colors for interactive states like hover and selection",
+    description: "Colors for selected items",
     type: "color",
     required: false,
     fields: {
@@ -282,7 +282,7 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
       },
       selectedDarker: {
         label: "Selected State Darker",
-        description: "Stronger selected background for controls that need extra contrast, such as secondary editor toolbars",
+        description: "Darker selection color for editor toolbars",
         type: "color",
         required: false,
       },
@@ -290,7 +290,7 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
   },
   components: {
     label: "Component Colors",
-    description: "Semantic colors for specific UI components that adapt to theme mode",
+    description: "Colors for viewers, links, search, and alerts",
     type: "color",
     required: false,
     fields: {
@@ -306,19 +306,19 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
       },
       search: {
         label: "Search Highlights",
-        description: "Colors for current and non-current search matches across viewers and editors",
+        description: "Colors for search matches",
         type: "color",
         required: false,
         fields: {
           otherMatch: {
             label: "Other Matches",
-            description: "Background color for search matches that are not currently selected",
+            description: "Matches other than the selected one",
             type: "color",
             required: false,
           },
           currentMatch: {
             label: "Current Match",
-            description: "Background color for the currently selected search match",
+            description: "The selected search match",
             type: "color",
             required: false,
           },
@@ -408,7 +408,7 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
           },
           secondaryToolbarSelected: {
             label: "Secondary Toolbar Selected",
-            description: "Selected background color for buttons in the secondary markdown editor toolbar",
+            description: "Selected buttons in the markdown editor toolbar",
             type: "color",
             required: false,
           },
