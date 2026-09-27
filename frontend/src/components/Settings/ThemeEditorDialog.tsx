@@ -19,6 +19,7 @@ import {
   COLOR_ROLES,
   colorAt,
   editableDefinition,
+  getThemeCopyName,
   HEX_COLOR_PATTERN,
   normalizeHexColor,
   parseThemeImport,
@@ -44,19 +45,6 @@ interface ThemeEditorDialogProps {
 }
 
 const GROUPS = ["Core", "Viewers", "Markdown", "Search", "Alerts"] as const;
-const COPY_SUFFIX = " (copy)";
-
-function getCopyName(name: string, scope: StoredTheme["scope"], storedThemes: StoredTheme[]): string {
-  const existingNames = new Set(
-    storedThemes.filter((candidate) => candidate.scope === scope).map((candidate) => candidate.definition.name.trim().toLocaleLowerCase())
-  );
-  if (!existingNames.has(name.toLocaleLowerCase())) return name;
-  let copyName = `${name}${COPY_SUFFIX}`;
-  for (let number = 2; existingNames.has(copyName.toLocaleLowerCase()); number++) {
-    copyName = `${name} (copy ${number})`;
-  }
-  return copyName;
-}
 
 export function ThemeEditorDialog({
   theme,
@@ -112,7 +100,12 @@ export function ThemeEditorDialog({
       return;
     }
     if (!copyScope && !writable) return;
-    const name = copyScope ? getCopyName(draft.name.trim(), copyScope, storedThemes) : draft.name.trim();
+    const name = copyScope
+      ? getThemeCopyName(
+          draft.name.trim(),
+          storedThemes.filter((candidate) => candidate.scope === copyScope).map((candidate) => candidate.definition.name)
+        )
+      : draft.name.trim();
     if (name !== draft.name.trim()) setDraft((previous) => ({ ...previous, name }));
     setPending(true);
     setError(null);
@@ -362,6 +355,7 @@ export function ThemeEditorDialog({
                             border: "1px solid",
                             borderColor: "divider",
                             cursor: "pointer",
+                            "&:focus-visible": { outline: "2px solid", outlineColor: "primary.main", outlineOffset: 0 },
                             backgroundImage:
                               "linear-gradient(45deg, #8884 25%, transparent 25%, transparent 75%, #8884 75%), linear-gradient(45deg, #8884 25%, transparent 25%, transparent 75%, #8884 75%)",
                             backgroundSize: "12px 12px",

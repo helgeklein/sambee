@@ -153,6 +153,41 @@ describe("AppearanceSettings", () => {
     expect(screen.getByRole("radio", { name: "Sambee light" })).toBeChecked();
   });
 
+  it("numbers a built-in copy when its personal copy names already exist", async () => {
+    const user = userEvent.setup();
+    themeContextState.storedThemes = [
+      { id: "copy-1", scope: "user", version: 1, definition: { ...builtInThemes[0]!, name: "Sambee light (copy)" } },
+      { id: "copy-2", scope: "user", version: 1, definition: { ...builtInThemes[0]!, name: "Sambee light (copy 2)" } },
+    ];
+    const create = vi
+      .spyOn(api, "createTheme")
+      .mockResolvedValue({ id: "copy-3", scope: "user", version: 1, definition: builtInThemes[0]! });
+    render(<AppearanceSettings />);
+
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+
+    await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Sambee light (copy 3)" }), "user"));
+  });
+
+  it("numbers a site copy only against names in Site themes", async () => {
+    const user = userEvent.setup();
+    themeContextState.isAdmin = true;
+    themeContextState.currentThemeId = "site-original";
+    themeContextState.storedThemes = [
+      { id: "site-original", scope: "site", version: 1, definition: { ...builtInThemes[0]!, name: "Shared" } },
+      { id: "site-copy", scope: "site", version: 1, definition: { ...builtInThemes[0]!, name: "Shared (copy)" } },
+      { id: "user-copy", scope: "user", version: 1, definition: { ...builtInThemes[0]!, name: "Shared (copy 2)" } },
+    ];
+    const create = vi
+      .spyOn(api, "createTheme")
+      .mockResolvedValue({ id: "site-copy-2", scope: "site", version: 1, definition: builtInThemes[0]! });
+    render(<AppearanceSettings />);
+
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+
+    await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Shared (copy 2)" }), "site"));
+  });
+
   it("does not apply a copy saved from the theme editor", async () => {
     const user = userEvent.setup();
     const create = vi

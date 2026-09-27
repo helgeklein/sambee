@@ -2,6 +2,17 @@ import { THEME_SCHEMA, type ThemeConfig, type ThemeFieldSchema } from "./types";
 
 export const THEME_DEFINITION_VERSION = 1;
 export const HEX_COLOR_PATTERN = /^#[\da-fA-F]{6}(?:[\da-fA-F]{2})?$/;
+const COPY_SUFFIX = " (copy)";
+
+export function getThemeCopyName(name: string, existingNames: Iterable<string>, alwaysCopy = false): string {
+  const names = new Set(Array.from(existingNames, (existing) => existing.trim().toLocaleLowerCase()));
+  if (!alwaysCopy && !names.has(name.toLocaleLowerCase())) return name;
+  let copyName = `${name}${COPY_SUFFIX}`;
+  for (let number = 2; names.has(copyName.toLocaleLowerCase()); number++) {
+    copyName = `${name} (copy ${number})`;
+  }
+  return copyName;
+}
 
 export interface ColorRole {
   path: string;

@@ -20,7 +20,7 @@ import api, { getThemeRequestError } from "../services/api";
 import { useCurrentUserSetting } from "../services/userSettingsStore";
 import { useSambeeTheme } from "../theme";
 import { resolveThemePalette } from "../theme/palette";
-import { editableDefinition } from "../theme/themeDefinition";
+import { editableDefinition, getThemeCopyName } from "../theme/themeDefinition";
 import type { ThemeConfig } from "../theme/types";
 import type { LanguagePreference } from "../types";
 import { formatLocalizedDateTime, formatLocalizedNumber } from "../utils/localeFormatting";
@@ -180,7 +180,12 @@ export function AppearanceSettings() {
     if (!selectedTile) return;
     const scope = selectedWritable && selectedStored ? selectedStored.scope : "user";
     void runThemeAction(async () => {
-      await api.createTheme({ ...editableDefinition(selectedTile), name: `${selectedTile.name} (copy)` }, scope);
+      const name = getThemeCopyName(
+        selectedTile.name,
+        storedThemes.filter((candidate) => candidate.scope === scope).map((candidate) => candidate.definition.name),
+        true
+      );
+      await api.createTheme({ ...editableDefinition(selectedTile), name }, scope);
     });
   };
 
