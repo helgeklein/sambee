@@ -234,6 +234,37 @@ describe("ThemeEditorDialog", () => {
     expect(screen.getByDisplayValue("Imported light")).toBeInTheDocument();
   });
 
+  it("shows the invalid JSON color path and value beside Import without replacing the draft", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    const invalidFile = new File([], "broken.json", { type: "application/json" });
+    invalidFile.text = async () =>
+      JSON.stringify({
+        version: 1,
+        definition: {
+          ...editableDefinition(theme),
+          primary: { ...theme.primary, main: "yellow" },
+        },
+      });
+
+    await user.upload(document.querySelector<HTMLInputElement>('input[type="file"]')!, invalidFile);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent('broken.json: primary.main (Main): "yellow" is not a valid color. Use #RRGGBB or #RRGGBBAA.');
+    expect(alert.closest('[data-testid="responsive-form-dialog-desktop-actions"]')).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Main" })).toHaveValue(theme.primary.main);
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    await user.upload(document.querySelector<HTMLInputElement>('input[type="file"]')!, invalidFile);
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    const validFile = new File([], "fixed.json", { type: "application/json" });
+    validFile.text = async () => JSON.stringify({ version: 1, definition: { ...editableDefinition(theme), name: "Fixed theme" } });
+    await user.upload(document.querySelector<HTMLInputElement>('input[type="file"]')!, validFile);
+    expect(await screen.findByDisplayValue("Fixed theme")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("saves a personal copy under a distinct name without updating the original", async () => {
     const user = userEvent.setup();
     const personalTheme = { ...theme, id: "personal-id", name: "Personal" };

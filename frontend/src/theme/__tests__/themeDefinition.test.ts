@@ -46,4 +46,16 @@ describe("theme definitions", () => {
     invalid.primary.main = "invalid";
     expect(validateThemeDefinition(invalid)).toMatch(/Main/);
   });
+
+  it("identifies invalid imported colors by JSON path and value", () => {
+    const definition = editableDefinition(builtInThemes[0]!);
+    definition.primary.main = "yellow";
+    expect(() => parseThemeImport(JSON.stringify({ version: 1, definition }))).toThrow(
+      'primary.main (Main): "yellow" is not a valid color. Use #RRGGBB or #RRGGBBAA.'
+    );
+    delete (definition.primary as Partial<typeof definition.primary>).main;
+    expect(() => parseThemeImport(JSON.stringify({ version: 1, definition }))).toThrow(
+      "primary.main (Main): missing or not text is not a valid color."
+    );
+  });
 });

@@ -120,6 +120,14 @@ export function parseThemeImport(source: string): ThemeConfig {
   };
   checkPaths(definition);
   const theme = { ...(exportFile.definition as ThemeConfig), id: "draft" };
+  for (const role of COLOR_ROLES) {
+    const value = colorAt(theme, role.path);
+    if (!HEX_COLOR_PATTERN.test(value ?? "")) {
+      throw new Error(
+        `${role.path} (${role.label}): ${value === undefined ? "missing or not text" : JSON.stringify(value.slice(0, 40))} is not a valid color. Use #RRGGBB or #RRGGBBAA.`
+      );
+    }
+  }
   const error = validateThemeDefinition(theme);
   if (error) throw new Error(error);
   return theme;

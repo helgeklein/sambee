@@ -56,6 +56,7 @@ export function ThemeEditorDialog({ theme, stored, storedThemes, isAdmin, onClos
   const [activeColor, setActiveColor] = useState<string | null>(null);
   const [copyMenuAnchor, setCopyMenuAnchor] = useState<HTMLElement | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const writable = Boolean(stored && (stored.scope === "user" || isAdmin));
@@ -117,8 +118,9 @@ export function ThemeEditorDialog({ theme, stored, storedThemes, isAdmin, onClos
       setDraft({ ...imported, id: theme.id });
       setInputColors({});
       setError(null);
+      setImportError(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not read the theme file.");
+      setImportError(`${file.name}: ${cause instanceof Error ? cause.message : "Could not read the theme file."}`);
     }
   };
 
@@ -143,70 +145,77 @@ export function ThemeEditorDialog({ theme, stored, storedThemes, isAdmin, onClos
       maxWidth="md"
       actionNotice={error ? <Alert severity="error">{error}</Alert> : null}
       actions={
-        <Box sx={adminDialogSplitActionRowSx}>
-          <Box sx={{ display: "flex", gap: 1, width: { xs: "100%", sm: "auto" }, flexWrap: "wrap" }}>
-            <Button
-              variant="outlined"
-              onClick={() => fileInput.current?.click()}
-              disabled={pending}
-              sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
-            >
-              Import
-            </Button>
-            <Button variant="outlined" onClick={exportDraft} disabled={pending} sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}>
-              Export
-            </Button>
-          </Box>
-          <Box sx={adminDialogActionGroupSx}>
-            <Button variant="outlined" onClick={close} disabled={pending} sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}>
-              Cancel
-            </Button>
-            <Button
-              variant="outlined"
-              onClick={(event) => setCopyMenuAnchor(event.currentTarget)}
-              disabled={pending}
-              aria-haspopup="menu"
-              aria-controls={copyMenuAnchor ? "theme-save-copy-menu" : undefined}
-              aria-expanded={Boolean(copyMenuAnchor)}
-              sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
-            >
-              Save copy
-            </Button>
-            <Button
-              variant="contained"
-              onClick={() => void save()}
-              disabled={!writable || pending}
-              sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
-            >
-              Save
-            </Button>
-            <Menu
-              id="theme-save-copy-menu"
-              anchorEl={copyMenuAnchor}
-              open={Boolean(copyMenuAnchor)}
-              onClose={() => setCopyMenuAnchor(null)}
-              autoFocus
-              sx={{ zIndex: (currentTheme) => currentTheme.zIndex.modal + 2 }}
-            >
-              <MenuItem
-                onClick={() => {
-                  setCopyMenuAnchor(null);
-                  void save("user");
-                }}
+        <Box sx={{ width: "100%" }}>
+          {importError && (
+            <Alert severity="error" onClose={() => setImportError(null)} sx={{ mb: 1, overflowWrap: "anywhere" }}>
+              {importError}
+            </Alert>
+          )}
+          <Box sx={adminDialogSplitActionRowSx}>
+            <Box sx={{ display: "flex", gap: 1, width: { xs: "100%", sm: "auto" }, flexWrap: "wrap" }}>
+              <Button
+                variant="outlined"
+                onClick={() => fileInput.current?.click()}
+                disabled={pending}
+                sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
               >
-                Your themes
-              </MenuItem>
-              {isAdmin && (
+                Import
+              </Button>
+              <Button variant="outlined" onClick={exportDraft} disabled={pending} sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}>
+                Export
+              </Button>
+            </Box>
+            <Box sx={adminDialogActionGroupSx}>
+              <Button variant="outlined" onClick={close} disabled={pending} sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}>
+                Cancel
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={(event) => setCopyMenuAnchor(event.currentTarget)}
+                disabled={pending}
+                aria-haspopup="menu"
+                aria-controls={copyMenuAnchor ? "theme-save-copy-menu" : undefined}
+                aria-expanded={Boolean(copyMenuAnchor)}
+                sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
+              >
+                Save copy
+              </Button>
+              <Button
+                variant="contained"
+                onClick={() => void save()}
+                disabled={!writable || pending}
+                sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+              >
+                Save
+              </Button>
+              <Menu
+                id="theme-save-copy-menu"
+                anchorEl={copyMenuAnchor}
+                open={Boolean(copyMenuAnchor)}
+                onClose={() => setCopyMenuAnchor(null)}
+                autoFocus
+                sx={{ zIndex: (currentTheme) => currentTheme.zIndex.modal + 2 }}
+              >
                 <MenuItem
                   onClick={() => {
                     setCopyMenuAnchor(null);
-                    void save("site");
+                    void save("user");
                   }}
                 >
-                  Site themes
+                  Your themes
                 </MenuItem>
-              )}
-            </Menu>
+                {isAdmin && (
+                  <MenuItem
+                    onClick={() => {
+                      setCopyMenuAnchor(null);
+                      void save("site");
+                    }}
+                  >
+                    Site themes
+                  </MenuItem>
+                )}
+              </Menu>
+            </Box>
           </Box>
         </Box>
       }
