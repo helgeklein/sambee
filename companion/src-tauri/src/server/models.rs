@@ -507,6 +507,7 @@ pub enum DriveType {
 pub struct HealthResponse {
     pub status: String,
     pub paired: bool,
+    pub auth_protocol_version: u32,
 }
 
 /// Public pairing state for the current browser origin.

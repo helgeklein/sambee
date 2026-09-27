@@ -34,6 +34,11 @@ const TIMESTAMP_HEADER: &str = "x-companion-timestamp";
 /// Maximum clock skew allowed (seconds).
 const MAX_TIMESTAMP_SKEW: u64 = 30;
 
+pub(super) const AUTH_PROTOCOL_VERSION: u32 = 2;
+pub(super) const AUTH_SIGNATURE_MISMATCH_CODE: &str = "companion_auth_signature_mismatch";
+pub(super) const BROWSER_UPDATE_REQUIRED_CODE: &str = "companion_browser_update_required";
+pub(super) const PAIRING_NOT_FOUND_CODE: &str = "companion_pairing_not_found";
+
 /// Request context included in authentication warning logs.
 pub(super) struct AuthLogContext<'a> {
     pub(super) auth_transport: &'a str,
@@ -121,6 +126,17 @@ fn signature_payload(origin: &str, timestamp: &str, method: &str, uri: &Uri) -> 
         format!("{}?{query}", uri.path())
     };
     format!("{origin}\n{timestamp}\n{method}\n{target}")
+}
+
+fn is_legacy_browser_signature(secret: &str, timestamp: &str, signature: &str) -> bool {
+    let Ok(signature_bytes) = hex::decode(signature) else {
+        return false;
+    };
+    let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(secret.as_bytes()) else {
+        return false;
+    };
+    mac.update(timestamp.as_bytes());
+    mac.verify_slice(&signature_bytes).is_ok()
 }
 
 /// Axum middleware that validates HMAC-authenticated requests.
@@ -251,7 +267,7 @@ fn validate_hmac(
             "Auth rejected: no pairing found for origin {origin}; transport={}; method={}; path={}",
             log_context.auth_transport, log_context.method, log_context.path,
         );
-        ApiError::Forbidden("Not paired with this origin".to_string())
+        ApiError::forbidden_code("Not paired with this origin", PAIRING_NOT_FOUND_CODE)
     })?;
 
     // Validate timestamp (within ±MAX_TIMESTAMP_SKEW seconds)
@@ -284,11 +300,21 @@ fn validate_hmac(
     let expected = hex::encode(mac.finalize().into_bytes());
 
     if expected != hmac_value {
+        if is_legacy_browser_signature(&secret, timestamp_str, hmac_value) {
+            warn!(
+                "Auth rejected: outdated browser signature for origin {origin}; transport={}; method={}; path={}",
+                log_context.auth_transport, log_context.method, log_context.path,
+            );
+            return Err(ApiError::forbidden_code(
+                "Sambee browser is out of date. Reload the page.",
+                BROWSER_UPDATE_REQUIRED_CODE,
+            ));
+        }
         warn!(
             "Auth rejected: HMAC mismatch for origin {origin}; transport={}; method={}; path={}; server_ts={now}; request_ts={timestamp}",
             log_context.auth_transport, log_context.method, log_context.path,
         );
-        return Err(ApiError::Forbidden("Invalid authentication".to_string()));
+        return Err(ApiError::forbidden_code("Invalid authentication", AUTH_SIGNATURE_MISMATCH_CODE));
     }
 
     if !state.pairing.is_origin_paired(&origin) {
@@ -303,7 +329,10 @@ fn validate_hmac(
 
 #[cfg(test)]
 mod tests {
-    use super::{is_allowed_browser_origin_for_cors, is_loopback_dev_origin, normalize_browser_origin, signature_payload};
+    use super::{
+        is_allowed_browser_origin_for_cors, is_legacy_browser_signature, is_loopback_dev_origin, normalize_browser_origin,
+        signature_payload,
+    };
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
 
@@ -331,6 +360,18 @@ mod tests {
             hex::encode(mac.finalize().into_bytes()),
             "2213e964861fc8d4db9ae41c96188ce038ed113c0d064d8d6c96c5314c033d33"
         );
+    }
+
+    #[test]
+    fn identifies_legacy_browser_signature_without_accepting_it_as_current() {
+        let mut mac = Hmac::<Sha256>::new_from_slice(b"shared-secret").unwrap();
+        mac.update(b"1700000000");
+        let legacy_signature = hex::encode(mac.finalize().into_bytes());
+
+        assert!(is_legacy_browser_signature("shared-secret", "1700000000", &legacy_signature));
+        assert!(!is_legacy_browser_signature("other-secret", "1700000000", &legacy_signature));
+        assert!(!is_legacy_browser_signature("shared-secret", "1700000001", &legacy_signature));
+        assert!(!is_legacy_browser_signature("shared-secret", "1700000000", "invalid"));
     }
 
     #[test]

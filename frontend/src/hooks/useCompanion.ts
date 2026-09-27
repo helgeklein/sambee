@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import companionService, { type DriveInfo, hasStoredSecret } from "../services/companion";
+import companionService, { type DriveInfo, getCompanionAuthProtocolStatus, hasStoredSecret } from "../services/companion";
 import { syncCurrentLocalizationToCompanion } from "../services/companionLocalizationSync";
 import { companionSession } from "../services/companionSession";
 import { logger } from "../services/logger";
@@ -27,6 +27,8 @@ export type CompanionStatus =
   | "pending_local_approval"
   /** The companion still recognizes this origin, but the browser secret is missing or invalid. */
   | "needs_repair"
+  /** Companion uses an incompatible authentication protocol. */
+  | "update_required"
   /** Paired and ready for authenticated requests. */
   | "paired"
   /** Currently performing initial detection. */
@@ -84,6 +86,12 @@ export function useCompanion(): UseCompanionResult {
 
       if (!health) {
         setStatus("unavailable");
+        setDrivesIfChanged([]);
+        return;
+      }
+
+      if (getCompanionAuthProtocolStatus(health) !== "compatible") {
+        setStatus("update_required");
         setDrivesIfChanged([]);
         return;
       }

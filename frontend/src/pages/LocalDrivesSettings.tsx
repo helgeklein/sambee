@@ -27,7 +27,7 @@ import {
 } from "../components/Settings/settingsDataSources";
 import { getSettingsPageSurfaceColor } from "../components/Settings/settingsSurface";
 import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
-import companionService, { clearStoredSecret, hasStoredSecret } from "../services/companion";
+import companionService, { clearStoredSecret, hasStoredSecret, isCompanionAuthSignatureMismatch } from "../services/companion";
 import { logger } from "../services/logger";
 import type { CompanionDownloadPlatform } from "../types";
 
@@ -48,7 +48,7 @@ const ANDROID_USER_AGENT_TOKEN = "android";
 
 function getLocalDrivesStatusPollInterval(
   companionAvailable: boolean,
-  pairStatus: LocalDrivesSettingsData["currentPairStatus"]["status"] | null
+  pairStatus: NonNullable<LocalDrivesSettingsData["currentPairStatus"]>["status"] | null
 ): number {
   if (pairStatus === "pending_local_approval") {
     return LOCAL_DRIVES_PENDING_STATUS_POLL_INTERVAL_MS;
@@ -93,15 +93,26 @@ interface LocalDrivesSettingsProps {
   sectionDescription?: ReactNode;
 }
 
-type LocalDrivesViewState = "unavailable" | "unpaired" | "pending_local_approval" | "needs_repair" | "paired";
+type LocalDrivesViewState =
+  | "unavailable"
+  | "unpaired"
+  | "pending_local_approval"
+  | "needs_repair"
+  | "verification_unavailable"
+  | "update_required"
+  | "browser_update_required"
+  | "paired";
 type PairingTestResult = {
   severity: "success" | "error";
   message: string;
+  authMismatch?: boolean;
 };
 
 const EMPTY_LOCAL_DRIVES_STATE: LocalDrivesSettingsData = {
   companionAvailable: false,
   currentPairStatus: null,
+  authProtocolStatus: null,
+  pairingVerified: null,
   downloadMetadata: null,
   downloadError: null,
 };
@@ -195,6 +206,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
   const handleConfirmPairing = useCallback(
     async (pairingId: string) => {
       await companionService.confirmPairing(pairingId);
+      setPairingTestResult(null);
       await refresh();
       onConnectionsChanged?.();
       showNotification(LOCAL_DRIVES_PAGE_COPY.pairingCreated, "success");
@@ -223,7 +235,12 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
       setPairingTestResult({ severity: "success", message: LOCAL_DRIVES_PAGE_COPY.pairingTestSucceeded });
     } catch (error) {
       logger.error("Companion pairing test failed", { error }, "companion");
-      setPairingTestResult({ severity: "error", message: LOCAL_DRIVES_PAGE_COPY.pairingTestFailed });
+      const authMismatch = isCompanionAuthSignatureMismatch(error);
+      setPairingTestResult({
+        severity: "error",
+        message: authMismatch ? LOCAL_DRIVES_PAGE_COPY.pairingTestFailed : LOCAL_DRIVES_PAGE_COPY.pairingTestUnavailable,
+        authMismatch,
+      });
     } finally {
       setTesting(false);
     }
@@ -251,16 +268,37 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
       return "unavailable";
     }
 
+    if (state.authProtocolStatus === "companion_update_required") {
+      return "update_required";
+    }
+
+    if (state.authProtocolStatus === "browser_update_required") {
+      return "browser_update_required";
+    }
+
+    if (state.currentPairStatus === null) {
+      return "verification_unavailable";
+    }
+
     if (state.currentPairStatus?.status === "pending_local_approval") {
       return "pending_local_approval";
     }
 
     if (state.currentPairStatus?.status === "paired") {
-      return browserHasStoredSecret ? "paired" : "needs_repair";
+      if (!browserHasStoredSecret || state.pairingVerified === false || pairingTestResult?.authMismatch) return "needs_repair";
+      if (state.pairingVerified !== true || pairingTestResult?.severity === "error") return "verification_unavailable";
+      return "paired";
     }
 
     return "unpaired";
-  }, [browserHasStoredSecret, state.companionAvailable, state.currentPairStatus?.status]);
+  }, [
+    browserHasStoredSecret,
+    pairingTestResult,
+    state.authProtocolStatus,
+    state.companionAvailable,
+    state.currentPairStatus,
+    state.pairingVerified,
+  ]);
   const downloadEntries = useMemo(
     () =>
       COMPANION_PLATFORM_ORDER.flatMap((platformKey) => {
@@ -339,6 +377,27 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
           title: LOCAL_DRIVES_PAGE_COPY.summaryRepairTitle,
           message: LOCAL_DRIVES_PAGE_COPY.statusRecoverable,
         };
+      case "verification_unavailable":
+        return {
+          badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelActionRequired,
+          badgeVariant: "themed" as const,
+          title: LOCAL_DRIVES_PAGE_COPY.summaryVerificationUnavailableTitle,
+          message: LOCAL_DRIVES_PAGE_COPY.statusVerificationUnavailable,
+        };
+      case "update_required":
+        return {
+          badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelActionRequired,
+          badgeVariant: "themed" as const,
+          title: LOCAL_DRIVES_PAGE_COPY.summaryUpdateRequiredTitle,
+          message: LOCAL_DRIVES_PAGE_COPY.statusUpdateRequired,
+        };
+      case "browser_update_required":
+        return {
+          badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelActionRequired,
+          badgeVariant: "themed" as const,
+          title: LOCAL_DRIVES_PAGE_COPY.summaryBrowserUpdateRequiredTitle,
+          message: LOCAL_DRIVES_PAGE_COPY.statusBrowserUpdateRequired,
+        };
       case "unpaired":
         return {
           badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelActionRequired,
@@ -368,10 +427,11 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
               ? alpha(theme.palette.success.main, theme.palette.mode === "dark" ? 0.16 : 0.08)
               : alpha(theme.palette.warning.main, theme.palette.mode === "dark" ? 0.16 : 0.08),
         };
-  const shouldShowInstallSection = showStatusContent && !loading && viewState === "unavailable";
+  const shouldShowInstallSection = showStatusContent && !loading && ["unavailable", "update_required"].includes(viewState);
   const shouldShowPairingSection =
     showStatusContent && !loading && ["unpaired", "pending_local_approval", "needs_repair"].includes(viewState);
-  const shouldShowVerificationSection = showStatusContent && !loading && viewState === "paired";
+  const shouldShowVerificationSection =
+    showStatusContent && !loading && browserHasStoredSecret && ["paired", "needs_repair", "verification_unavailable"].includes(viewState);
 
   return (
     <SettingsPage
@@ -418,6 +478,16 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
                       </Stack>
                     ))}
                   </Stack>
+                  {viewState === "verification_unavailable" && !browserHasStoredSecret && (
+                    <Button variant="outlined" onClick={() => void refresh()} disabled={loading} sx={settingsUtilityButtonSx}>
+                      {LOCAL_DRIVES_PAGE_COPY.retryButton}
+                    </Button>
+                  )}
+                  {viewState === "browser_update_required" && (
+                    <Button variant="outlined" onClick={() => window.location.reload()} sx={settingsUtilityButtonSx}>
+                      {LOCAL_DRIVES_PAGE_COPY.reloadButton}
+                    </Button>
+                  )}
                 </Stack>
               ) : (
                 <SettingsLoadingState compact />
@@ -510,6 +580,11 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
                         : LOCAL_DRIVES_PAGE_COPY.pairingSectionRequired}
                   </Typography>
                   <Box sx={cardActionRowSx}>
+                    {viewState === "needs_repair" && browserHasStoredSecret && (
+                      <Button variant="outlined" onClick={() => window.location.reload()} sx={settingsUtilityButtonSx}>
+                        {LOCAL_DRIVES_PAGE_COPY.reloadButton}
+                      </Button>
+                    )}
                     <Button
                       variant="contained"
                       startIcon={<UsbIcon />}
@@ -550,13 +625,6 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
                       role={pairingTestResult.severity === "success" ? "status" : "alert"}
                       severity={pairingTestResult.severity}
                       sx={{ mb: 0 }}
-                      action={
-                        pairingTestResult.severity === "error" ? (
-                          <Button color="inherit" size="small" onClick={() => setPairingDialogOpen(true)}>
-                            {LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton}
-                          </Button>
-                        ) : undefined
-                      }
                     >
                       {pairingTestResult.message}
                     </SettingsInlineAlert>

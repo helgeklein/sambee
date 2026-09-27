@@ -50,6 +50,14 @@ vi.mock("../../services/companion", () => ({
   },
   clearStoredSecret: vi.fn(),
   hasStoredSecret: mockHasStoredSecret,
+  getCompanionAuthProtocolStatus: (health: { auth_protocol_version?: number }) =>
+    (health.auth_protocol_version ?? 0) < 2
+      ? "companion_update_required"
+      : health.auth_protocol_version === 2
+        ? "compatible"
+        : "browser_update_required",
+  isCompanionAuthSignatureMismatch: (error: { response?: { status?: number; data?: { detail?: string } } }) =>
+    error.response?.status === 403 && error.response.data?.detail === "Invalid authentication",
 }));
 
 function mockNavigatorDevice({
@@ -165,7 +173,7 @@ describe("LocalDrivesSettings", () => {
       status: "paired",
     });
     mockHasStoredSecret.mockReturnValue(true);
-    mockTestPairing.mockRejectedValue({
+    mockTestPairing.mockResolvedValueOnce({ status: "success" }).mockRejectedValue({
       response: { status: 403, data: { detail: "Invalid authentication" } },
     });
 
@@ -175,6 +183,72 @@ describe("LocalDrivesSettings", () => {
 
     const errorAlert = await screen.findByRole("alert");
     expect(errorAlert).toHaveTextContent(LOCAL_DRIVES_PAGE_COPY.pairingTestFailed);
+    expect(screen.getByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.reloadButton })).toBeInTheDocument();
+  });
+
+  it("does not claim readiness when the stored pairing fails verification on load", async () => {
+    mockGetPairStatus.mockResolvedValue({ current_origin: window.location.origin, current_origin_paired: true, status: "paired" });
+    mockHasStoredSecret.mockReturnValue(true);
+    mockTestPairing.mockRejectedValue({ response: { status: 403, data: { detail: "Invalid authentication" } } });
+
+    renderSettings();
+
+    expect(await screen.findByText(LOCAL_DRIVES_PAGE_COPY.statusRecoverable)).toBeInTheDocument();
+    expect(screen.queryByText(LOCAL_DRIVES_PAGE_COPY.statusPaired)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.reloadButton })).toBeInTheDocument();
+  });
+
+  it("recommends updating an older Companion instead of re-pairing", async () => {
+    mockCheckHealth.mockResolvedValue({ status: "ok", paired: true });
+    mockGetPairStatus.mockResolvedValue({ current_origin: window.location.origin, current_origin_paired: true, status: "paired" });
+    mockHasStoredSecret.mockReturnValue(true);
+
+    renderSettings();
+
+    expect(await screen.findByText(LOCAL_DRIVES_PAGE_COPY.statusUpdateRequired)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Download for this computer/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton })).not.toBeInTheDocument();
+    expect(mockTestPairing).not.toHaveBeenCalled();
+  });
+
+  it("recommends updating Sambee instead of Companion for a newer protocol", async () => {
+    mockCheckHealth.mockResolvedValue({ status: "ok", paired: true, auth_protocol_version: 3 });
+    mockHasStoredSecret.mockReturnValue(true);
+
+    renderSettings();
+
+    expect(await screen.findByText(LOCAL_DRIVES_PAGE_COPY.statusBrowserUpdateRequired)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.reloadButton })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Download for this computer/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton })).not.toBeInTheDocument();
+    expect(mockGetPairStatus).not.toHaveBeenCalled();
+  });
+
+  it("does not suggest re-pairing after a temporary verification failure", async () => {
+    mockGetPairStatus.mockResolvedValue({ current_origin: window.location.origin, current_origin_paired: true, status: "paired" });
+    mockHasStoredSecret.mockReturnValue(true);
+    mockTestPairing.mockRejectedValue(new Error("Connection interrupted"));
+
+    renderSettings();
+
+    expect(await screen.findByText(LOCAL_DRIVES_PAGE_COPY.statusVerificationUnavailable)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.testCurrentPairingButton })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton })).not.toBeInTheDocument();
+  });
+
+  it("offers retry instead of re-pairing when the pairing status request fails", async () => {
+    const user = userEvent.setup();
+    mockGetPairStatus.mockRejectedValue(new Error("Connection interrupted"));
+    mockHasStoredSecret.mockReturnValue(false);
+
+    renderSettings();
+
+    expect(await screen.findByText(LOCAL_DRIVES_PAGE_COPY.statusVerificationUnavailable)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton })).not.toBeInTheDocument();
+    mockGetPairStatus.mockResolvedValue({ current_origin: window.location.origin, current_origin_paired: false, status: "unpaired" });
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText(LOCAL_DRIVES_PAGE_COPY.statusUnpaired)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton })).toBeInTheDocument();
   });
 

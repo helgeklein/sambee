@@ -24,6 +24,14 @@ With Sambee's new theme editor, users can change all theme colors via hex values
 - A failed background connection refresh no longer hides a recovered file listing.
 - Uploads and copy or move operations no longer interfere with each other's conflict decisions.
 
+## Miscellaneous
+
+### Local Drive Acess
+
+Sambee now checks local-drive access before saying the browser is ready to use Companion. If the check fails, Local Drives settings distinguish between an outdated Companion, an outdated Sambee page, and a pairing that needs to be restored.
+
+When Companion rejects a request while browsing a local drive, the file list points to the affected pane and offers a way to reload Sambee or open Local Drives, depending on what went wrong.
+
 ## Under the Hood
 
 ### Security Review

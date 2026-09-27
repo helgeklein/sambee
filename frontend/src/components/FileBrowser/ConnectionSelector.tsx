@@ -155,7 +155,8 @@ export function ConnectionSelector({
         {(companionStatus === "unpaired" ||
           companionStatus === "unavailable" ||
           companionStatus === "pending_local_approval" ||
-          companionStatus === "needs_repair") && (
+          companionStatus === "needs_repair" ||
+          companionStatus === "update_required") && (
           <>
             <Divider />
             <MenuItem onClick={handleOpenConnectionsSettings}>
