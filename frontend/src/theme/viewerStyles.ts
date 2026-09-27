@@ -7,6 +7,7 @@
 
 import { alpha, type Theme } from "@mui/material";
 import type { SystemStyleObject } from "@mui/system";
+import { resolveThemePalette, VIEWER_FALLBACKS } from "./palette";
 import type { ThemeConfig } from "./types";
 
 //
@@ -17,21 +18,7 @@ import type { ThemeConfig } from "./types";
  * Default fallback colors for viewer components.
  * These are used when theme doesn't provide specific viewer colors.
  */
-export const VIEWER_DEFAULTS = {
-  /** Toolbar background shared across all viewers */
-  TOOLBAR_BG: "rgba(0,0,0,0.8)",
-  /** Toolbar text color (white for contrast against dark toolbar) */
-  TOOLBAR_TEXT: "#ffffff",
-
-  /** Image viewer: black background to make images pop */
-  IMAGE_VIEWER_BG: "#000000",
-  /** PDF viewer: gray background to distinguish from PDF pages */
-  PDF_VIEWER_BG: "#525252",
-  /** Markdown viewer: white background for readability */
-  MARKDOWN_VIEWER_BG: "#ffffff",
-  /** Markdown viewer: dark text for readability */
-  MARKDOWN_VIEWER_TEXT: "#000000",
-} as const;
+export const VIEWER_DEFAULTS = VIEWER_FALLBACKS;
 
 //
 // Viewer color types
@@ -91,31 +78,7 @@ export function getViewerColors(theme: ThemeConfig, viewerType: "image"): Viewer
 export function getViewerColors(theme: ThemeConfig, viewerType: "pdf"): ViewerColors;
 export function getViewerColors(theme: ThemeConfig, viewerType: "markdown"): MarkdownViewerColors;
 export function getViewerColors(theme: ThemeConfig, viewerType: "image" | "pdf" | "markdown"): ViewerColors | MarkdownViewerColors {
-  switch (viewerType) {
-    case "image":
-      return {
-        viewerBg: theme.components?.imageViewer?.viewerBackground || VIEWER_DEFAULTS.IMAGE_VIEWER_BG,
-        toolbarBg: theme.components?.imageViewer?.toolbarBackground || VIEWER_DEFAULTS.TOOLBAR_BG,
-        toolbarText: theme.components?.imageViewer?.toolbarText || VIEWER_DEFAULTS.TOOLBAR_TEXT,
-      };
-
-    case "pdf":
-      return {
-        viewerBg: theme.components?.pdfViewer?.viewerBackground || VIEWER_DEFAULTS.PDF_VIEWER_BG,
-        toolbarBg: theme.components?.pdfViewer?.toolbarBackground || VIEWER_DEFAULTS.TOOLBAR_BG,
-        toolbarText: theme.components?.pdfViewer?.toolbarText || VIEWER_DEFAULTS.TOOLBAR_TEXT,
-      };
-
-    case "markdown":
-      return {
-        viewerBg: theme.components?.markdownViewer?.viewerBackground || VIEWER_DEFAULTS.MARKDOWN_VIEWER_BG,
-        toolbarBg: theme.components?.markdownViewer?.toolbarBackground || VIEWER_DEFAULTS.TOOLBAR_BG,
-        toolbarText: theme.components?.markdownViewer?.toolbarText || VIEWER_DEFAULTS.TOOLBAR_TEXT,
-        viewerText: theme.components?.markdownViewer?.viewerText || VIEWER_DEFAULTS.MARKDOWN_VIEWER_TEXT,
-        linkColor: theme.components?.link?.main || theme.primary.main,
-        linkHoverColor: theme.components?.link?.hover || theme.primary.dark || theme.primary.main,
-      };
-  }
+  return resolveThemePalette(theme).viewers[viewerType];
 }
 
 //
@@ -179,6 +142,17 @@ const MARKDOWN_TABLE_DARK_BORDER = "#3b3935";
 const MARKDOWN_TABLE_DARK_HEADER_TEXT = "#ebe8e2";
 
 export function getMarkdownCodeSurfaceColors(theme: Theme) {
+  const document = theme.palette.markdownDocument;
+  if (document) {
+    return {
+      blockBackground: document.blockBackground,
+      inlineBackground: document.inlineBackground,
+      blockBorder: document.blockBorder,
+      inlineBorder: document.inlineBorder,
+      textColor: document.codeText,
+      activeLineGutterBackground: document.activeLineGutterBackground,
+    };
+  }
   if (theme.palette.mode === "dark") {
     return {
       blockBackground: MARKDOWN_CODE_BLOCK_DARK_BG,
@@ -201,6 +175,16 @@ export function getMarkdownCodeSurfaceColors(theme: Theme) {
 }
 
 export function getMarkdownTableSurfaceColors(theme: Theme) {
+  const document = theme.palette.markdownDocument;
+  if (document) {
+    return {
+      tableBackground: document.tableBackground,
+      alternateRowBackground: document.alternateRowBackground,
+      headerBackground: document.headerBackground,
+      headerText: document.headerText,
+      border: document.tableBorder,
+    };
+  }
   if (theme.palette.mode === "dark") {
     return {
       tableBackground: MARKDOWN_TABLE_DARK_BG,
@@ -331,11 +315,11 @@ function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHo
 
     // Blockquotes.
     "& blockquote": {
-      borderLeft: `4px solid ${MARKDOWN_COLORS.BORDER}`,
+      borderLeft: (theme) => `4px solid ${theme.palette.markdownDocument?.blockquoteBorder ?? MARKDOWN_COLORS.BORDER}`,
       marginTop: 0,
       marginBottom: "16px",
       paddingLeft: "16px",
-      color: MARKDOWN_COLORS.MUTED_TEXT,
+      color: (theme) => theme.palette.markdownDocument?.blockquoteText ?? MARKDOWN_COLORS.MUTED_TEXT,
     },
 
     // Headings: break long words.
@@ -349,12 +333,12 @@ function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHo
     "& h1": {
       paddingBottom: "0.3em",
       fontSize: "2em",
-      borderBottom: `1px solid ${MARKDOWN_COLORS.HEADING_BORDER}`,
+      borderBottom: (theme) => `1px solid ${theme.palette.markdownDocument?.headingBorder ?? MARKDOWN_COLORS.HEADING_BORDER}`,
     },
     "& h2": {
       paddingBottom: "0.3em",
       fontSize: "1.5em",
-      borderBottom: `1px solid ${MARKDOWN_COLORS.HEADING_BORDER}`,
+      borderBottom: (theme) => `1px solid ${theme.palette.markdownDocument?.headingBorder ?? MARKDOWN_COLORS.HEADING_BORDER}`,
     },
     "& h3": {
       fontSize: "1.25em",

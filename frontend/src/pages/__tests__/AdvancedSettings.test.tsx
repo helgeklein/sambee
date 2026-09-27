@@ -8,6 +8,8 @@ import { AdvancedSettings } from "../AdvancedSettings";
 
 vi.mock("../../services/api", () => ({
   default: {
+    getThemes: () => Promise.resolve({ themes: [], site_default_id: "sambee-light" }),
+    getCurrentUser: () => Promise.resolve({ role: "editor" }),
     getAdvancedSettings: vi.fn(),
     updateAdvancedSettings: vi.fn(),
   },

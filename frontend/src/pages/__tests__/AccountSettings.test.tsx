@@ -10,6 +10,8 @@ import { AccountSettings } from "../AccountSettings";
 
 vi.mock("../../services/api", () => ({
   default: {
+    getThemes: () => Promise.resolve({ themes: [], site_default_id: "sambee-light" }),
+    getCurrentUser: () => Promise.resolve({ role: "editor" }),
     getCurrentAccount: vi.fn(),
     getOidcBrowserSessions: vi.fn(),
     revokeOidcBrowserSession: vi.fn(),

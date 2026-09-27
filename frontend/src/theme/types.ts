@@ -28,6 +28,7 @@ export interface ThemeConfig {
     default?: string;
     /** MUI compatibility value. Standard application surfaces use default instead. */
     paper?: string;
+    chrome?: string;
   };
   /** Standard UI foreground colors. Use semantic exceptions for disabled, status, and content-rendering colors. */
   text?: {
@@ -90,6 +91,22 @@ export interface ThemeConfig {
       viewerText: string;
       /** Selected-state background for the secondary markdown editor toolbar */
       secondaryToolbarSelected?: string;
+      document?: {
+        blockBackground: string;
+        inlineBackground: string;
+        blockBorder: string;
+        inlineBorder: string;
+        codeText: string;
+        activeLineGutterBackground: string;
+        tableBackground: string;
+        alternateRowBackground: string;
+        headerBackground: string;
+        headerText: string;
+        tableBorder: string;
+        blockquoteBorder: string;
+        blockquoteText: string;
+        headingBorder: string;
+      };
     };
     /** Alert message styles for info/success/warning/error states */
     alert?: {
@@ -228,6 +245,7 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
         type: "color",
         required: false,
       },
+      chrome: { label: "Chrome Background", description: "Dark app bars and dialogs", type: "color", required: true },
     },
   },
   text: {
@@ -276,6 +294,16 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
     type: "color",
     required: false,
     fields: {
+      link: {
+        label: "Links",
+        description: "Colors for links and their hover state",
+        type: "color",
+        required: false,
+        fields: {
+          main: { label: "Link", description: "Default link color", type: "color", required: true },
+          hover: { label: "Hover", description: "Link color on hover", type: "color", required: false },
+        },
+      },
       search: {
         label: "Search Highlights",
         description: "Colors for current and non-current search matches across viewers and editors",
@@ -384,7 +412,61 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
             type: "color",
             required: false,
           },
+          document: {
+            label: "Document",
+            description: "Markdown code, tables, blockquotes, and headings",
+            type: "color",
+            required: true,
+            fields: Object.fromEntries(
+              [
+                "blockBackground",
+                "inlineBackground",
+                "blockBorder",
+                "inlineBorder",
+                "codeText",
+                "activeLineGutterBackground",
+                "tableBackground",
+                "alternateRowBackground",
+                "headerBackground",
+                "headerText",
+                "tableBorder",
+                "blockquoteBorder",
+                "blockquoteText",
+                "headingBorder",
+              ].map((role) => [
+                role,
+                {
+                  label: role.replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase()),
+                  description: `Markdown ${role.replace(/([A-Z])/g, " $1").toLowerCase()}`,
+                  type: "color",
+                  required: true,
+                },
+              ])
+            ),
+          },
         },
+      },
+      alert: {
+        label: "Alerts",
+        description: "Info, success, warning, and error message colors",
+        type: "color",
+        required: false,
+        fields: Object.fromEntries(
+          (["info", "success", "warning", "error"] as const).map((kind) => [
+            kind,
+            {
+              label: kind[0].toUpperCase() + kind.slice(1),
+              description: `${kind} message colors`,
+              type: "color",
+              required: true,
+              fields: {
+                background: { label: "Background", description: "Alert surface", type: "color", required: true },
+                text: { label: "Text", description: "Alert message", type: "color", required: true },
+                icon: { label: "Icon", description: "Alert icon", type: "color", required: true },
+              },
+            },
+          ])
+        ),
       },
     },
   },

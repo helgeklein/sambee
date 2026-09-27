@@ -1,0 +1,414 @@
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, MenuItem, Popover, TextField, Typography } from "@mui/material";
+import { type ChangeEvent, useEffect, useRef, useState } from "react";
+import { HexAlphaColorPicker } from "react-colorful";
+import api, { getThemeRequestError, type StoredTheme } from "../../services/api";
+import {
+  COLOR_ROLES,
+  colorAt,
+  editableDefinition,
+  HEX_COLOR_PATTERN,
+  parseThemeImport,
+  THEME_DEFINITION_VERSION,
+  validateThemeDefinition,
+  withColor,
+} from "../../theme/themeDefinition";
+import type { ThemeConfig } from "../../theme/types";
+import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
+import { FormFieldLabel, FormGroup, FormRow, FormSurface, formOutlinedControlSx } from "../Form/FormLayout";
+
+interface ThemeEditorDialogProps {
+  theme: ThemeConfig;
+  stored: StoredTheme | undefined;
+  storedThemes: StoredTheme[];
+  selectedThemeId: string;
+  isAdmin: boolean;
+  onClose: () => void;
+  onSaved: (themeId: string) => Promise<void>;
+  onPreview: (theme: ThemeConfig | null) => void;
+}
+
+const GROUPS = ["Core", "Viewers", "Markdown", "Search", "Alerts"] as const;
+
+export function ThemeEditorDialog({
+  theme,
+  stored,
+  storedThemes,
+  selectedThemeId,
+  isAdmin,
+  onClose,
+  onSaved,
+  onPreview,
+}: ThemeEditorDialogProps) {
+  const [draft, setDraft] = useState<ThemeConfig>(() => structuredClone(theme));
+  const [inputColors, setInputColors] = useState<Record<string, string>>({});
+  const [group, setGroup] = useState<string | null>("Core");
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const [activeColor, setActiveColor] = useState<string | null>(null);
+  const [scope, setScope] = useState<StoredTheme["scope"]>(stored?.scope === "site" && isAdmin ? "site" : "user");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
+  const [saveAsTarget, setSaveAsTarget] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
+  const writable = Boolean(stored && (stored.scope === "user" || isAdmin));
+  const target = storedThemes.find((candidate) => candidate.id === saveAsTarget);
+
+  useEffect(() => {
+    onPreview(draft.id === selectedThemeId ? draft : null);
+    return () => onPreview(null);
+  }, [draft, selectedThemeId, onPreview]);
+
+  const close = () => {
+    if (pending) return;
+    onPreview(null);
+    onClose();
+  };
+
+  const changeColor = (path: string, value: string) => {
+    setInputColors((previous) => ({ ...previous, [path]: value }));
+    if (HEX_COLOR_PATTERN.test(value)) {
+      setDraft((previous) => withColor(previous, path, value));
+      setError(null);
+    }
+  };
+
+  const save = async (asNew: boolean) => {
+    const invalid = Object.entries(inputColors).find(([, value]) => !HEX_COLOR_PATTERN.test(value));
+    const validationError = invalid ? `${invalid[0]}: enter #RRGGBB or #RRGGBBAA.` : validateThemeDefinition(draft);
+    if (validationError) {
+      setError(validationError);
+      const role = invalid
+        ? COLOR_ROLES.find((candidate) => candidate.path === invalid[0])
+        : COLOR_ROLES.find((candidate) => validationError.startsWith(`${candidate.label}:`));
+      if (role) setGroup(role.group);
+      requestAnimationFrame(() => document.getElementById(role ? `${role.path}-input` : "theme-name")?.focus());
+      return;
+    }
+    if (!asNew && !writable) return;
+    if (asNew && !target && stored?.scope === scope && stored && draft.name.trim().toLowerCase() === theme.name.trim().toLowerCase()) {
+      setError("Choose a different name for the new theme, or use Save to update this theme.");
+      document.getElementById("theme-name")?.focus();
+      return;
+    }
+    if (asNew && target && !confirmOverwrite) {
+      setConfirmOverwrite(true);
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      const definition = editableDefinition({ ...draft, name: draft.name.trim() });
+      const saved =
+        asNew && !target ? await api.createTheme(definition, scope) : await api.updateTheme(asNew ? target! : stored!, definition);
+      onPreview(null);
+      await onSaved(saved.id);
+      onClose();
+    } catch (cause) {
+      setError(getThemeRequestError(cause));
+    } finally {
+      setPending(false);
+      setConfirmOverwrite(false);
+    }
+  };
+
+  const importFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const imported = parseThemeImport(await file.text());
+      setDraft({ ...imported, id: theme.id });
+      setInputColors({});
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not read the theme file.");
+    }
+  };
+
+  const exportDraft = () => {
+    const blob = new Blob([JSON.stringify({ version: THEME_DEFINITION_VERSION, definition: editableDefinition(draft) }, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "theme.json";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <>
+      <ResponsiveDialogShell
+        open
+        onClose={close}
+        disableClose={pending}
+        title={`Edit ${theme.name}`}
+        maxWidth="md"
+        actionNotice={error ? <Alert severity="error">{error}</Alert> : null}
+        actions={
+          <>
+            <Button onClick={close} disabled={pending}>
+              Cancel
+            </Button>
+            <Button onClick={() => fileInput.current?.click()} disabled={pending}>
+              Import
+            </Button>
+            <Button onClick={exportDraft} disabled={pending}>
+              Export
+            </Button>
+            <Button onClick={() => void save(true)} disabled={pending}>
+              Save as
+            </Button>
+            <Button variant="contained" onClick={() => void save(false)} disabled={!writable || pending}>
+              Save
+            </Button>
+          </>
+        }
+      >
+        <input ref={fileInput} type="file" accept="application/json,.json" hidden onChange={(event) => void importFile(event)} />
+        <FormSurface>
+          <FormGroup>
+            <FormRow>
+              <Box sx={{ display: { xs: "none", md: "block" } }}>
+                <FormFieldLabel
+                  label="Name"
+                  description="Name shown in the theme grid"
+                  descriptionId="theme-name-help"
+                  htmlFor="theme-name"
+                />
+              </Box>
+              <TextField
+                id="theme-name"
+                label="Name"
+                slotProps={{ htmlInput: { "aria-label": "Name" } }}
+                value={draft.name}
+                onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                fullWidth
+                sx={formOutlinedControlSx}
+              />
+            </FormRow>
+            <FormRow>
+              <Box sx={{ display: { xs: "none", md: "block" } }}>
+                <FormFieldLabel
+                  label="Description"
+                  description="Optional detail for this theme"
+                  descriptionId="theme-description-help"
+                  htmlFor="theme-description"
+                />
+              </Box>
+              <TextField
+                id="theme-description"
+                label="Description"
+                slotProps={{ htmlInput: { "aria-label": "Description" } }}
+                value={draft.description ?? ""}
+                onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+                fullWidth
+                sx={formOutlinedControlSx}
+              />
+            </FormRow>
+            <FormRow>
+              <Box sx={{ display: { xs: "none", md: "block" } }}>
+                <FormFieldLabel
+                  label="Mode"
+                  description="Light or dark application surfaces"
+                  descriptionId="theme-mode-help"
+                  htmlFor="theme-mode"
+                />
+              </Box>
+              <TextField
+                select
+                id="theme-mode"
+                label="Mode"
+                value={draft.mode}
+                onChange={(event) => setDraft({ ...draft, mode: event.target.value as ThemeConfig["mode"] })}
+                fullWidth
+                sx={formOutlinedControlSx}
+              >
+                <MenuItem value="light">Light</MenuItem>
+                <MenuItem value="dark">Dark</MenuItem>
+              </TextField>
+            </FormRow>
+            <FormRow>
+              <Box sx={{ display: { xs: "none", md: "block" } }}>
+                <FormFieldLabel
+                  label="Storage"
+                  description="Where Save as creates a new theme"
+                  descriptionId="theme-storage-help"
+                  htmlFor="theme-storage"
+                />
+              </Box>
+              <TextField
+                select
+                id="theme-storage"
+                label="Storage"
+                value={scope}
+                onChange={(event) => {
+                  setScope(event.target.value as StoredTheme["scope"]);
+                  setSaveAsTarget("");
+                }}
+                fullWidth
+                sx={formOutlinedControlSx}
+              >
+                <MenuItem value="user">Your themes</MenuItem>
+                {isAdmin && <MenuItem value="site">Site themes</MenuItem>}
+              </TextField>
+            </FormRow>
+            <FormRow>
+              <Box sx={{ display: { xs: "none", md: "block" } }}>
+                <FormFieldLabel
+                  label="Save as target"
+                  description="Create a new theme or explicitly replace an existing one"
+                  descriptionId="theme-target-help"
+                  htmlFor="theme-target"
+                />
+              </Box>
+              <TextField
+                select
+                id="theme-target"
+                label="Save as target"
+                value={saveAsTarget}
+                onChange={(event) => setSaveAsTarget(event.target.value)}
+                fullWidth
+                sx={formOutlinedControlSx}
+              >
+                <MenuItem value="">New theme</MenuItem>
+                {storedThemes
+                  .filter((candidate) => candidate.scope === scope)
+                  .map((candidate) => (
+                    <MenuItem key={candidate.id} value={candidate.id}>
+                      {candidate.definition.name}
+                    </MenuItem>
+                  ))}
+              </TextField>
+            </FormRow>
+          </FormGroup>
+          {GROUPS.map((section) => (
+            <Accordion
+              key={section}
+              expanded={group === section}
+              onChange={(_, expanded) => setGroup(expanded ? section : null)}
+              disableGutters
+              sx={{ bgcolor: "transparent", boxShadow: "none" }}
+            >
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography variant="subtitle1">{section}</Typography>
+              </AccordionSummary>
+              <AccordionDetails sx={{ p: 0 }}>
+                <FormGroup>
+                  {COLOR_ROLES.filter((role) => role.group === section).map((role) => {
+                    const color = colorAt(draft, role.path) ?? "";
+                    const input = inputColors[role.path] ?? color;
+                    const invalid = inputColors[role.path] !== undefined && !HEX_COLOR_PATTERN.test(input);
+                    return (
+                      <FormRow key={role.path}>
+                        <Box sx={{ display: { xs: "none", md: "block" } }}>
+                          <FormFieldLabel
+                            label={role.label}
+                            description={role.description}
+                            descriptionId={`${role.path}-help`}
+                            htmlFor={`${role.path}-input`}
+                            feedback={invalid ? { severity: "error", message: "Use #RRGGBB or #RRGGBBAA." } : null}
+                          />
+                        </Box>
+                        <Box sx={{ display: "flex", gap: 1, alignItems: "center", minWidth: 0 }}>
+                          <Box
+                            component="button"
+                            type="button"
+                            aria-label={`Choose ${role.label} color`}
+                            onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
+                              setAnchor(event.currentTarget);
+                              setActiveColor(role.path);
+                            }}
+                            sx={{
+                              width: 36,
+                              height: 36,
+                              flexShrink: 0,
+                              borderRadius: 1,
+                              border: "1px solid",
+                              borderColor: "divider",
+                              cursor: "pointer",
+                              backgroundImage:
+                                "linear-gradient(45deg, #8884 25%, transparent 25%, transparent 75%, #8884 75%), linear-gradient(45deg, #8884 25%, transparent 25%, transparent 75%, #8884 75%)",
+                              backgroundSize: "12px 12px",
+                              backgroundPosition: "0 0, 6px 6px",
+                            }}
+                          >
+                            <Box sx={{ width: "100%", height: "100%", bgcolor: color }} />
+                          </Box>
+                          <TextField
+                            id={`${role.path}-input`}
+                            label={role.label}
+                            slotProps={{
+                              htmlInput: { "aria-label": role.label },
+                              formHelperText: { sx: { display: { md: "none" } } },
+                            }}
+                            value={input}
+                            onChange={(event) => changeColor(role.path, event.target.value)}
+                            onBlur={() => {
+                              if (HEX_COLOR_PATTERN.test(input))
+                                setInputColors((previous) => ({ ...previous, [role.path]: input.toUpperCase() }));
+                            }}
+                            error={invalid}
+                            helperText={invalid ? "Use #RRGGBB or #RRGGBBAA." : undefined}
+                            fullWidth
+                            sx={formOutlinedControlSx}
+                          />
+                        </Box>
+                      </FormRow>
+                    );
+                  })}
+                </FormGroup>
+              </AccordionDetails>
+            </Accordion>
+          ))}
+        </FormSurface>
+        <Popover
+          open={Boolean(anchor)}
+          anchorEl={anchor}
+          onClose={() => {
+            setAnchor(null);
+            setActiveColor(null);
+          }}
+          anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+          transformOrigin={{ vertical: "top", horizontal: "left" }}
+        >
+          {activeColor && (
+            <Box
+              sx={{
+                p: 2,
+                ".react-colorful__alpha": {
+                  backgroundImage:
+                    "linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%)",
+                  backgroundSize: "12px 12px",
+                  backgroundPosition: "0 0, 6px 6px",
+                },
+              }}
+            >
+              <HexAlphaColorPicker
+                color={colorAt(draft, activeColor) ?? "#000000"}
+                onChange={(value) => changeColor(activeColor, value.toUpperCase().endsWith("FF") ? value.slice(0, -2) : value)}
+              />
+            </Box>
+          )}
+        </Popover>
+      </ResponsiveDialogShell>
+      <ResponsiveDialogShell
+        open={confirmOverwrite}
+        onClose={() => setConfirmOverwrite(false)}
+        title="Overwrite theme?"
+        actions={
+          <>
+            <Button onClick={() => setConfirmOverwrite(false)}>Cancel</Button>
+            <Button color="error" onClick={() => void save(true)}>
+              Overwrite
+            </Button>
+          </>
+        }
+      >
+        <Typography>Replace {target?.definition.name} with this draft? Other tabs with older edits will need to refresh.</Typography>
+      </ResponsiveDialogShell>
+    </>
+  );
+}

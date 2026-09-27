@@ -19,7 +19,20 @@ from sqlmodel import Session, select
 from starlette.types import Scope
 
 from app import __version__
-from app.api import admin, admin_auth, archive_operations, auth, browser, companion, connections, logs, system_settings, viewer, websocket
+from app.api import (
+    admin,
+    admin_auth,
+    archive_operations,
+    auth,
+    browser,
+    companion,
+    connections,
+    logs,
+    system_settings,
+    themes,
+    viewer,
+    websocket,
+)
 from app.api.archive_v2_errors import archive_v2_http_exception_handler, archive_v2_request_validation_exception_handler
 from app.core.config import consume_unsupported_config_settings, settings
 from app.core.environment import DEV_CORS_ORIGINS, IS_DEVELOPMENT, IS_PRODUCTION
@@ -465,6 +478,7 @@ else:
 
 # Include routers
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(themes.router, prefix="/api/themes", tags=["themes"])
 app.include_router(connections.router, prefix="/api", tags=["connections"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(admin_auth.router, prefix="/api/admin", tags=["admin-auth"])

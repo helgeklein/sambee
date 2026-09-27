@@ -17,6 +17,7 @@ class UserSetting(SQLModel, table=True):
 
 class AppearanceUserSettingsRead(SQLModel):
     theme_id: str
+    has_theme_override: bool = False
     custom_themes: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -59,11 +60,6 @@ class StrictCurrentUserSettingUpdate(SQLModel):
 class ThemeIdUserSettingUpdate(StrictCurrentUserSettingUpdate):
     field: Literal["appearance.theme_id"]
     value: str
-
-
-class CustomThemesUserSettingUpdate(StrictCurrentUserSettingUpdate):
-    field: Literal["appearance.custom_themes"]
-    value: list[dict[str, Any]]
 
 
 class LanguageUserSettingUpdate(StrictCurrentUserSettingUpdate):
@@ -123,7 +119,6 @@ class TextEditorWordWrapUserSettingUpdate(StrictCurrentUserSettingUpdate):
 
 CurrentUserSettingsUpdate = Annotated[
     ThemeIdUserSettingUpdate
-    | CustomThemesUserSettingUpdate
     | LanguageUserSettingUpdate
     | RegionalLocaleUserSettingUpdate
     | QuickNavUserSettingUpdate

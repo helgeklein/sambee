@@ -354,6 +354,7 @@ export type NetworkSettingsUpdate = { field: "public_url"; value: string } | { f
 export interface CurrentUserSettings {
   appearance: {
     theme_id: string;
+    has_theme_override?: boolean;
     custom_themes: ThemeConfig[];
   };
   localization: {
@@ -377,7 +378,6 @@ export interface CurrentUserSettings {
 
 export type CurrentUserSettingsUpdate =
   | { field: "appearance.theme_id"; value: string }
-  | { field: "appearance.custom_themes"; value: ThemeConfig[] }
   | { field: "localization.language"; value: LanguagePreference }
   | { field: "localization.regional_locale"; value: RegionalLocalePreference }
   | { field: "browser.quick_nav_include_dot_directories"; value: boolean }

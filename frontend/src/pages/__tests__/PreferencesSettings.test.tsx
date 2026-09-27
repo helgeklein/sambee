@@ -1,22 +1,30 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import api from "../../services/api";
 import { render } from "../../test/utils/test-utils";
+import { builtInThemes } from "../../theme/themes";
 import { AppearanceSettings } from "../PreferencesSettings";
 
-const { setLanguagePreferenceMock, setRegionalLocalePreferenceMock, themeCommitMock, settingStates } = vi.hoisted(() => ({
-  setLanguagePreferenceMock: vi.fn(),
-  setRegionalLocalePreferenceMock: vi.fn(),
-  themeCommitMock: vi.fn(),
-  settingStates: {
-    language: { error: null as string | null, pending: false, saved: false },
-    regionalLocale: { error: null as string | null, pending: false, saved: false },
-    theme: { error: null as string | null, pending: false, saved: false },
-  },
-}));
+const { setLanguagePreferenceMock, setRegionalLocalePreferenceMock, themeCommitMock, themeContextState, settingStates } = vi.hoisted(
+  () => ({
+    setLanguagePreferenceMock: vi.fn(),
+    setRegionalLocalePreferenceMock: vi.fn(),
+    themeCommitMock: vi.fn(),
+    themeContextState: { isAdmin: false },
+    settingStates: {
+      language: { error: null as string | null, pending: false, saved: false },
+      regionalLocale: { error: null as string | null, pending: false, saved: false },
+      theme: { error: null as string | null, pending: false, saved: false },
+    },
+  })
+);
 
 vi.mock("../../theme", () => ({
   useSambeeTheme: () => ({
+    isAdmin: themeContextState.isAdmin,
+    siteDefaultId: "sambee-light",
+    refreshThemes: () => Promise.resolve(),
     currentTheme: {
       id: "sambee-light",
       name: "Sambee light",
@@ -72,8 +80,11 @@ vi.mock("../../services/userSettingsStore", () => ({
 }));
 
 describe("AppearanceSettings", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   beforeEach(() => {
     vi.clearAllMocks();
+    themeContextState.isAdmin = false;
     themeCommitMock.mockResolvedValue(undefined);
     setLanguagePreferenceMock.mockResolvedValue(undefined);
     setRegionalLocalePreferenceMock.mockResolvedValue(undefined);
@@ -116,9 +127,46 @@ describe("AppearanceSettings", () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);
 
-    await user.click(screen.getByText("Sambee dark"));
+    await user.click(screen.getByRole("radio", { name: "Sambee dark" }));
 
     await waitFor(() => expect(themeCommitMock).toHaveBeenCalledWith("sambee-dark"));
+  });
+
+  it("lets users explicitly select the currently inherited theme", async () => {
+    const user = userEvent.setup();
+    render(<AppearanceSettings />);
+
+    await user.click(screen.getByRole("radio", { name: "Sambee light" }));
+
+    await waitFor(() => expect(themeCommitMock).toHaveBeenCalledWith("sambee-light"));
+  });
+
+  it("copies a built-in theme into Your themes without changing the applied selection", async () => {
+    const user = userEvent.setup();
+    const create = vi
+      .spyOn(api, "createTheme")
+      .mockResolvedValue({ id: "new-id", scope: "user", version: 1, definition: builtInThemes[0]! });
+    render(<AppearanceSettings />);
+
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+
+    await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Sambee light (copy)" }), "user"));
+    expect(themeCommitMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("radio", { name: "Sambee light" })).toBeChecked();
+  });
+
+  it("allows an administrator to set a built-in theme as the site default", async () => {
+    const user = userEvent.setup();
+    themeContextState.isAdmin = true;
+    const setDefault = vi.spyOn(api, "setSiteDefaultTheme").mockResolvedValue({ themes: [], site_default_id: "sambee-dark" });
+    render(<AppearanceSettings />);
+
+    await user.click(screen.getByRole("button", { name: "Target Sambee dark for actions" }));
+    expect(screen.getByRole("radio", { name: "Sambee light" })).toBeChecked();
+    expect(themeCommitMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Set as default" }));
+
+    await waitFor(() => expect(setDefault).toHaveBeenCalledWith("sambee-dark"));
   });
 
   it.each([

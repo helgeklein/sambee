@@ -1,4 +1,5 @@
 import axios, { type AxiosError, type AxiosInstance, type AxiosRequestConfig } from "axios";
+import type { ThemeConfig } from "../theme/types";
 import type {
   AboutSettings,
   AdminUser,
@@ -78,6 +79,26 @@ import type { ContentTransferResult, TargetResolutionPolicy } from "./storageCon
 export interface DirectorySearchOptions {
   includeDotDirectories?: boolean;
   signal?: AbortSignal;
+}
+
+export interface StoredTheme {
+  id: string;
+  scope: "user" | "site";
+  version: number;
+  definition: Omit<ThemeConfig, "id">;
+}
+
+export interface ThemeList {
+  themes: StoredTheme[];
+  site_default_id: string;
+}
+
+export function getThemeRequestError(cause: unknown): string {
+  if (axios.isAxiosError(cause)) {
+    const detail: unknown = cause.response?.data?.detail;
+    if (typeof detail === "string") return detail;
+  }
+  return cause instanceof Error ? cause.message : "Could not change the theme. Check the connection and try again.";
 }
 
 export interface CrossBackendTransferOptions {
@@ -597,6 +618,30 @@ class ApiService {
 
   async getCurrentUserSettings(): Promise<CurrentUserSettings> {
     const response = await this.api.get<CurrentUserSettings>("/auth/me/settings");
+    return response.data;
+  }
+
+  async getThemes(): Promise<ThemeList> {
+    const response = await this.api.get<ThemeList>("/themes");
+    return response.data;
+  }
+
+  async createTheme(definition: Omit<ThemeConfig, "id">, scope: StoredTheme["scope"]): Promise<StoredTheme> {
+    const response = await this.api.post<StoredTheme>("/themes", { definition, scope });
+    return response.data;
+  }
+
+  async updateTheme(theme: StoredTheme, definition: Omit<ThemeConfig, "id">): Promise<StoredTheme> {
+    const response = await this.api.put<StoredTheme>(`/themes/${theme.id}`, { definition, scope: theme.scope, version: theme.version });
+    return response.data;
+  }
+
+  async deleteTheme(theme: StoredTheme): Promise<void> {
+    await this.api.delete(`/themes/${theme.id}`, { params: { version: theme.version } });
+  }
+
+  async setSiteDefaultTheme(themeId: string): Promise<ThemeList> {
+    const response = await this.api.put<ThemeList>(`/themes/default/${themeId}`);
     return response.data;
   }
 
