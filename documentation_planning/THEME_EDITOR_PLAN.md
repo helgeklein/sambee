@@ -52,13 +52,13 @@
 	- **Copy:** Keep writable copies in the source group; copy read-only themes to Your themes. Append ` (copy)` to the name and allocate a new unique ID.
 	- **Edit:** Open the editor even for read-only themes, but disable Save when the user lacks write permission.
 	- **Delete:** Disable for built-ins and for site themes without admin permission.
-	- **Set as default:** Require admin permission. This changes the default for users without an explicit selection, not their individual preferences.
+	- **Set as default:** Disable except for site themes. Require admin permission. This changes the default for users without an explicit selection, not their individual preferences.
 
 ### Storage And Permissions
 
 - Add shared storage and admin-managed endpoints for site themes. The per-user `appearance.custom_themes` setting is not site-theme storage.
 - Enforce ownership, admin permissions, and ID uniqueness on the server as well as in the UI, including edits, deletion, default changes, and overwrites.
-- Define how to handle user selections and the site default before deleting a referenced theme; never leave a dangling ID.
+- When a theme is deleted that is being used/selected by users, treat it as new user: apply the site default (if existing) or the built-in default.
 - Preserve an explicitly selected built-in ID across upgrades even if its definition changes.
 
 ## Theme Editor Dialog
@@ -70,10 +70,10 @@
 - Organize color roles into collapsible groups: core colors first, then viewer, Markdown, search, and alert colors.
 	- Show each role's label, hex value, and small swatch; describe unfamiliar roles briefly.
 	- Keep one group open at a time on phones. Scroll the dialog body, not a nested color panel, and keep actions reachable.
-- Use native `<input type="color">` for RGB selection, with a MUI hex field and opacity slider in a small popover; add no picker dependency.
-	- Native pickers cannot reliably change alpha across browsers. Preserve alpha when changing RGB; use the hex field or slider to change opacity.
-	- Show opaque values as `#RRGGBB` and translucent values as `#RRGGBBAA`. Normalize valid entries; retain invalid text with an inline error until corrected.
-	- Show transparency on a checkerboard swatch. Give the swatch, field, and slider accessible names and keyboard operation inside the dialog.
+- Use `react-colorful`'s `HexAlphaColorPicker` in a MUI popover opened from the swatch. Show its built-in alpha slider directly below the hue slider, with a checkerboard transparency track as in the demo (https://omgovich.github.io/react-colorful/); no separate opacity slider is needed. The library has no runtime dependencies.
+	- Pair it with a MUI hex text field for precise entry and copying. Keep the picker and text field synchronized with the same draft color.
+	- Show opaque values as `#RRGGBB` and translucent values as `#RRGGBBAA`. Normalize valid entries; retain invalid text with an inline error until corrected, without applying it to the preview.
+	- Show transparency in the swatch even when the picker is closed. Verify keyboard access, focus, and popover placement on phones and desktops.
 
 ### Draft Preview And Actions
 
