@@ -11,9 +11,9 @@ Sambee has two built-in themes (`sambee-light` and `sambee-dark`), user-owned th
 | `frontend/src/theme/types.ts` | Palette types and editor field labels |
 | `frontend/src/theme/themes.ts` | Built-in definitions with stable IDs |
 | `frontend/src/theme/themeDefinition.ts` | Editable color catalog, hex checks, and versioned import/export |
-| `frontend/src/theme/palette.ts` | Shared effective palette for the app and previews |
+| `frontend/src/theme/palette.ts` | Shared effective palette for the app |
 | `frontend/src/theme/viewerStyles.ts` | Viewer and Markdown document surfaces |
-| `frontend/src/theme/ThemeContext.tsx` | Registry refresh, draft preview, and Material UI theme |
+| `frontend/src/theme/ThemeContext.tsx` | Registry refresh and Material UI theme |
 | `frontend/src/pages/PreferencesSettings.tsx` | Selection grid and selected-theme actions |
 | `frontend/src/components/Settings/ThemeEditorDialog.tsx` | Responsive theme editor |
 | `backend/app/api/themes.py` | Validated theme operations and site default |
@@ -32,7 +32,7 @@ Appearance settings display Your themes, Site themes, then Built-in themes. Clic
 
 ## Editing And Persistence
 
-The editor uses a responsive dialog with collapsible color groups. A swatch opens an alpha-aware picker and each color has an editable hex field. Invalid text stays in the field without changing the rendered draft. When the editor targets the selected theme, valid draft changes preview in the app; closing the editor clears that preview. Import replaces only the draft after validating a versioned JSON definition, and Export writes the same format.
+The editor uses a responsive dialog with collapsible color groups. A swatch opens an alpha-aware picker and each color has an editable hex field. Invalid text stays in the field without changing the valid draft. Changes in the editor aren't applied to the app until Save succeeds; Cancel discards the draft. Import replaces only the draft after validating a versioned JSON definition, and Export writes the same format.
 
 `POST /api/themes` creates a theme. Save copy opens a destination menu with Your themes for everyone and Site themes for administrators. It always creates a new theme in the chosen group without changing the applied selection. If its name already exists in that group, the editor adds ` (copy)` or a numbered copy suffix. Save updates only the opened theme in its existing group and cannot create a copy. `PUT /api/themes/{id}` and `DELETE /api/themes/{id}?version=...` require the version read by the client; a stale version returns HTTP 409. The server checks ownership, admin permissions, names, IDs, and palette completeness before committing. Bulk writes to `appearance.custom_themes` are no longer supported. There is no migration of older custom themes or compatibility promise for older exports.
 
@@ -54,4 +54,4 @@ cd frontend && npm run build && npm run lint
 cd backend && .venv/bin/python -m pytest tests/test_user_settings.py
 ```
 
-Check the Appearance grid and editor on a phone and desktop in both built-in modes. Verify selection and site-default refresh after focus, color picker keyboard use and placement, alpha preview and export, cancel/revert, and stale-save feedback.
+Check the Appearance grid and editor on a phone and desktop in both built-in modes. Verify selection and saved-theme refresh after focus, color picker keyboard use and placement, alpha values and export, Cancel without applying the draft, and stale-save feedback.

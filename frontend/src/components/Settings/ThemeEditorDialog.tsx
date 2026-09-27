@@ -12,7 +12,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { type ChangeEvent, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, useRef, useState } from "react";
 import { HexAlphaColorPicker } from "react-colorful";
 import api, { getThemeRequestError, type StoredTheme } from "../../services/api";
 import {
@@ -37,25 +37,14 @@ interface ThemeEditorDialogProps {
   theme: ThemeConfig;
   stored: StoredTheme | undefined;
   storedThemes: StoredTheme[];
-  selectedThemeId: string;
   isAdmin: boolean;
   onClose: () => void;
   onSaved: (themeId: string, isCopy: boolean) => Promise<void>;
-  onPreview: (theme: ThemeConfig | null) => void;
 }
 
 const GROUPS = ["Core", "Viewers", "Markdown", "Search", "Alerts"] as const;
 
-export function ThemeEditorDialog({
-  theme,
-  stored,
-  storedThemes,
-  selectedThemeId,
-  isAdmin,
-  onClose,
-  onSaved,
-  onPreview,
-}: ThemeEditorDialogProps) {
+export function ThemeEditorDialog({ theme, stored, storedThemes, isAdmin, onClose, onSaved }: ThemeEditorDialogProps) {
   const [draft, setDraft] = useState<ThemeConfig>(() => structuredClone(theme));
   const [inputColors, setInputColors] = useState<Record<string, string>>({});
   const [group, setGroup] = useState<string | null>("Core");
@@ -68,14 +57,8 @@ export function ThemeEditorDialog({
   const writable = Boolean(stored && (stored.scope === "user" || isAdmin));
   const storageGroup = stored ? (stored.scope === "site" ? "site" : "personal") : "built-in";
 
-  useEffect(() => {
-    onPreview(draft.id === selectedThemeId ? draft : null);
-    return () => onPreview(null);
-  }, [draft, selectedThemeId, onPreview]);
-
   const close = () => {
     if (pending) return;
-    onPreview(null);
     onClose();
   };
 
@@ -112,7 +95,6 @@ export function ThemeEditorDialog({
     try {
       const definition = editableDefinition({ ...draft, name });
       const saved = copyScope ? await api.createTheme(definition, copyScope) : await api.updateTheme(stored!, definition);
-      onPreview(null);
       await onSaved(saved.id, Boolean(copyScope));
       onClose();
     } catch (cause) {

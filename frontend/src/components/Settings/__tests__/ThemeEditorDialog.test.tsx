@@ -9,22 +9,11 @@ import { ThemeEditorDialog } from "../ThemeEditorDialog";
 
 const theme = builtInThemes[0]!;
 
-function renderEditor(onPreview = vi.fn()) {
+function renderEditor() {
   const onClose = vi.fn();
   const onSaved = vi.fn().mockResolvedValue(undefined);
-  render(
-    <ThemeEditorDialog
-      theme={theme}
-      stored={undefined}
-      storedThemes={[]}
-      selectedThemeId={theme.id}
-      isAdmin={false}
-      onClose={onClose}
-      onSaved={onSaved}
-      onPreview={onPreview}
-    />
-  );
-  return { onClose, onSaved, onPreview };
+  render(<ThemeEditorDialog theme={theme} stored={undefined} storedThemes={[]} isAdmin={false} onClose={onClose} onSaved={onSaved} />);
+  return { onClose, onSaved };
 }
 
 async function chooseCopyDestination(user: ReturnType<typeof userEvent.setup>, destination = "Your themes") {
@@ -54,32 +43,47 @@ describe("ThemeEditorDialog", () => {
         theme={theme}
         stored={stored}
         storedThemes={[stored]}
-        selectedThemeId={theme.id}
         isAdmin={scope === "site"}
         onClose={vi.fn()}
         onSaved={vi.fn()}
-        onPreview={vi.fn()}
       />
     );
 
     expect(screen.getByRole("dialog", { name: `Edit ${theme.name} (${label})` })).toBeInTheDocument();
   });
 
-  it("keeps an invalid hex draft out of the preview and restores the persisted theme on cancel", async () => {
+  it("keeps an invalid hex draft local and cancels without saving", async () => {
     const user = userEvent.setup();
-    const { onClose, onPreview } = renderEditor();
+    const create = vi.spyOn(api, "createTheme");
+    const { onClose } = renderEditor();
     expect(screen.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
 
     await user.clear(screen.getByDisplayValue(theme.primary.main));
     await user.type(screen.getByRole("textbox", { name: /Main/ }), "#bad");
     expect(screen.getByRole("textbox", { name: /Main/ })).toHaveAttribute("aria-invalid", "true");
     expect(screen.getAllByText("Use #RRGGBB or #RRGGBBAA.")).toHaveLength(2);
-    expect(onPreview).not.toHaveBeenCalledWith(expect.objectContaining({ primary: { main: "#bad" } }));
     await chooseCopyDestination(user);
     await waitFor(() => expect(screen.getByRole("textbox", { name: /Main/ })).toHaveFocus());
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(onPreview).toHaveBeenLastCalledWith(null);
     expect(onClose).toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("keeps valid color and description edits local until Save", async () => {
+    const user = userEvent.setup();
+    const create = vi.spyOn(api, "createTheme");
+    const { onClose, onSaved } = renderEditor();
+
+    await user.clear(screen.getByRole("textbox", { name: /Main/ }));
+    await user.type(screen.getByRole("textbox", { name: /Main/ }), "#112233");
+    await user.type(screen.getByRole("textbox", { name: "Description" }), "Local draft");
+    expect(screen.getByRole("textbox", { name: /Main/ })).toHaveValue("#112233");
+    expect(create).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("offers an alpha picker and saves a copied built-in with a server-generated ID", async () => {
@@ -106,14 +110,13 @@ describe("ThemeEditorDialog", () => {
   it("shows and saves opaque eight-digit input as six-digit hex", async () => {
     const user = userEvent.setup();
     const create = vi.spyOn(api, "createTheme").mockResolvedValue({ id: "server-id", version: 1, scope: "user", definition: theme });
-    const { onPreview } = renderEditor();
+    renderEditor();
     const main = screen.getByRole("textbox", { name: /Main/ });
     await user.clear(main);
     await user.type(main, "#112233ff");
     await user.tab();
 
     expect(main).toHaveValue("#112233");
-    expect(onPreview).toHaveBeenLastCalledWith(expect.objectContaining({ primary: expect.objectContaining({ main: "#112233" }) }));
     await chooseCopyDestination(user);
     await waitFor(() =>
       expect(create).toHaveBeenCalledWith(expect.objectContaining({ primary: expect.objectContaining({ main: "#112233" }) }), "user")
@@ -132,11 +135,9 @@ describe("ThemeEditorDialog", () => {
         theme={writableTheme}
         stored={stored}
         storedThemes={[stored]}
-        selectedThemeId={stored.id}
         isAdmin={false}
         onClose={vi.fn()}
         onSaved={onSaved}
-        onPreview={vi.fn()}
       />
     );
 
@@ -184,14 +185,13 @@ describe("ThemeEditorDialog", () => {
 
   it("imports a valid draft without saving and leaves it intact after an invalid import", async () => {
     const user = userEvent.setup();
-    const { onPreview } = renderEditor();
+    renderEditor();
     const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]')!;
     const validFile = new File([], "theme.json", { type: "application/json" });
     validFile.text = async () => JSON.stringify({ version: 1, definition: { ...editableDefinition(theme), name: "Imported light" } });
 
     await user.upload(fileInput, validFile);
     expect(await screen.findByDisplayValue("Imported light")).toBeInTheDocument();
-    expect(onPreview).toHaveBeenLastCalledWith(expect.objectContaining({ id: theme.id, name: "Imported light" }));
 
     const invalidFile = new File([], "broken.json", { type: "application/json" });
     invalidFile.text = async () => "{broken";
@@ -213,11 +213,9 @@ describe("ThemeEditorDialog", () => {
         theme={personalTheme}
         stored={original}
         storedThemes={[original, existingCopy]}
-        selectedThemeId={personalTheme.id}
         isAdmin={false}
         onClose={vi.fn()}
         onSaved={onSaved}
-        onPreview={vi.fn()}
       />
     );
 
@@ -241,11 +239,9 @@ describe("ThemeEditorDialog", () => {
         theme={siteTheme}
         stored={stored}
         storedThemes={[stored]}
-        selectedThemeId={siteTheme.id}
         isAdmin
         onClose={vi.fn()}
         onSaved={vi.fn().mockResolvedValue(undefined)}
-        onPreview={vi.fn()}
       />
     );
 
@@ -265,11 +261,9 @@ describe("ThemeEditorDialog", () => {
         theme={theme}
         stored={undefined}
         storedThemes={[]}
-        selectedThemeId={theme.id}
         isAdmin
         onClose={vi.fn()}
         onSaved={vi.fn().mockResolvedValue(undefined)}
-        onPreview={vi.fn()}
       />
     );
 
@@ -290,16 +284,7 @@ describe("ThemeEditorDialog", () => {
     const existing = { id: "existing-id", scope: "user" as const, version: 2, definition: editableDefinition(theme) };
     vi.spyOn(api, "createTheme").mockRejectedValueOnce(new Error("Theme changed in another tab. Refresh and try again"));
     render(
-      <ThemeEditorDialog
-        theme={theme}
-        stored={undefined}
-        storedThemes={[existing]}
-        selectedThemeId={theme.id}
-        isAdmin={false}
-        onClose={vi.fn()}
-        onSaved={vi.fn()}
-        onPreview={vi.fn()}
-      />
+      <ThemeEditorDialog theme={theme} stored={undefined} storedThemes={[existing]} isAdmin={false} onClose={vi.fn()} onSaved={vi.fn()} />
     );
 
     await chooseCopyDestination(user);

@@ -38,7 +38,6 @@ interface ThemeContextValue {
   siteDefaultId: string;
   isAdmin: boolean;
   refreshThemes: () => Promise<void>;
-  setDraftPreview: (theme: ThemeConfig | null) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
@@ -59,7 +58,6 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
   const [storedThemes, setStoredThemes] = useState<StoredTheme[]>([]);
   const [siteDefaultId, setSiteDefaultId] = useState(getDefaultTheme().id);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [draftPreview, setDraftPreview] = useState<ThemeConfig | null>(null);
   const refreshSequence = useRef(0);
   const currentThemeId = themeIdSetting.confirmedValue ?? siteDefaultId;
 
@@ -99,7 +97,6 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
       setStoredThemes([]);
       setSiteDefaultId(getDefaultTheme().id);
       setIsAdmin(false);
-      setDraftPreview(null);
       refresh();
     });
     return () => {
@@ -118,11 +115,8 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
 
   // Current theme configuration
   const currentTheme = useMemo(
-    () =>
-      (draftPreview?.id === currentThemeId ? draftPreview : null) ??
-      availableThemes.find((theme) => theme.id === currentThemeId) ??
-      getDefaultTheme(),
-    [availableThemes, currentThemeId, draftPreview]
+    () => availableThemes.find((theme) => theme.id === currentThemeId) ?? getDefaultTheme(),
+    [availableThemes, currentThemeId]
   );
 
   // Material-UI theme object
@@ -457,7 +451,6 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     siteDefaultId,
     isAdmin,
     refreshThemes,
-    setDraftPreview,
   };
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

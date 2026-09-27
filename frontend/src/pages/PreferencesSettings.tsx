@@ -88,7 +88,6 @@ export function AppearanceSettings() {
     siteDefaultId = "sambee-light",
     isAdmin = false,
     refreshThemes,
-    setDraftPreview,
   } = useSambeeTheme();
   const themeSetting = useCurrentUserSetting("appearance.theme_id");
   const languageSetting = useCurrentUserSetting("localization.language");
@@ -335,10 +334,8 @@ export function AppearanceSettings() {
               theme={editing}
               stored={storedThemes.find((entry) => entry.id === editing.id)}
               storedThemes={storedThemes}
-              selectedThemeId={selectedThemeId}
               isAdmin={isAdmin}
               onClose={() => setEditing(null)}
-              onPreview={setDraftPreview ?? (() => undefined)}
               onSaved={async (themeId, isCopy) => {
                 await refreshThemes?.();
                 if (!isCopy && editing.id === selectedThemeId && themeId !== selectedThemeId) await themeSetting.commit(themeId);

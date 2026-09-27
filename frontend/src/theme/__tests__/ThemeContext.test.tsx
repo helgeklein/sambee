@@ -102,4 +102,29 @@ describe("ThemeContext", () => {
     await act(async () => result.current.refreshThemes());
     expect(result.current.currentTheme.id).toBe("sambee-light");
   });
+
+  it("applies a saved selected theme when another tab regains focus", async () => {
+    const customTheme = {
+      id: "custom",
+      name: "Custom",
+      mode: "light" as const,
+      primary: { main: "#123456" },
+      secondary: { main: "#abcdef" },
+    };
+    useCurrentUserSettingMock.mockImplementation(() => ({ confirmedValue: "custom" }));
+    getThemesMock.mockResolvedValue({
+      themes: [{ id: "custom", scope: "user", version: 1, definition: customTheme }],
+      site_default_id: "sambee-light",
+    });
+    const { result } = renderHook(() => useSambeeTheme(), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.currentTheme.primary.main).toBe("#123456"));
+
+    getThemesMock.mockResolvedValue({
+      themes: [{ id: "custom", scope: "user", version: 2, definition: { ...customTheme, primary: { main: "#654321" } } }],
+      site_default_id: "sambee-light",
+    });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(result.current.currentTheme.primary.main).toBe("#654321"));
+    expect(result.current.muiTheme.palette.primary.main).toBe("#654321");
+  });
 });
