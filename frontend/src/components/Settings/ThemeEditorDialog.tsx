@@ -168,7 +168,14 @@ export function ThemeEditorDialog({
           </>
         }
       >
-        <input ref={fileInput} type="file" accept="application/json,.json" hidden onChange={(event) => void importFile(event)} />
+        <input
+          ref={fileInput}
+          type="file"
+          accept="application/json,.json"
+          hidden
+          tabIndex={-1}
+          onChange={(event) => void importFile(event)}
+        />
         <FormSurface>
           <FormGroup>
             <FormRow>

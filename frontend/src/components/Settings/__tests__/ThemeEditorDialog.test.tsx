@@ -30,6 +30,15 @@ function renderEditor(onPreview = vi.fn()) {
 describe("ThemeEditorDialog", () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it("starts on the dialog and tabs to the name field", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    expect(screen.getByRole("dialog", { name: `Edit ${theme.name}` })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("textbox", { name: "Name" })).toHaveFocus();
+  });
+
   it("keeps an invalid hex draft out of the preview and restores the persisted theme on cancel", async () => {
     const user = userEvent.setup();
     const { onClose, onPreview } = renderEditor();
