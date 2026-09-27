@@ -24,7 +24,9 @@ export const COMPANION_BASE_URL = "http://localhost:21549/api";
 export const COMPANION_AUTH_PROTOCOL_VERSION = 2;
 const COMPANION_AUTH_SIGNATURE_MISMATCH_CODE = "companion_auth_signature_mismatch";
 const COMPANION_BROWSER_UPDATE_REQUIRED_CODE = "companion_browser_update_required";
+const COMPANION_PAIRING_NOT_FOUND_CODE = "companion_pairing_not_found";
 export type CompanionAuthProtocolStatus = "compatible" | "companion_update_required" | "browser_update_required";
+export type CompanionPairingErrorKind = "signature" | "pairing_required";
 
 export function isCompanionAuthSignatureMismatch(error: unknown): boolean {
   if (!isApiError(error) || error.response?.status !== 403) return false;
@@ -33,6 +35,11 @@ export function isCompanionAuthSignatureMismatch(error: unknown): boolean {
     error.response.data?.code === COMPANION_BROWSER_UPDATE_REQUIRED_CODE ||
     error.response.data?.detail === "Invalid authentication"
   );
+}
+
+export function isCompanionPairingMissing(error: unknown): boolean {
+  if (!isApiError(error) || error.response?.status !== 403) return false;
+  return error.response.data?.code === COMPANION_PAIRING_NOT_FOUND_CODE || error.response.data?.detail === "Not paired with this origin";
 }
 
 export function getCompanionAuthProtocolStatus(health: CompanionHealthResponse): CompanionAuthProtocolStatus {

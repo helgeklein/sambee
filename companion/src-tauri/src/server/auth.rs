@@ -37,6 +37,7 @@ const MAX_TIMESTAMP_SKEW: u64 = 30;
 pub(super) const AUTH_PROTOCOL_VERSION: u32 = 2;
 pub(super) const AUTH_SIGNATURE_MISMATCH_CODE: &str = "companion_auth_signature_mismatch";
 pub(super) const BROWSER_UPDATE_REQUIRED_CODE: &str = "companion_browser_update_required";
+pub(super) const PAIRING_NOT_FOUND_CODE: &str = "companion_pairing_not_found";
 
 /// Request context included in authentication warning logs.
 pub(super) struct AuthLogContext<'a> {
@@ -266,7 +267,7 @@ fn validate_hmac(
             "Auth rejected: no pairing found for origin {origin}; transport={}; method={}; path={}",
             log_context.auth_transport, log_context.method, log_context.path,
         );
-        ApiError::Forbidden("Not paired with this origin".to_string())
+        ApiError::forbidden_code("Not paired with this origin", PAIRING_NOT_FOUND_CODE)
     })?;
 
     // Validate timestamp (within ±MAX_TIMESTAMP_SKEW seconds)

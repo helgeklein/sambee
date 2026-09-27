@@ -5,6 +5,7 @@ import {
   COMPANION_PAIR_CONFIRMATION_PENDING_DETAIL,
   default as companionService,
   getCompanionAuthProtocolStatus,
+  isCompanionPairingMissing,
 } from "../companion";
 import { companionSession } from "../companionSession";
 
@@ -19,6 +20,13 @@ describe("companion authentication protocol", () => {
     expect(getCompanionAuthProtocolStatus({ ...health, auth_protocol_version: COMPANION_AUTH_PROTOCOL_VERSION + 1 })).toBe(
       "browser_update_required"
     );
+  });
+
+  it("identifies a missing origin pairing without treating other forbidden responses as pairing errors", () => {
+    expect(isCompanionPairingMissing({ response: { status: 403, data: { code: "companion_pairing_not_found" } } })).toBe(true);
+    expect(isCompanionPairingMissing({ response: { status: 403, data: { detail: "Not paired with this origin" } } })).toBe(true);
+    expect(isCompanionPairingMissing({ response: { status: 403, data: { detail: "Permission denied" } } })).toBe(false);
+    expect(isCompanionPairingMissing({ response: { status: 500, data: { code: "companion_pairing_not_found" } } })).toBe(false);
   });
 });
 

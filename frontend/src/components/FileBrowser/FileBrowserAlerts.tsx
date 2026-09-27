@@ -5,6 +5,7 @@
 import { Alert, Box, Button, Link, Stack, Typography } from "@mui/material";
 import { useTranslation } from "react-i18next";
 import type { BackendAvailabilityStatus } from "../../services/backendAvailability";
+import type { CompanionPairingErrorKind } from "../../services/companion";
 import { EmptyStateIllustration } from "./EmptyStateIllustration";
 
 export type CompanionLifecycleStatus = "renewal_required" | "auth_failed" | "lock_lost" | "recovery_required";
@@ -32,7 +33,7 @@ interface FileBrowserAlertsProps {
   onOpenConnectionsSettings?: () => void;
   onDismissCompanionLifecycleStatus?: () => void;
   onRetry?: () => void;
-  companionPairingError?: boolean;
+  companionPairingError?: CompanionPairingErrorKind | null;
   onOpenLocalDrivesSettings?: () => void;
   paneLabel?: string;
 }
@@ -115,9 +116,11 @@ export function FileBrowserAlerts({
           action={
             companionPairingError && onOpenLocalDrivesSettings ? (
               <Stack direction="row" flexWrap="wrap">
-                <Button color="inherit" size="small" onClick={() => window.location.reload()}>
-                  {t("settings.localDrives.reloadButton")}
-                </Button>
+                {companionPairingError === "signature" && (
+                  <Button color="inherit" size="small" onClick={() => window.location.reload()}>
+                    {t("settings.localDrives.reloadButton")}
+                  </Button>
+                )}
                 <Button color="inherit" size="small" onClick={onOpenLocalDrivesSettings}>
                   {t("settings.localDrives.headerTitle")}
                 </Button>

@@ -45,6 +45,7 @@ If a local drive reports a pairing error, open **Settings** > **Local Drives** f
 
 1. If Companion needs an update, install the available version, restart Companion, and reload the Sambee page. Re-pairing will not resolve an incompatible version.
 1. If Sambee needs an update, reload the page. If the version mismatch remains, update Sambee. Updating Companion or re-pairing will not fix a newer Companion protocol.
+1. If the file-list alert says this browser isn't paired, open **Local Drives** and select **Pair This Browser**. Reloading alone won't restore a missing or removed pairing.
 1. If Companion rejects the browser's signature, reload the Sambee page first. A page left open across an update may still use the previous authentication protocol.
 1. Run **Test Current Pairing**. If it still fails with a signature error after reloading, use **Pair This Browser** and approve the new code in Companion.
 

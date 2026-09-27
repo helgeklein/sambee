@@ -1045,6 +1045,7 @@ export const EN_TRANSLATIONS = {
         rightPane: "Right pane",
         localDrivePairingRejected:
           "{{connection}}: Sambee Companion rejected this browser's pairing. Reload Sambee to pick up any update; if it still fails, open Local Drives to check the pairing.",
+        localDrivePairingRequired: "{{connection}}: This browser is not paired with Sambee Companion. Open Local Drives to pair it.",
         welcomeTitle: "Welcome to Sambee!",
         adminOnboardingPrefix: "Get started by ",
         adminOnboardingLink: "adding your first SMB network share",

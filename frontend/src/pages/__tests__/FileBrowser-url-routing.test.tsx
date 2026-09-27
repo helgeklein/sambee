@@ -49,6 +49,7 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
     localStorage.removeItem("selectedConnectionId");
     localStorage.removeItem("dual-pane-mode");
     localStorage.removeItem("active-pane");
+    localStorage.removeItem("companion_secret");
 
     setupSuccessfulApiMocks(api as unknown as ApiMock);
   });
@@ -509,6 +510,53 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
       expect(await screen.findByText(/Sambee Companion rejected this browser's pairing/i)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Reload Sambee" })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    });
+
+    it("opens pairing settings when Companion has removed this origin's pairing", async () => {
+      localStorage.setItem("companion_secret", "old-secret");
+      vi.mocked(api.listDirectory).mockRejectedValue({
+        response: { status: 403, data: { code: "companion_pairing_not_found", detail: "Not paired with this origin" } },
+      });
+
+      renderBrowser("/browse/local/c/Users");
+
+      expect(await screen.findByText(/This browser is not paired with Sambee Companion/i)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Reload Sambee" })).not.toBeInTheDocument();
+      await userEvent.setup().click(screen.getByRole("button", { name: "Local Drives" }));
+      expect(await screen.findByTestId("settings-dialog")).toHaveAttribute("data-category", "local-drives");
+    });
+
+    it("opens pairing settings when the browser secret is missing", async () => {
+      vi.mocked(api.listDirectory).mockRejectedValue(new Error("Not paired with companion"));
+
+      renderBrowser("/browse/local/c/Users");
+
+      expect(await screen.findByText(/This browser is not paired with Sambee Companion/i)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Reload Sambee" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Local Drives" })).toBeInTheDocument();
+    });
+
+    it("keeps Retry for unrelated local-drive permission errors", async () => {
+      localStorage.setItem("companion_secret", "valid-secret");
+      vi.mocked(api.listDirectory).mockRejectedValue({ response: { status: 403, data: { detail: "Permission denied" } } });
+
+      renderBrowser("/browse/local/c/Users");
+
+      expect(await screen.findByText("Permission denied")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Local Drives" })).not.toBeInTheDocument();
+    });
+
+    it("keeps Retry for a temporary local-drive network failure", async () => {
+      localStorage.setItem("companion_secret", "valid-secret");
+      vi.mocked(api.listDirectory).mockRejectedValue(new Error("Network Error"));
+
+      renderBrowser("/browse/local/c/Users");
+
+      expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Local Drives" })).not.toBeInTheDocument();
     });
   });
 });
