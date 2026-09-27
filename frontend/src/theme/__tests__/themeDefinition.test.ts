@@ -21,6 +21,14 @@ describe("theme definitions", () => {
     expect(validateThemeDefinition(parsed)).toBeNull();
   });
 
+  it("normalizes opaque alpha but preserves translucent and six-digit colors", () => {
+    const original = builtInThemes[0]!;
+    expect(withColor(original, "primary.main", "#112233ff").primary.main).toBe("#112233");
+    expect(withColor(original, "primary.main", "#11223388").primary.main).toBe("#11223388");
+    expect(withColor(original, "primary.main", "#1122ff").primary.main).toBe("#1122FF");
+    expect(withColor(original, "primary.main", "#GGGGGGff").primary.main).toBe("#GGGGGGFF");
+  });
+
   it("rejects malformed, incomplete, and unsupported imports", () => {
     expect(() => parseThemeImport("not json")).toThrow();
     expect(() => parseThemeImport(JSON.stringify({ version: 2, definition: editableDefinition(builtInThemes[0]!) }))).toThrow();

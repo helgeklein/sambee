@@ -68,6 +68,23 @@ describe("ThemeEditorDialog", () => {
     expect(onSaved).toHaveBeenCalledWith("server-id");
   });
 
+  it("shows and saves opaque eight-digit input as six-digit hex", async () => {
+    const user = userEvent.setup();
+    const create = vi.spyOn(api, "createTheme").mockResolvedValue({ id: "server-id", version: 1, scope: "user", definition: theme });
+    const { onPreview } = renderEditor();
+    const main = screen.getByRole("textbox", { name: /Main/ });
+    await user.clear(main);
+    await user.type(main, "#112233ff");
+    await user.tab();
+
+    expect(main).toHaveValue("#112233");
+    expect(onPreview).toHaveBeenLastCalledWith(expect.objectContaining({ primary: expect.objectContaining({ main: "#112233" }) }));
+    await user.click(screen.getByRole("button", { name: "Save as" }));
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(expect.objectContaining({ primary: expect.objectContaining({ main: "#112233" }) }), "user")
+    );
+  });
+
   it("updates a writable theme using the versioned target", async () => {
     const user = userEvent.setup();
     const writableTheme = { ...theme, id: "custom-id", name: "Writable" };

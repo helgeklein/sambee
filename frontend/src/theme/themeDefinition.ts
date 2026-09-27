@@ -42,6 +42,11 @@ export function colorAt(theme: ThemeConfig, path: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+export function normalizeHexColor(color: string): string {
+  const normalized = color.toUpperCase();
+  return HEX_COLOR_PATTERN.test(normalized) && normalized.length === 9 && normalized.endsWith("FF") ? normalized.slice(0, -2) : normalized;
+}
+
 export function withColor(theme: ThemeConfig, path: string, color: string): ThemeConfig {
   const copy = structuredClone(theme);
   const keys = path.split(".");
@@ -51,7 +56,7 @@ export function withColor(theme: ThemeConfig, path: string, color: string): Them
     if (!next || typeof next !== "object" || Array.isArray(next)) target[key] = {};
     target = target[key] as Record<string, unknown>;
   }
-  target[keys[keys.length - 1]!] = color.toUpperCase();
+  target[keys[keys.length - 1]!] = normalizeHexColor(color);
   return copy;
 }
 

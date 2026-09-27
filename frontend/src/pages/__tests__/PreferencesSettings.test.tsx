@@ -1,6 +1,7 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { StoredTheme } from "../../services/api";
 import api from "../../services/api";
 import { render } from "../../test/utils/test-utils";
 import { builtInThemes } from "../../theme/themes";
@@ -11,7 +12,7 @@ const { setLanguagePreferenceMock, setRegionalLocalePreferenceMock, themeCommitM
     setLanguagePreferenceMock: vi.fn(),
     setRegionalLocalePreferenceMock: vi.fn(),
     themeCommitMock: vi.fn(),
-    themeContextState: { isAdmin: false },
+    themeContextState: { isAdmin: false, storedThemes: [] as StoredTheme[], refreshThemes: vi.fn() },
     settingStates: {
       language: { error: null as string | null, pending: false, saved: false },
       regionalLocale: { error: null as string | null, pending: false, saved: false },
@@ -24,7 +25,8 @@ vi.mock("../../theme", () => ({
   useSambeeTheme: () => ({
     isAdmin: themeContextState.isAdmin,
     siteDefaultId: "sambee-light",
-    refreshThemes: () => Promise.resolve(),
+    refreshThemes: themeContextState.refreshThemes,
+    storedThemes: themeContextState.storedThemes,
     currentTheme: {
       id: "sambee-light",
       name: "Sambee light",
@@ -47,6 +49,7 @@ vi.mock("../../theme", () => ({
         background: { default: "#1f262b" },
         text: { primary: "#f6f1e8" },
       },
+      ...themeContextState.storedThemes.map((entry) => ({ ...entry.definition, id: entry.id })),
     ],
   }),
 }));
@@ -85,6 +88,8 @@ describe("AppearanceSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     themeContextState.isAdmin = false;
+    themeContextState.storedThemes = [];
+    themeContextState.refreshThemes.mockResolvedValue(undefined);
     themeCommitMock.mockResolvedValue(undefined);
     setLanguagePreferenceMock.mockResolvedValue(undefined);
     setRegionalLocalePreferenceMock.mockResolvedValue(undefined);
@@ -167,6 +172,26 @@ describe("AppearanceSettings", () => {
     await user.click(screen.getByRole("button", { name: "Set as default" }));
 
     await waitFor(() => expect(setDefault).toHaveBeenCalledWith("sambee-dark"));
+  });
+
+  it("refreshes a stale theme after a delete conflict without retrying the old version", async () => {
+    const user = userEvent.setup();
+    const stored = { id: "custom", scope: "user" as const, version: 1, definition: { ...builtInThemes[0]!, name: "Custom" } };
+    themeContextState.storedThemes = [stored];
+    const remove = vi.spyOn(api, "deleteTheme").mockRejectedValue({
+      isAxiosError: true,
+      response: { status: 409, data: { detail: "Theme changed in another tab. Refresh and try again" } },
+    });
+    render(<AppearanceSettings />);
+
+    await user.click(screen.getByRole("button", { name: "Target Custom for actions" }));
+    await user.click(screen.getByRole("button", { name: "Delete", exact: true }));
+    await user.click(within(screen.getByRole("dialog", { name: "Delete theme?" })).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(themeContextState.refreshThemes).toHaveBeenCalledOnce());
+    expect(remove).toHaveBeenCalledWith(stored);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete theme?" })).not.toBeInTheDocument());
+    expect(screen.getByText("Theme changed in another tab. Refresh and try again")).toBeInTheDocument();
   });
 
   it.each([

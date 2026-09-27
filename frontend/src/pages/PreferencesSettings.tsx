@@ -1,5 +1,6 @@
 import { Box, Button, Chip, FormControl, InputLabel, MenuItem, Radio, Select, Typography } from "@mui/material";
 import type { SelectChangeEvent } from "@mui/material/Select";
+import axios from "axios";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ResponsiveDialogShell } from "../components/Dialog/ResponsiveDialogShell";
@@ -356,7 +357,16 @@ export function AppearanceSettings() {
                     const target = selectedStored;
                     if (!target) return;
                     void runThemeAction(async () => {
-                      await api.deleteTheme(target);
+                      try {
+                        await api.deleteTheme(target);
+                      } catch (error) {
+                        if (axios.isAxiosError(error) && error.response?.status === 409) {
+                          setSelectedTileId(null);
+                          setConfirmDelete(false);
+                          await refreshThemes?.();
+                        }
+                        throw error;
+                      }
                       setSelectedTileId(null);
                       setConfirmDelete(false);
                     });

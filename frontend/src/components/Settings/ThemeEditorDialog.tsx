@@ -8,6 +8,7 @@ import {
   colorAt,
   editableDefinition,
   HEX_COLOR_PATTERN,
+  normalizeHexColor,
   parseThemeImport,
   THEME_DEFINITION_VERSION,
   validateThemeDefinition,
@@ -348,7 +349,7 @@ export function ThemeEditorDialog({
                             onChange={(event) => changeColor(role.path, event.target.value)}
                             onBlur={() => {
                               if (HEX_COLOR_PATTERN.test(input))
-                                setInputColors((previous) => ({ ...previous, [role.path]: input.toUpperCase() }));
+                                setInputColors((previous) => ({ ...previous, [role.path]: normalizeHexColor(input) }));
                             }}
                             error={invalid}
                             helperText={invalid ? "Use #RRGGBB or #RRGGBBAA." : undefined}
@@ -388,7 +389,7 @@ export function ThemeEditorDialog({
             >
               <HexAlphaColorPicker
                 color={colorAt(draft, activeColor) ?? "#000000"}
-                onChange={(value) => changeColor(activeColor, value.toUpperCase().endsWith("FF") ? value.slice(0, -2) : value)}
+                onChange={(value) => changeColor(activeColor, normalizeHexColor(value))}
               />
             </Box>
           )}
