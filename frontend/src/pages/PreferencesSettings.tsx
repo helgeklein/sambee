@@ -217,7 +217,7 @@ export function AppearanceSettings() {
                       sx={{
                         position: "relative",
                         p: 3,
-                        border: selectedTile?.id === themeOption.id ? 2 : 1,
+                        border: 2,
                         borderColor: selectedTile?.id === themeOption.id ? "primary.main" : "divider",
                         borderRadius: 1,
                         cursor: themeSelectionPending ? "default" : "pointer",
