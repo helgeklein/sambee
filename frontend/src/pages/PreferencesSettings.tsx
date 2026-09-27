@@ -94,7 +94,6 @@ export function AppearanceSettings() {
   const languageSetting = useCurrentUserSetting("localization.language");
   const regionalLocaleSetting = useCurrentUserSetting("localization.regional_locale");
   const [pendingThemeId, setPendingThemeId] = useState<string | null>(null);
-  const [selectedTileId, setSelectedTileId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ThemeConfig | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [themeActionPending, setThemeActionPending] = useState(false);
@@ -148,8 +147,7 @@ export function AppearanceSettings() {
   };
 
   const handleThemeSelect = (themeId: string) => {
-    setSelectedTileId(themeId);
-    if (!themeSetting.pending) {
+    if (!themeSetting.pending && pendingThemeId === null) {
       setPendingThemeId(themeId);
       themeSetting.clearError();
       void themeSetting
@@ -161,7 +159,7 @@ export function AppearanceSettings() {
 
   const selectedThemeId = pendingThemeId ?? currentTheme.id;
   const themeSelectionPending = themeSetting.pending || pendingThemeId !== null;
-  const selectedTile = availableThemes.find((themeOption) => themeOption.id === (selectedTileId ?? selectedThemeId));
+  const selectedTile = availableThemes.find((themeOption) => themeOption.id === selectedThemeId);
   const selectedStored = storedThemes.find((entry) => entry.id === selectedTile?.id);
   const selectedWritable = Boolean(selectedStored && (selectedStored.scope === "user" || isAdmin));
 
@@ -182,8 +180,7 @@ export function AppearanceSettings() {
     if (!selectedTile) return;
     const scope = selectedWritable && selectedStored ? selectedStored.scope : "user";
     void runThemeAction(async () => {
-      const copied = await api.createTheme({ ...editableDefinition(selectedTile), name: `${selectedTile.name} (copy)` }, scope);
-      setSelectedTileId(copied.id);
+      await api.createTheme({ ...editableDefinition(selectedTile), name: `${selectedTile.name} (copy)` }, scope);
     });
   };
 
@@ -213,7 +210,7 @@ export function AppearanceSettings() {
                   {options.map((themeOption) => (
                     <Box
                       key={themeOption.id}
-                      onClick={() => setSelectedTileId(themeOption.id)}
+                      onClick={() => handleThemeSelect(themeOption.id)}
                       sx={{
                         position: "relative",
                         p: 3,
@@ -246,11 +243,11 @@ export function AppearanceSettings() {
                           checked={selectedThemeId === themeOption.id}
                           disabled={themeSelectionPending}
                           slotProps={{ input: { "aria-label": themeOption.name } }}
-                          onFocus={() => {
-                            restoreThemeFocus();
-                            setSelectedTileId(themeOption.id);
+                          onFocus={() => restoreThemeFocus()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleThemeSelect(themeOption.id);
                           }}
-                          onClick={() => handleThemeSelect(themeOption.id)}
                           onKeyDown={(event) => {
                             if (event.key === "Enter") {
                               event.preventDefault();
@@ -258,30 +255,17 @@ export function AppearanceSettings() {
                             }
                           }}
                         />
-                        <Box
-                          component="button"
-                          type="button"
-                          tabIndex={-1}
-                          aria-label={`Target ${themeOption.name} for actions`}
-                          aria-pressed={selectedTile?.id === themeOption.id}
-                          onClick={() => setSelectedTileId(themeOption.id)}
+                        <Typography
+                          component="span"
+                          variant="subtitle1"
                           sx={{
                             ml: 1,
                             minWidth: 0,
-                            p: 0,
-                            border: 0,
-                            bgcolor: "transparent",
-                            color: "inherit",
-                            cursor: "pointer",
-                            textAlign: "left",
                             overflowWrap: "anywhere",
-                            "&:focus-visible": { outline: "2px solid", outlineColor: "primary.main", outlineOffset: 2 },
                           }}
                         >
-                          <Typography component="span" variant="subtitle1">
-                            {themeOption.name}
-                          </Typography>
-                        </Box>
+                          {themeOption.name}
+                        </Typography>
                         {selectedThemeId === themeOption.id ? (
                           <Box sx={{ ml: "auto" }}>
                             <SettingSaveStatus
@@ -351,7 +335,6 @@ export function AppearanceSettings() {
               onClose={() => setEditing(null)}
               onPreview={setDraftPreview ?? (() => undefined)}
               onSaved={async (themeId) => {
-                setSelectedTileId(themeId);
                 await refreshThemes?.();
                 if (editing.id === selectedThemeId && themeId !== selectedThemeId) await themeSetting.commit(themeId);
               }}
@@ -374,13 +357,11 @@ export function AppearanceSettings() {
                         await api.deleteTheme(target);
                       } catch (error) {
                         if (axios.isAxiosError(error) && error.response?.status === 409) {
-                          setSelectedTileId(null);
                           setConfirmDelete(false);
                           await refreshThemes?.();
                         }
                         throw error;
                       }
-                      setSelectedTileId(null);
                       setConfirmDelete(false);
                     });
                   }}

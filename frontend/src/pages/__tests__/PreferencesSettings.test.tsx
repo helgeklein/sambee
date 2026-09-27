@@ -12,7 +12,7 @@ const { setLanguagePreferenceMock, setRegionalLocalePreferenceMock, themeCommitM
     setLanguagePreferenceMock: vi.fn(),
     setRegionalLocalePreferenceMock: vi.fn(),
     themeCommitMock: vi.fn(),
-    themeContextState: { isAdmin: false, storedThemes: [] as StoredTheme[], refreshThemes: vi.fn() },
+    themeContextState: { isAdmin: false, currentThemeId: "sambee-light", storedThemes: [] as StoredTheme[], refreshThemes: vi.fn() },
     settingStates: {
       language: { error: null as string | null, pending: false, saved: false },
       regionalLocale: { error: null as string | null, pending: false, saved: false },
@@ -28,7 +28,7 @@ vi.mock("../../theme", () => ({
     refreshThemes: themeContextState.refreshThemes,
     storedThemes: themeContextState.storedThemes,
     currentTheme: {
-      id: "sambee-light",
+      id: themeContextState.currentThemeId,
       name: "Sambee light",
       primary: { main: "#1976d2" },
       background: { default: "#ffffff" },
@@ -88,6 +88,7 @@ describe("AppearanceSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     themeContextState.isAdmin = false;
+    themeContextState.currentThemeId = "sambee-light";
     themeContextState.storedThemes = [];
     themeContextState.refreshThemes.mockResolvedValue(undefined);
     themeCommitMock.mockResolvedValue(undefined);
@@ -164,46 +165,60 @@ describe("AppearanceSettings", () => {
     expect(screen.getByRole("radio", { name: "Sambee light" })).toBeChecked();
   });
 
+  it("selects a theme when its card is clicked", async () => {
+    const user = userEvent.setup();
+    render(<AppearanceSettings />);
+
+    await user.click(screen.getByText("Sambee dark"));
+
+    await waitFor(() => expect(themeCommitMock).toHaveBeenCalledWith("sambee-dark"));
+  });
+
   it("allows an administrator to set a built-in theme as the site default", async () => {
     const user = userEvent.setup();
     themeContextState.isAdmin = true;
+    themeContextState.currentThemeId = "sambee-dark";
     const setDefault = vi.spyOn(api, "setSiteDefaultTheme").mockResolvedValue({ themes: [], site_default_id: "sambee-dark" });
     render(<AppearanceSettings />);
 
-    await user.click(screen.getByRole("button", { name: "Target Sambee dark for actions" }));
-    expect(screen.getByRole("radio", { name: "Sambee light" })).toBeChecked();
+    act(() => screen.getByRole("radio", { name: "Sambee light" }).focus());
+    expect(screen.getByRole("radio", { name: "Sambee dark" })).toBeChecked();
     expect(themeCommitMock).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Set as default" }));
 
     await waitFor(() => expect(setDefault).toHaveBeenCalledWith("sambee-dark"));
   });
 
-  it("targets a theme from radio focus without a name tab stop or applying it", async () => {
+  it("keeps actions on the selected theme when focus moves to another radio", async () => {
     const user = userEvent.setup();
+    const create = vi
+      .spyOn(api, "createTheme")
+      .mockResolvedValue({ id: "new-id", scope: "user", version: 1, definition: builtInThemes[0]! });
     render(<AppearanceSettings />);
 
-    const nameButton = screen.getByRole("button", { name: "Target Sambee dark for actions" });
-    expect(nameButton).toHaveAttribute("tabindex", "-1");
     act(() => screen.getByRole("radio", { name: "Sambee dark" }).focus());
 
-    expect(nameButton).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("button", { name: "Target Sambee dark for actions" })).not.toBeInTheDocument();
     expect(themeCommitMock).not.toHaveBeenCalled();
     expect(screen.getByRole("radio", { name: "Sambee light" })).toBeChecked();
     await user.tab();
-    expect(nameButton).not.toHaveFocus();
+    expect(screen.getByRole("button", { name: "Copy" })).toHaveFocus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Sambee light (copy)" }), "user"));
   });
 
   it("refreshes a stale theme after a delete conflict without retrying the old version", async () => {
     const user = userEvent.setup();
     const stored = { id: "custom", scope: "user" as const, version: 1, definition: { ...builtInThemes[0]!, name: "Custom" } };
     themeContextState.storedThemes = [stored];
+    themeContextState.currentThemeId = "custom";
     const remove = vi.spyOn(api, "deleteTheme").mockRejectedValue({
       isAxiosError: true,
       response: { status: 409, data: { detail: "Theme changed in another tab. Refresh and try again" } },
     });
     render(<AppearanceSettings />);
 
-    await user.click(screen.getByRole("button", { name: "Target Custom for actions" }));
+    act(() => screen.getByRole("radio", { name: "Sambee dark" }).focus());
     await user.click(screen.getByRole("button", { name: "Delete", exact: true }));
     await user.click(within(screen.getByRole("dialog", { name: "Delete theme?" })).getByRole("button", { name: "Delete" }));
 
@@ -239,6 +254,8 @@ describe("AppearanceSettings", () => {
     expect(screen.getByRole("radio", { name: "Sambee dark" })).toBeDisabled();
     expect(screen.getByRole("radio", { name: "Sambee light" })).not.toBeChecked();
     expect(screen.getByRole("status", { name: "Saving setting" })).toBeInTheDocument();
+    await user.click(screen.getByText("Sambee light"));
+    expect(themeCommitMock).toHaveBeenCalledTimes(1);
   });
 
   it("restores theme radio focus after its save completes", async () => {
