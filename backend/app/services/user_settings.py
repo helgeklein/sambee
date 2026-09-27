@@ -8,7 +8,7 @@ from json import JSONDecodeError
 from pathlib import Path
 from typing import cast
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.core.logging import get_logger
 from app.core.user_setting_definitions import (
@@ -31,8 +31,11 @@ from app.models.user_settings import (
     CurrentUserSettingsRead,
     CurrentUserSettingsUpdate,
     CurrentUserSettingsUpdateResult,
+    LanguagePreference,
     LocalizationUserSettingsRead,
+    QuickBarShortcutHintVisibility,
     TextEditorUserSettingsRead,
+    TouchFriendlyFileSelection,
     UserSetting,
 )
 
@@ -208,7 +211,7 @@ def build_current_user_settings_read(*, user_id: uuid.UUID, session: Session) ->
             has_theme_override=explicit_theme_id is not None,
         ),
         localization=LocalizationUserSettingsRead(
-            language=_parse_language_preference(values.get(UserSettingKey.LOCALIZATION_LANGUAGE.value)),
+            language=cast(LanguagePreference, _parse_language_preference(values.get(UserSettingKey.LOCALIZATION_LANGUAGE.value))),
             regional_locale=_parse_regional_locale_preference(values.get(UserSettingKey.LOCALIZATION_REGIONAL_LOCALE.value)),
         ),
         browser=BrowserUserSettingsRead(
@@ -217,17 +220,23 @@ def build_current_user_settings_read(*, user_id: uuid.UUID, session: Session) ->
                 key=UserSettingKey.BROWSER_QUICK_NAV_INCLUDE_DOT_DIRECTORIES,
                 default=DEFAULT_QUICK_NAV_INCLUDE_DOT_DIRECTORIES,
             ),
-            quick_bar_shortcut_hint_visibility=_parse_choice(
-                values.get(UserSettingKey.BROWSER_QUICK_BAR_SHORTCUT_HINT_VISIBILITY.value),
-                key=UserSettingKey.BROWSER_QUICK_BAR_SHORTCUT_HINT_VISIBILITY,
-                valid_values=VALID_QUICK_BAR_SHORTCUT_HINT_VISIBILITIES,
-                default=DEFAULT_QUICK_BAR_SHORTCUT_HINT_VISIBILITY,
+            quick_bar_shortcut_hint_visibility=cast(
+                QuickBarShortcutHintVisibility,
+                _parse_choice(
+                    values.get(UserSettingKey.BROWSER_QUICK_BAR_SHORTCUT_HINT_VISIBILITY.value),
+                    key=UserSettingKey.BROWSER_QUICK_BAR_SHORTCUT_HINT_VISIBILITY,
+                    valid_values=VALID_QUICK_BAR_SHORTCUT_HINT_VISIBILITIES,
+                    default=DEFAULT_QUICK_BAR_SHORTCUT_HINT_VISIBILITY,
+                ),
             ),
-            touch_friendly_file_selection=_parse_choice(
-                values.get(UserSettingKey.BROWSER_TOUCH_FRIENDLY_FILE_SELECTION.value),
-                key=UserSettingKey.BROWSER_TOUCH_FRIENDLY_FILE_SELECTION,
-                valid_values=VALID_TOUCH_FRIENDLY_FILE_SELECTIONS,
-                default=DEFAULT_TOUCH_FRIENDLY_FILE_SELECTION,
+            touch_friendly_file_selection=cast(
+                TouchFriendlyFileSelection,
+                _parse_choice(
+                    values.get(UserSettingKey.BROWSER_TOUCH_FRIENDLY_FILE_SELECTION.value),
+                    key=UserSettingKey.BROWSER_TOUCH_FRIENDLY_FILE_SELECTION,
+                    valid_values=VALID_TOUCH_FRIENDLY_FILE_SELECTIONS,
+                    default=DEFAULT_TOUCH_FRIENDLY_FILE_SELECTION,
+                ),
             ),
             file_browser_view_mode=_parse_choice(
                 values.get(UserSettingKey.BROWSER_FILE_BROWSER_VIEW_MODE.value),
@@ -308,10 +317,9 @@ def update_current_user_settings(
         value = str(value).strip()
         if not value:
             raise ValueError("Theme ID cannot be empty")
-        current = build_current_user_settings_read(user_id=user_id, session=session)
         rows = session.exec(
-            select(StoredTheme.id).where((StoredTheme.owner_user_id == user_id) | (StoredTheme.owner_user_id == None))
-        ).all()  # noqa: E711
+            select(StoredTheme.id).where((col(StoredTheme.owner_user_id) == user_id) | col(StoredTheme.owner_user_id).is_(None))
+        ).all()
         allowed_ids = _built_in_theme_ids().union(rows)
         if value not in allowed_ids:
             raise ValueError("Theme ID must identify a built-in or current custom theme")
