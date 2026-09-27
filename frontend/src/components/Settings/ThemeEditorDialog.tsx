@@ -78,6 +78,7 @@ export function ThemeEditorDialog({
   const [pending, setPending] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const writable = Boolean(stored && (stored.scope === "user" || isAdmin));
+  const storageGroup = stored ? (stored.scope === "site" ? "site" : "personal") : "built-in";
 
   useEffect(() => {
     onPreview(draft.id === selectedThemeId ? draft : null);
@@ -159,7 +160,7 @@ export function ThemeEditorDialog({
       open
       onClose={close}
       disableClose={pending}
-      title={`Edit ${theme.name}`}
+      title={`Edit ${theme.name} (${storageGroup})`}
       maxWidth="md"
       actionNotice={error ? <Alert severity="error">{error}</Alert> : null}
       actions={

@@ -39,9 +39,30 @@ describe("ThemeEditorDialog", () => {
     const user = userEvent.setup();
     renderEditor();
 
-    expect(screen.getByRole("dialog", { name: `Edit ${theme.name}` })).toHaveFocus();
+    expect(screen.getByRole("dialog", { name: `Edit ${theme.name} (built-in)` })).toHaveFocus();
     await user.tab();
     expect(screen.getByRole("textbox", { name: "Name" })).toHaveFocus();
+  });
+
+  it.each([
+    ["user", "personal"],
+    ["site", "site"],
+  ] as const)("labels a %s theme as %s in the editor title", (scope, label) => {
+    const stored = { id: theme.id, scope, version: 1, definition: editableDefinition(theme) };
+    render(
+      <ThemeEditorDialog
+        theme={theme}
+        stored={stored}
+        storedThemes={[stored]}
+        selectedThemeId={theme.id}
+        isAdmin={scope === "site"}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        onPreview={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("dialog", { name: `Edit ${theme.name} (${label})` })).toBeInTheDocument();
   });
 
   it("keeps an invalid hex draft out of the preview and restores the persisted theme on cancel", async () => {
@@ -257,7 +278,7 @@ describe("ThemeEditorDialog", () => {
     expect(screen.getByRole("menuitem", { name: "Site themes" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("menuitem", { name: "Site themes" })).not.toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: `Edit ${theme.name}` })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: `Edit ${theme.name} (built-in)` })).toBeInTheDocument();
     await waitFor(() => expect(button).toHaveFocus());
     await chooseCopyDestination(user, "Site themes");
 
