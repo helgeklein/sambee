@@ -14,6 +14,7 @@ from app.core.secrets import generate_temporary_password
 from app.core.security import get_password_hash, require_capability
 from app.db.database import get_session
 from app.models.oidc import OidcIdentity, OidcPendingIdentityMapping, OidcProviderConfiguration, OidcRoleAssignmentMode
+from app.models.theme import StoredTheme
 from app.models.user import (
     AdminUserCreate,
     AdminUserCreateResult,
@@ -35,6 +36,7 @@ from app.models.user import (
     UserRole,
     build_admin_user_read,
 )
+from app.models.user_settings import UserSetting
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
 from app.services.authentication_config import is_local_password_management_available
 from app.services.oidc_identity import OidcIdentityError, resolve_oidc_role
@@ -632,6 +634,11 @@ async def delete_user(
     except OidcMappingError as error:
         session.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    for theme in session.exec(select(StoredTheme).where(StoredTheme.owner_user_id == user.id)):
+        session.delete(theme)
+    for setting in session.exec(select(UserSetting).where(UserSetting.user_id == user.id)):
+        session.delete(setting)
+    session.flush()
     session.delete(user)
     session.commit()
 

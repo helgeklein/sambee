@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 from app.core.auth_methods import AuthenticationMode
 from app.core.config import settings
 from app.core.security import create_access_token, get_password_hash, verify_password
+from app.core.user_setting_definitions import UserSettingKey
 from app.models.oidc import (
     OidcFlow,
     OidcFlowPurpose,
@@ -20,7 +21,9 @@ from app.models.oidc import (
     OidcRoleAssignmentMode,
     SignInMode,
 )
+from app.models.theme import StoredTheme
 from app.models.user import User, UserRole
+from app.models.user_settings import UserSetting
 from app.services.authentication_config import set_ui_authentication_mode
 
 
@@ -573,6 +576,26 @@ class TestAdminUsers:
         assert response.status_code == 200
         assert response.json()["message"] == "User deleted successfully"
         assert session.get(User, regular_user.id) is None
+
+    def test_delete_user_removes_personal_themes_and_settings(
+        self, client: TestClient, auth_headers_admin: dict, regular_user: User, session: Session
+    ):
+        personal_themes = [
+            StoredTheme(id="owned-theme-1", owner_user_id=regular_user.id, definition="{}"),
+            StoredTheme(id="owned-theme-2", owner_user_id=regular_user.id, definition="{}"),
+        ]
+        site_theme = StoredTheme(id="site-theme", definition="{}")
+        session.add_all([*personal_themes, site_theme])
+        session.add(UserSetting(user_id=regular_user.id, key=UserSettingKey.APPEARANCE_THEME_ID.value, value=personal_themes[0].id))
+        session.commit()
+
+        response = client.delete(f"/api/admin/users/{regular_user.id}", headers=auth_headers_admin)
+
+        assert response.status_code == 200
+        assert session.get(User, regular_user.id) is None
+        assert all(session.get(StoredTheme, theme.id) is None for theme in personal_themes)
+        assert session.get(UserSetting, (regular_user.id, UserSettingKey.APPEARANCE_THEME_ID.value)) is None
+        assert session.get(StoredTheme, site_theme.id) is not None
 
     def test_delete_mapped_user_removes_oidc_state(
         self,
