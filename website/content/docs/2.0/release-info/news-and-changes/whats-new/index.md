@@ -8,7 +8,7 @@ UI themes are an integral part of an app's visual presentation. As so often, fle
 
 Sambee now has a multi-layer theme system. It differentiates between built-in themes, site-wide themes which only admins can manage, and users personal themes. Admins can designate a default theme for new users.
 
-Sambee's new theme editor
+Sambee's new theme editor comes with an RGBA color picker that allows setting transparency in addition to color values. Themes can be imported and exported, too.
 
 ## File List
 

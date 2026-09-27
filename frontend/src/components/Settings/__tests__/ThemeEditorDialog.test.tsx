@@ -22,7 +22,10 @@ async function chooseCopyDestination(user: ReturnType<typeof userEvent.setup>, d
 }
 
 describe("ThemeEditorDialog", () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
 
   it("starts on the dialog and tabs to the name field", async () => {
     const user = userEvent.setup();
@@ -31,6 +34,36 @@ describe("ThemeEditorDialog", () => {
     expect(screen.getByRole("dialog", { name: `Edit ${theme.name} (built-in)` })).toHaveFocus();
     await user.tab();
     expect(screen.getByRole("textbox", { name: "Name" })).toHaveFocus();
+  });
+
+  it("uses small controls with only external labels on desktop", () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: query === "(min-width:900px)",
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }))
+    );
+    renderEditor();
+
+    for (const [id, name] of [
+      ["theme-name", "Name"],
+      ["theme-description", "Description"],
+      ["primary.main-input", "Main"],
+    ]) {
+      const input = screen.getByRole("textbox", { name });
+      expect(input).toHaveAttribute("id", id);
+      expect(input.closest(".MuiInputBase-root")).toHaveClass("MuiInputBase-sizeSmall");
+      expect(document.querySelector(`label.MuiInputLabel-root[for="${id}"]`)).not.toBeInTheDocument();
+    }
+    expect(screen.getByRole("combobox", { name: "Mode" }).closest(".MuiInputBase-root")).toHaveClass("MuiInputBase-sizeSmall");
+    expect(document.querySelector('label.MuiInputLabel-root[for="theme-mode"]')).not.toBeInTheDocument();
   });
 
   it.each([
@@ -61,7 +94,8 @@ describe("ThemeEditorDialog", () => {
     await user.clear(screen.getByDisplayValue(theme.primary.main));
     await user.type(screen.getByRole("textbox", { name: /Main/ }), "#bad");
     expect(screen.getByRole("textbox", { name: /Main/ })).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getAllByText("Use #RRGGBB or #RRGGBBAA.")).toHaveLength(2);
+    expect(document.querySelector('label.MuiInputLabel-root[for="primary.main-input"]')).toHaveTextContent("Main");
+    expect(screen.getByRole("textbox", { name: /Main/ })).toHaveAccessibleDescription("Use #RRGGBB or #RRGGBBAA.");
     await chooseCopyDestination(user);
     await waitFor(() => expect(screen.getByRole("textbox", { name: /Main/ })).toHaveFocus());
     await user.click(screen.getByRole("button", { name: "Cancel" }));

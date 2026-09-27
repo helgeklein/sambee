@@ -11,6 +11,8 @@ import {
   Popover,
   TextField,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import { type ChangeEvent, useRef, useState } from "react";
 import { HexAlphaColorPicker } from "react-colorful";
@@ -45,6 +47,8 @@ interface ThemeEditorDialogProps {
 const GROUPS = ["Core", "Viewers", "Markdown", "Search", "Alerts"] as const;
 
 export function ThemeEditorDialog({ theme, stored, storedThemes, isAdmin, onClose, onSaved }: ThemeEditorDialogProps) {
+  const muiTheme = useTheme();
+  const usesDesktopFormLayout = useMediaQuery(muiTheme.breakpoints.up("md"));
   const [draft, setDraft] = useState<ThemeConfig>(() => structuredClone(theme));
   const [inputColors, setInputColors] = useState<Record<string, string>>({});
   const [group, setGroup] = useState<string | null>("Core");
@@ -228,10 +232,12 @@ export function ThemeEditorDialog({ theme, stored, storedThemes, isAdmin, onClos
             </Box>
             <TextField
               id="theme-name"
-              label="Name"
+              label={usesDesktopFormLayout ? undefined : "Name"}
+              size={usesDesktopFormLayout ? "small" : "medium"}
               slotProps={{ htmlInput: { "aria-label": "Name" } }}
               value={draft.name}
               onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+              helperText={usesDesktopFormLayout ? undefined : "Name shown in the theme picker"}
               fullWidth
               sx={formOutlinedControlSx}
             />
@@ -247,10 +253,12 @@ export function ThemeEditorDialog({ theme, stored, storedThemes, isAdmin, onClos
             </Box>
             <TextField
               id="theme-description"
-              label="Description"
+              label={usesDesktopFormLayout ? undefined : "Description"}
+              size={usesDesktopFormLayout ? "small" : "medium"}
               slotProps={{ htmlInput: { "aria-label": "Description" } }}
               value={draft.description ?? ""}
               onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+              helperText={usesDesktopFormLayout ? undefined : "Optional text below the theme name"}
               fullWidth
               sx={formOutlinedControlSx}
             />
@@ -267,9 +275,12 @@ export function ThemeEditorDialog({ theme, stored, storedThemes, isAdmin, onClos
             <TextField
               select
               id="theme-mode"
-              label="Mode"
+              label={usesDesktopFormLayout ? undefined : "Mode"}
+              size={usesDesktopFormLayout ? "small" : "medium"}
+              slotProps={{ select: { inputProps: { "aria-label": "Mode" } } }}
               value={draft.mode}
               onChange={(event) => setDraft({ ...draft, mode: event.target.value as ThemeConfig["mode"] })}
+              helperText={usesDesktopFormLayout ? undefined : "Is this a light or dark theme?"}
               fullWidth
               sx={formOutlinedControlSx}
             >
@@ -320,7 +331,7 @@ export function ThemeEditorDialog({ theme, stored, storedThemes, isAdmin, onClos
                           feedback={invalid ? { severity: "error", message: "Use #RRGGBB or #RRGGBBAA." } : null}
                         />
                       </Box>
-                      <Box sx={{ display: "flex", gap: 1, alignItems: "center", minWidth: 0 }}>
+                      <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", justifyContent: { md: "flex-end" }, minWidth: 0 }}>
                         <Box
                           component="button"
                           type="button"
@@ -333,6 +344,7 @@ export function ThemeEditorDialog({ theme, stored, storedThemes, isAdmin, onClos
                             width: 36,
                             height: 36,
                             flexShrink: 0,
+                            mt: { xs: 1.25, md: 0.25 },
                             borderRadius: 1,
                             border: "1px solid",
                             borderColor: "divider",
@@ -348,10 +360,10 @@ export function ThemeEditorDialog({ theme, stored, storedThemes, isAdmin, onClos
                         </Box>
                         <TextField
                           id={`${role.path}-input`}
-                          label={role.label}
+                          label={usesDesktopFormLayout ? undefined : role.label}
+                          size={usesDesktopFormLayout ? "small" : "medium"}
                           slotProps={{
                             htmlInput: { "aria-label": role.label },
-                            formHelperText: { sx: { display: { md: "none" } } },
                           }}
                           value={input}
                           onChange={(event) => changeColor(role.path, event.target.value)}
@@ -360,9 +372,8 @@ export function ThemeEditorDialog({ theme, stored, storedThemes, isAdmin, onClos
                               setInputColors((previous) => ({ ...previous, [role.path]: normalizeHexColor(input) }));
                           }}
                           error={invalid}
-                          helperText={invalid ? "Use #RRGGBB or #RRGGBBAA." : undefined}
-                          fullWidth
-                          sx={formOutlinedControlSx}
+                          helperText={usesDesktopFormLayout ? undefined : invalid ? "Use #RRGGBB or #RRGGBBAA." : role.description}
+                          sx={[formOutlinedControlSx, { width: { xs: "100%", md: 160 }, minWidth: 0 }]}
                         />
                       </Box>
                     </FormRow>
