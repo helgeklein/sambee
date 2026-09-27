@@ -5,7 +5,7 @@
 import { Alert, Box, Button, Link, Stack, Typography } from "@mui/material";
 import { useTranslation } from "react-i18next";
 import type { BackendAvailabilityStatus } from "../../services/backendAvailability";
-import type { CompanionPairingErrorKind } from "../../services/companion";
+import type { CompanionPairingErrorKind } from "../../services/localDrivePairing";
 import { EmptyStateIllustration } from "./EmptyStateIllustration";
 
 export type CompanionLifecycleStatus = "renewal_required" | "auth_failed" | "lock_lost" | "recovery_required";

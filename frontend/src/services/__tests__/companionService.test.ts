@@ -8,6 +8,7 @@ import {
   isCompanionPairingMissing,
 } from "../companion";
 import { companionSession } from "../companionSession";
+import { getLocalDrivePairingErrorKind } from "../localDrivePairing";
 
 describe("companion authentication protocol", () => {
   it("distinguishes older, matching, and newer Companion versions", () => {
@@ -27,6 +28,34 @@ describe("companion authentication protocol", () => {
     expect(isCompanionPairingMissing({ response: { status: 403, data: { detail: "Not paired with this origin" } } })).toBe(true);
     expect(isCompanionPairingMissing({ response: { status: 403, data: { detail: "Permission denied" } } })).toBe(false);
     expect(isCompanionPairingMissing({ response: { status: 500, data: { code: "companion_pairing_not_found" } } })).toBe(false);
+  });
+});
+
+describe("local drive listing pairing errors", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("does not classify errors from remote connections", () => {
+    expect(getLocalDrivePairingErrorKind("remote-connection", new Error("Network Error"))).toBeNull();
+  });
+
+  it("prioritizes rejected signatures even when no secret is stored", () => {
+    expect(
+      getLocalDrivePairingErrorKind("local-drive:c", {
+        response: { status: 403, data: { code: "companion_auth_signature_mismatch" } },
+      })
+    ).toBe("signature");
+  });
+
+  it("requires pairing when the secret is missing or the companion reports a missing pairing", () => {
+    expect(getLocalDrivePairingErrorKind("local-drive:c", new Error("Network Error"))).toBe("pairing_required");
+
+    localStorage.setItem("companion_secret", "shared-secret");
+    expect(
+      getLocalDrivePairingErrorKind("local-drive:c", {
+        response: { status: 403, data: { code: "companion_pairing_not_found" } },
+      })
+    ).toBe("pairing_required");
+    expect(getLocalDrivePairingErrorKind("local-drive:c", new Error("Network Error"))).toBeNull();
   });
 });
 

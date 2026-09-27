@@ -7,7 +7,7 @@ import type React from "react";
 import type { SearchProvider } from "../../components/FileBrowser/search/types";
 import type { BrowserHistoryService } from "../../services/browserHistoryService";
 import type { BrowserLinkTargetService } from "../../services/browserLinkTargetService";
-import type { CompanionPairingErrorKind } from "../../services/companion";
+import type { CompanionPairingErrorKind } from "../../services/localDrivePairing";
 import type { StorageBackendRegistry } from "../../services/storageContracts";
 import type { Connection, FileEntry, FileType } from "../../types";
 import type { ViewerId } from "../../utils/FileTypeRegistry";

@@ -24,12 +24,7 @@ import { isClientTimeoutError, isLocalAbortError } from "../../services/backendA
 import { isLocalDrive, normalizeLocalDrivePath } from "../../services/backendRouter";
 import { browserHistoryService } from "../../services/browserHistoryService";
 import { browserLinkTargetService } from "../../services/browserLinkTargetService";
-import {
-  type CompanionPairingErrorKind,
-  hasStoredSecret,
-  isCompanionAuthSignatureMismatch,
-  isCompanionPairingMissing,
-} from "../../services/companion";
+import { type CompanionPairingErrorKind, getLocalDrivePairingErrorKind } from "../../services/localDrivePairing";
 import { logger } from "../../services/logger";
 import { publishRecentDirectoriesChanged } from "../../services/recentDirectoriesSync";
 import { publishRecentFilesChanged } from "../../services/recentFilesSync";
@@ -922,14 +917,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
         logger.error("Error loading directory", { error: err, connectionId: targetConnectionId, path: targetPath }, "browser");
 
-        const localDriveError = isLocalDrive(targetConnectionId);
-        const signatureRejected = localDriveError && isCompanionAuthSignatureMismatch(err);
-        const pairingRequired = localDriveError && !signatureRejected && (!hasStoredSecret() || isCompanionPairingMissing(err));
-        const pairingErrorKind: CompanionPairingErrorKind | null = signatureRejected
-          ? "signature"
-          : pairingRequired
-            ? "pairing_required"
-            : null;
+        const pairingErrorKind = getLocalDrivePairingErrorKind(targetConnectionId, err);
         let errorMessage = pairingErrorKind
           ? translate(
               pairingErrorKind === "signature"
