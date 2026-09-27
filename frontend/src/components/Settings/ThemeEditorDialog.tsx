@@ -15,8 +15,10 @@ import {
   withColor,
 } from "../../theme/themeDefinition";
 import type { ThemeConfig } from "../../theme/types";
+import { adminDialogActionButtonSx, adminDialogActionGroupSx, adminDialogSplitActionRowSx } from "../Admin/dialogActionStyles";
 import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
 import { FormFieldLabel, FormGroup, FormRow, FormSurface, formOutlinedControlSx } from "../Form/FormLayout";
+import { settingsPrimaryButtonSx, settingsUtilityButtonSx } from "./settingsButtonStyles";
 
 interface ThemeEditorDialogProps {
   theme: ThemeConfig;
@@ -149,23 +151,42 @@ export function ThemeEditorDialog({
         maxWidth="md"
         actionNotice={error ? <Alert severity="error">{error}</Alert> : null}
         actions={
-          <>
-            <Button onClick={close} disabled={pending}>
-              Cancel
-            </Button>
-            <Button onClick={() => fileInput.current?.click()} disabled={pending}>
-              Import
-            </Button>
-            <Button onClick={exportDraft} disabled={pending}>
-              Export
-            </Button>
-            <Button onClick={() => void save(true)} disabled={pending}>
-              Save as
-            </Button>
-            <Button variant="contained" onClick={() => void save(false)} disabled={!writable || pending}>
-              Save
-            </Button>
-          </>
+          <Box sx={adminDialogSplitActionRowSx}>
+            <Box sx={{ display: "flex", gap: 1, width: { xs: "100%", sm: "auto" }, flexWrap: "wrap" }}>
+              <Button
+                variant="outlined"
+                onClick={() => fileInput.current?.click()}
+                disabled={pending}
+                sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
+              >
+                Import
+              </Button>
+              <Button variant="outlined" onClick={exportDraft} disabled={pending} sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}>
+                Export
+              </Button>
+            </Box>
+            <Box sx={adminDialogActionGroupSx}>
+              <Button variant="outlined" onClick={close} disabled={pending} sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}>
+                Cancel
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={() => void save(true)}
+                disabled={pending}
+                sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
+              >
+                Save as
+              </Button>
+              <Button
+                variant="contained"
+                onClick={() => void save(false)}
+                disabled={!writable || pending}
+                sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+              >
+                Save
+              </Button>
+            </Box>
+          </Box>
         }
       >
         <input
