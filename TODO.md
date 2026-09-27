@@ -16,13 +16,6 @@
    - It would have to be a system service (preferred) or scheduled task that runs with elevated rights
    - It should install new updates silently and restart Companion automatically
 
-## Theme
-
-- Visual theme designer
-   - changes should be reflected in the UI instantly
-   - import/export
-   - marketplace to share and rate themes, accessible from the product's UI
-
 ## Image viewer
 
 - Support multi-page image files:

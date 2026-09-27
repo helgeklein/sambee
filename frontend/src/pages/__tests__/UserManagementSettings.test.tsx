@@ -13,6 +13,7 @@ import { USER_DIRECTORY_VISIBLE_COLUMNS_STORAGE_KEY, UserManagementSettings } fr
 
 vi.mock("../../services/api", () => ({
   default: {
+    getThemes: () => Promise.resolve({ themes: [], site_default_id: "sambee-light" }),
     getUsers: vi.fn(),
     getCurrentUser: vi.fn(),
     getOidcConfiguration: vi.fn(),
@@ -851,7 +852,7 @@ describe("UserManagementSettings", () => {
 
     await screen.findByText("admin (you)", { exact: true });
     expect(api.getUsers).toHaveBeenCalledTimes(1);
-    expect(api.getCurrentUser).toHaveBeenCalledTimes(1);
+    expect(api.getCurrentUser).toHaveBeenCalledTimes(3);
     expect(api.getOidcConfiguration).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("progressbar", { name: "Updating user directory" })).not.toBeInTheDocument();
   });
@@ -896,7 +897,7 @@ describe("UserManagementSettings", () => {
 
       expect(screen.getByText("admin (you)", { exact: true })).toBeInTheDocument();
       expect(screen.getByRole("progressbar", { name: "Updating user directory" })).toBeInTheDocument();
-      expect(api.getCurrentUser).toHaveBeenCalledTimes(1);
+      expect(api.getCurrentUser).toHaveBeenCalledTimes(2);
       expect(api.getOidcConfiguration).toHaveBeenCalledTimes(1);
 
       resolveSortedUsers?.([

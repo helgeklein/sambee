@@ -28,6 +28,7 @@ export interface ThemeConfig {
     default?: string;
     /** MUI compatibility value. Standard application surfaces use default instead. */
     paper?: string;
+    chrome?: string;
   };
   /** Standard UI foreground colors. Use semantic exceptions for disabled, status, and content-rendering colors. */
   text?: {
@@ -41,7 +42,7 @@ export interface ThemeConfig {
     selected?: string;
     /** Darker selected state for controls that need stronger contrast than the default selection fill. */
     selectedDarker?: string;
-    /** Legacy custom-theme focus override. New themes derive focus from the primary palette. */
+    /** Legacy stored value, ignored: focus is derived from text.primary. */
     focus?: string;
   };
   /** Component-specific semantic colors */
@@ -90,6 +91,22 @@ export interface ThemeConfig {
       viewerText: string;
       /** Selected-state background for the secondary markdown editor toolbar */
       secondaryToolbarSelected?: string;
+      document?: {
+        blockBackground: string;
+        inlineBackground: string;
+        blockBorder: string;
+        inlineBorder: string;
+        codeText: string;
+        activeLineGutterBackground: string;
+        tableBackground: string;
+        alternateRowBackground: string;
+        headerBackground: string;
+        headerText: string;
+        tableBorder: string;
+        blockquoteBorder: string;
+        blockquoteText: string;
+        headingBorder: string;
+      };
     };
     /** Alert message styles for info/success/warning/error states */
     alert?: {
@@ -173,38 +190,38 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
   },
   mode: {
     label: "Theme Mode",
-    description: "Controls whether the theme uses light backgrounds with dark text or vice versa",
+    description: "Use light or dark backgrounds and text",
     type: "select",
     required: true,
     options: ["light", "dark"] as const,
   },
   primary: {
     label: "Primary Color",
-    description: "Defines default, high-emphasis, and pressed interactive color roles",
+    description: "Colors for buttons and selected items",
     type: "color",
     required: true,
     fields: {
       main: {
         label: "Main",
-        description: "Default color for primary controls and selected navigation",
+        description: "Main color for buttons and selected navigation",
         type: "color",
         required: true,
       },
       light: {
         label: "Light Variant",
-        description: "High-emphasis color for dark-mode hover and emphasis states",
+        description: "Lighter shade used for emphasis in dark mode",
         type: "color",
         required: false,
       },
       dark: {
         label: "Dark Variant",
-        description: "Pressed and contrast-sensitive color for light-mode controls",
+        description: "Darker shade used for pressed buttons in light mode",
         type: "color",
         required: false,
       },
       contrastText: {
         label: "Contrast Text",
-        description: "Text color on primary backgrounds - ensures readability on primary colored elements",
+        description: "Text on buttons with the main color",
         type: "color",
         required: false,
       },
@@ -212,7 +229,7 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
   },
   background: {
     label: "Background Colors",
-    description: "Controls the standard application surface and MUI compatibility values",
+    description: "Colors behind pages and app bars",
     type: "color",
     required: false,
     fields: {
@@ -224,27 +241,28 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
       },
       paper: {
         label: "Paper Background",
-        description: "Compatibility value for Material UI; standard app surfaces use Default Background",
+        description: "Background for Material UI components",
         type: "color",
         required: false,
       },
+      chrome: { label: "Chrome Background", description: "Dark app bars and dialogs", type: "color", required: true },
     },
   },
   text: {
     label: "Text Colors",
-    description: "Controls the color of text throughout the application",
+    description: "Colors for main and secondary text",
     type: "color",
     required: false,
     fields: {
       primary: {
         label: "Primary Text",
-        description: "Main body text color for maximum readability",
+        description: "Headings and important text",
         type: "color",
         required: false,
       },
       secondary: {
         label: "Secondary Text",
-        description: "Muted text for less important information and labels",
+        description: "Descriptions, captions, and less important text",
         type: "color",
         required: false,
       },
@@ -252,7 +270,7 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
   },
   action: {
     label: "Action Colors",
-    description: "Controls the colors for interactive states like hover and selection",
+    description: "Colors for selected items",
     type: "color",
     required: false,
     fields: {
@@ -264,7 +282,7 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
       },
       selectedDarker: {
         label: "Selected State Darker",
-        description: "Stronger selected background for controls that need extra contrast, such as secondary editor toolbars",
+        description: "Darker selection color for editor toolbars",
         type: "color",
         required: false,
       },
@@ -272,25 +290,35 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
   },
   components: {
     label: "Component Colors",
-    description: "Semantic colors for specific UI components that adapt to theme mode",
+    description: "Colors for viewers, links, search, and alerts",
     type: "color",
     required: false,
     fields: {
+      link: {
+        label: "Links",
+        description: "Colors for links and their hover state",
+        type: "color",
+        required: false,
+        fields: {
+          main: { label: "Link", description: "Default link color", type: "color", required: true },
+          hover: { label: "Hover", description: "Link color on hover", type: "color", required: false },
+        },
+      },
       search: {
         label: "Search Highlights",
-        description: "Colors for current and non-current search matches across viewers and editors",
+        description: "Colors for search matches",
         type: "color",
         required: false,
         fields: {
           otherMatch: {
             label: "Other Matches",
-            description: "Background color for search matches that are not currently selected",
+            description: "Matches other than the selected one",
             type: "color",
             required: false,
           },
           currentMatch: {
             label: "Current Match",
-            description: "Background color for the currently selected search match",
+            description: "The selected search match",
             type: "color",
             required: false,
           },
@@ -380,11 +408,65 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
           },
           secondaryToolbarSelected: {
             label: "Secondary Toolbar Selected",
-            description: "Selected background color for buttons in the secondary markdown editor toolbar",
+            description: "Selected buttons in the markdown editor toolbar",
             type: "color",
             required: false,
           },
+          document: {
+            label: "Document",
+            description: "Markdown code, tables, blockquotes, and headings",
+            type: "color",
+            required: true,
+            fields: Object.fromEntries(
+              [
+                "blockBackground",
+                "inlineBackground",
+                "blockBorder",
+                "inlineBorder",
+                "codeText",
+                "activeLineGutterBackground",
+                "tableBackground",
+                "alternateRowBackground",
+                "headerBackground",
+                "headerText",
+                "tableBorder",
+                "blockquoteBorder",
+                "blockquoteText",
+                "headingBorder",
+              ].map((role) => [
+                role,
+                {
+                  label: role.replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase()),
+                  description: `Markdown ${role.replace(/([A-Z])/g, " $1").toLowerCase()}`,
+                  type: "color",
+                  required: true,
+                },
+              ])
+            ),
+          },
         },
+      },
+      alert: {
+        label: "Alerts",
+        description: "Info, success, warning, and error message colors",
+        type: "color",
+        required: false,
+        fields: Object.fromEntries(
+          (["info", "success", "warning", "error"] as const).map((kind) => [
+            kind,
+            {
+              label: kind[0].toUpperCase() + kind.slice(1),
+              description: `${kind} message colors`,
+              type: "color",
+              required: true,
+              fields: {
+                background: { label: "Background", description: "Alert surface", type: "color", required: true },
+                text: { label: "Text", description: "Alert message", type: "color", required: true },
+                icon: { label: "Icon", description: "Alert icon", type: "color", required: true },
+              },
+            },
+          ])
+        ),
       },
     },
   },

@@ -33,6 +33,8 @@ vi.mock("../api", () => ({
   default: {
     getCurrentUserSettings: getCurrentUserSettingsMock,
     updateCurrentUserSettings: updateCurrentUserSettingsMock,
+    getThemes: () => Promise.resolve({ themes: [], site_default_id: "sambee-light" }),
+    getCurrentUser: () => Promise.resolve({ role: "editor" }),
   },
 }));
 
@@ -47,7 +49,7 @@ import {
 } from "../userSettingsStore";
 
 const settings = {
-  appearance: { theme_id: "sambee-light", custom_themes: [] },
+  appearance: { theme_id: "sambee-light", has_theme_override: true, custom_themes: [] },
   localization: { language: "browser" as const, regional_locale: "browser" as const },
   browser: {
     quick_nav_include_dot_directories: false,
@@ -104,19 +106,33 @@ describe("userSettingsStore", () => {
     expect(userSettingsStore.getValue("appearance.theme_id").confirmedValue).toBe("sambee-dark");
   });
 
-  it("does not save a confirmed scalar, array, or nested record again", async () => {
+  it("does not save a confirmed scalar or nested record again", async () => {
     await authenticateAndLoad();
     await vi.waitFor(() => {
       expect(userSettingsStore.getValue("appearance.theme_id").confirmedValue).toBe("sambee-light");
-      expect(userSettingsStore.getValue("appearance.custom_themes").confirmedValue).toEqual([]);
       expect(userSettingsStore.getValue("browser.viewer_associations").confirmedValue).toEqual({});
     });
 
     await userSettingsStore.getValue("appearance.theme_id").commit("sambee-light");
-    await userSettingsStore.getValue("appearance.custom_themes").commit([]);
     await userSettingsStore.getValue("browser.viewer_associations").commit({});
 
     expect(updateCurrentUserSettingsMock).not.toHaveBeenCalled();
+  });
+
+  it("persists an explicit selection of the inherited theme only once", async () => {
+    getCurrentUserSettingsMock.mockResolvedValue({
+      ...settings,
+      appearance: { ...settings.appearance, has_theme_override: false },
+    });
+    authSession.setAuthenticated({ access_token: "token", token_type: "bearer", user_id: "user-1" }, false);
+    await refreshCurrentUserSettings();
+    await refreshCurrentUserSettings();
+    updateCurrentUserSettingsMock.mockResolvedValue({ field: "appearance.theme_id", value: "sambee-light" });
+
+    await userSettingsStore.getValue("appearance.theme_id").commit("sambee-light");
+    await userSettingsStore.getValue("appearance.theme_id").commit("sambee-light");
+
+    expect(updateCurrentUserSettingsMock).toHaveBeenCalledTimes(1);
   });
 
   it("writes a structurally changed compound setting", async () => {

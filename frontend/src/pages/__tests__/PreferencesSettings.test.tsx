@@ -1,44 +1,43 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { StoredTheme } from "../../services/api";
+import api from "../../services/api";
 import { render } from "../../test/utils/test-utils";
+import { builtInThemes } from "../../theme/themes";
 import { AppearanceSettings } from "../PreferencesSettings";
 
-const { setLanguagePreferenceMock, setRegionalLocalePreferenceMock, themeCommitMock, settingStates } = vi.hoisted(() => ({
-  setLanguagePreferenceMock: vi.fn(),
-  setRegionalLocalePreferenceMock: vi.fn(),
-  themeCommitMock: vi.fn(),
-  settingStates: {
-    language: { error: null as string | null, pending: false, saved: false },
-    regionalLocale: { error: null as string | null, pending: false, saved: false },
-    theme: { error: null as string | null, pending: false, saved: false },
-  },
-}));
+const { setLanguagePreferenceMock, setRegionalLocalePreferenceMock, themeCommitMock, themeContextState, settingStates } = vi.hoisted(
+  () => ({
+    setLanguagePreferenceMock: vi.fn(),
+    setRegionalLocalePreferenceMock: vi.fn(),
+    themeCommitMock: vi.fn(),
+    themeContextState: { isAdmin: false, currentThemeId: "sambee-light", storedThemes: [] as StoredTheme[], refreshThemes: vi.fn() },
+    settingStates: {
+      language: { error: null as string | null, pending: false, saved: false },
+      regionalLocale: { error: null as string | null, pending: false, saved: false },
+      theme: { error: null as string | null, pending: false, saved: false },
+    },
+  })
+);
 
 vi.mock("../../theme", () => ({
   useSambeeTheme: () => ({
+    isAdmin: themeContextState.isAdmin,
+    siteDefaultId: "sambee-light",
+    refreshThemes: themeContextState.refreshThemes,
+    storedThemes: themeContextState.storedThemes,
     currentTheme: {
-      id: "sambee-light",
+      id: themeContextState.currentThemeId,
       name: "Sambee light",
       primary: { main: "#1976d2" },
       background: { default: "#ffffff" },
       text: { primary: "#111111" },
     },
     availableThemes: [
-      {
-        id: "sambee-light",
-        name: "Sambee light",
-        primary: { main: "#1976d2" },
-        background: { default: "#ffffff" },
-        text: { primary: "#111111" },
-      },
-      {
-        id: "sambee-dark",
-        name: "Sambee dark",
-        primary: { main: "#d4a020" },
-        background: { default: "#1f262b" },
-        text: { primary: "#f6f1e8" },
-      },
+      builtInThemes[0]!,
+      builtInThemes[1]!,
+      ...themeContextState.storedThemes.map((entry) => ({ ...entry.definition, id: entry.id })),
     ],
   }),
 }));
@@ -72,8 +71,14 @@ vi.mock("../../services/userSettingsStore", () => ({
 }));
 
 describe("AppearanceSettings", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   beforeEach(() => {
     vi.clearAllMocks();
+    themeContextState.isAdmin = false;
+    themeContextState.currentThemeId = "sambee-light";
+    themeContextState.storedThemes = [];
+    themeContextState.refreshThemes.mockResolvedValue(undefined);
     themeCommitMock.mockResolvedValue(undefined);
     setLanguagePreferenceMock.mockResolvedValue(undefined);
     setRegionalLocalePreferenceMock.mockResolvedValue(undefined);
@@ -116,9 +121,151 @@ describe("AppearanceSettings", () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);
 
+    expect(screen.getByText("Default", { exact: true })).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Site default" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Selected")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "Sambee dark" }));
+
+    await waitFor(() => expect(themeCommitMock).toHaveBeenCalledWith("sambee-dark"));
+    expect(screen.getByText("Default", { exact: true })).toBeInTheDocument();
+  });
+
+  it("lets users explicitly select the currently inherited theme", async () => {
+    const user = userEvent.setup();
+    render(<AppearanceSettings />);
+
+    await user.click(screen.getByRole("radio", { name: "Sambee light" }));
+
+    await waitFor(() => expect(themeCommitMock).toHaveBeenCalledWith("sambee-light"));
+  });
+
+  it("copies a built-in theme into Your themes without changing the applied selection", async () => {
+    const user = userEvent.setup();
+    const create = vi
+      .spyOn(api, "createTheme")
+      .mockResolvedValue({ id: "new-id", scope: "user", version: 1, definition: builtInThemes[0]! });
+    render(<AppearanceSettings />);
+
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+
+    await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Sambee light (copy)" }), "user"));
+    expect(themeCommitMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("radio", { name: "Sambee light" })).toBeChecked();
+  });
+
+  it("numbers a built-in copy when its personal copy names already exist", async () => {
+    const user = userEvent.setup();
+    themeContextState.storedThemes = [
+      { id: "copy-1", scope: "user", version: 1, definition: { ...builtInThemes[0]!, name: "Sambee light (copy)" } },
+      { id: "copy-2", scope: "user", version: 1, definition: { ...builtInThemes[0]!, name: "Sambee light (copy 2)" } },
+    ];
+    const create = vi
+      .spyOn(api, "createTheme")
+      .mockResolvedValue({ id: "copy-3", scope: "user", version: 1, definition: builtInThemes[0]! });
+    render(<AppearanceSettings />);
+
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+
+    await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Sambee light (copy 3)" }), "user"));
+  });
+
+  it("numbers a site copy only against names in Site themes", async () => {
+    const user = userEvent.setup();
+    themeContextState.isAdmin = true;
+    themeContextState.currentThemeId = "site-original";
+    themeContextState.storedThemes = [
+      { id: "site-original", scope: "site", version: 1, definition: { ...builtInThemes[0]!, name: "Shared" } },
+      { id: "site-copy", scope: "site", version: 1, definition: { ...builtInThemes[0]!, name: "Shared (copy)" } },
+      { id: "user-copy", scope: "user", version: 1, definition: { ...builtInThemes[0]!, name: "Shared (copy 2)" } },
+    ];
+    const create = vi
+      .spyOn(api, "createTheme")
+      .mockResolvedValue({ id: "site-copy-2", scope: "site", version: 1, definition: builtInThemes[0]! });
+    render(<AppearanceSettings />);
+
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+
+    await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Shared (copy 2)" }), "site"));
+  });
+
+  it("does not apply a copy saved from the theme editor", async () => {
+    const user = userEvent.setup();
+    const create = vi
+      .spyOn(api, "createTheme")
+      .mockResolvedValue({ id: "new-id", scope: "user", version: 1, definition: builtInThemes[0]! });
+    render(<AppearanceSettings />);
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getByRole("button", { name: "Save copy" }));
+    await user.click(screen.getByRole("menuitem", { name: "Your themes" }));
+
+    await waitFor(() => expect(create).toHaveBeenCalledOnce());
+    await waitFor(() => expect(themeContextState.refreshThemes).toHaveBeenCalledOnce());
+    expect(themeCommitMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("radio", { name: "Sambee light" })).toBeChecked();
+  });
+
+  it("selects a theme when its card is clicked", async () => {
+    const user = userEvent.setup();
+    render(<AppearanceSettings />);
+
     await user.click(screen.getByText("Sambee dark"));
 
     await waitFor(() => expect(themeCommitMock).toHaveBeenCalledWith("sambee-dark"));
+  });
+
+  it("allows an administrator to set a built-in theme as the site default", async () => {
+    const user = userEvent.setup();
+    themeContextState.isAdmin = true;
+    themeContextState.currentThemeId = "sambee-dark";
+    const setDefault = vi.spyOn(api, "setSiteDefaultTheme").mockResolvedValue({ themes: [], site_default_id: "sambee-dark" });
+    render(<AppearanceSettings />);
+
+    act(() => screen.getByRole("radio", { name: "Sambee light" }).focus());
+    expect(screen.getByRole("radio", { name: "Sambee dark" })).toBeChecked();
+    expect(themeCommitMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Set as default" }));
+
+    await waitFor(() => expect(setDefault).toHaveBeenCalledWith("sambee-dark"));
+  });
+
+  it("keeps actions on the selected theme when focus moves to another radio", async () => {
+    const user = userEvent.setup();
+    const create = vi
+      .spyOn(api, "createTheme")
+      .mockResolvedValue({ id: "new-id", scope: "user", version: 1, definition: builtInThemes[0]! });
+    render(<AppearanceSettings />);
+
+    act(() => screen.getByRole("radio", { name: "Sambee dark" }).focus());
+
+    expect(screen.queryByRole("button", { name: "Target Sambee dark for actions" })).not.toBeInTheDocument();
+    expect(themeCommitMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("radio", { name: "Sambee light" })).toBeChecked();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Copy" })).toHaveFocus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "Sambee light (copy)" }), "user"));
+  });
+
+  it("refreshes a stale theme after a delete conflict without retrying the old version", async () => {
+    const user = userEvent.setup();
+    const stored = { id: "custom", scope: "user" as const, version: 1, definition: { ...builtInThemes[0]!, name: "Custom" } };
+    themeContextState.storedThemes = [stored];
+    themeContextState.currentThemeId = "custom";
+    const remove = vi.spyOn(api, "deleteTheme").mockRejectedValue({
+      isAxiosError: true,
+      response: { status: 409, data: { detail: "Theme changed in another tab. Refresh and try again" } },
+    });
+    render(<AppearanceSettings />);
+
+    act(() => screen.getByRole("radio", { name: "Sambee dark" }).focus());
+    await user.click(screen.getByRole("button", { name: "Delete", exact: true }));
+    await user.click(within(screen.getByRole("dialog", { name: "Delete theme?" })).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(themeContextState.refreshThemes).toHaveBeenCalledOnce());
+    expect(remove).toHaveBeenCalledWith(stored);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete theme?" })).not.toBeInTheDocument());
+    expect(screen.getByText("Theme changed in another tab. Refresh and try again")).toBeInTheDocument();
   });
 
   it.each([
@@ -147,6 +294,8 @@ describe("AppearanceSettings", () => {
     expect(screen.getByRole("radio", { name: "Sambee dark" })).toBeDisabled();
     expect(screen.getByRole("radio", { name: "Sambee light" })).not.toBeChecked();
     expect(screen.getByRole("status", { name: "Saving setting" })).toBeInTheDocument();
+    await user.click(screen.getByText("Sambee light"));
+    expect(themeCommitMock).toHaveBeenCalledTimes(1);
   });
 
   it("restores theme radio focus after its save completes", async () => {

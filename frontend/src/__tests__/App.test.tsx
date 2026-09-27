@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { useEffect, useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("react-router-dom", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-router-dom")>();
@@ -14,6 +14,7 @@ vi.mock("react-router-dom", async (importOriginal) => {
 });
 
 import App from "../App";
+import api from "../services/api";
 import { markBackendUnavailable, resetBackendAvailabilityForTests } from "../services/backendAvailability";
 import { subscribeBackendRecoveryConfirmed, subscribeBackendRecoveryReconnect } from "../services/backendRecoveryEvents";
 
@@ -84,6 +85,16 @@ vi.mock("../pages/FileBrowser", () => ({
 }));
 
 describe("App backend recovery integration", () => {
+  beforeEach(() => {
+    vi.spyOn(api, "getThemes").mockResolvedValue({ themes: [], site_default_id: "sambee-light" });
+    vi.spyOn(api, "getCurrentUser").mockRejectedValue(new Error("No authenticated user"));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it("emits a reconnect event on focus when backend recovery is needed", async () => {
     resetBackendAvailabilityForTests();
 

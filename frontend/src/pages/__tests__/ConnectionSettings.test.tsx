@@ -7,6 +7,7 @@ import { ConnectionSettings } from "../ConnectionSettings";
 
 vi.mock("../../services/api", () => ({
   default: {
+    getThemes: () => Promise.resolve({ themes: [], site_default_id: "sambee-light" }),
     getCurrentUser: vi.fn(),
     getConnections: vi.fn(),
     getConnectionVisibilityOptions: vi.fn(),
@@ -95,7 +96,7 @@ describe("ConnectionSettings", () => {
     );
 
     expect(screen.getByRole("button", { name: /add connection/i })).toBeInTheDocument();
-    expect(api.getCurrentUser).not.toHaveBeenCalled();
+    expect(api.getCurrentUser).toHaveBeenCalledTimes(1);
   });
 
   it("keeps Add connection in the footer when the parent renders the page header", () => {

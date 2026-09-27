@@ -63,8 +63,6 @@ function getFieldValue<Field extends CurrentUserSettingsField>(
   switch (field) {
     case "appearance.theme_id":
       return settings.appearance.theme_id as ValueForField<Field>;
-    case "appearance.custom_themes":
-      return settings.appearance.custom_themes as ValueForField<Field>;
     case "localization.language":
       return settings.localization.language as ValueForField<Field>;
     case "localization.regional_locale":
@@ -93,9 +91,7 @@ function getFieldValue<Field extends CurrentUserSettingsField>(
 function setFieldValue(settings: CurrentUserSettings, update: CurrentUserSettingsUpdate): CurrentUserSettings {
   switch (update.field) {
     case "appearance.theme_id":
-      return { ...settings, appearance: { ...settings.appearance, theme_id: update.value } };
-    case "appearance.custom_themes":
-      return { ...settings, appearance: { ...settings.appearance, custom_themes: update.value } };
+      return { ...settings, appearance: { ...settings.appearance, theme_id: update.value, has_theme_override: true } };
     case "localization.language":
       return { ...settings, localization: { ...settings.localization, language: update.value } };
     case "localization.regional_locale":
@@ -216,7 +212,12 @@ class UserSettingsStore {
     if (this.pendingFields.has(update.field)) {
       throw new Error("A write for this setting is already in progress.");
     }
-    if (this.hasConfirmedValue(update.field) && areCurrentUserSettingValuesEqual(update.value, this.getConfirmedValue(update.field))) {
+    const selectingInheritedTheme = update.field === "appearance.theme_id" && this.snapshot?.appearance.has_theme_override === false;
+    if (
+      this.hasConfirmedValue(update.field) &&
+      areCurrentUserSettingValuesEqual(update.value, this.getConfirmedValue(update.field)) &&
+      !selectingInheritedTheme
+    ) {
       return;
     }
     const identity = authSession.getIdentity();

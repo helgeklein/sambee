@@ -31,6 +31,8 @@ vi.mock("../../services/logger", () => ({
 vi.mock("../../services/api", () => ({
   __esModule: true,
   default: {
+    getThemes: () => Promise.resolve({ themes: [], site_default_id: "sambee-light" }),
+    getCurrentUser: () => Promise.resolve({ role: "editor" }),
     getCompanionDownloads: mockGetCompanionDownloads,
   },
 }));
@@ -80,7 +82,8 @@ describe("LocalDrivesSettings", () => {
     mockNavigatorDevice({
       userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
     });
-    mockCheckHealth.mockResolvedValue({ status: "ok", paired: true });
+    mockCheckHealth.mockResolvedValue({ status: "ok", paired: true, auth_protocol_version: 2 });
+    mockTestPairing.mockResolvedValue({ status: "success" });
     mockGetCompanionDownloads.mockResolvedValue({
       source: "feed",
       version: "0.5.0",
@@ -162,7 +165,9 @@ describe("LocalDrivesSettings", () => {
       status: "paired",
     });
     mockHasStoredSecret.mockReturnValue(true);
-    mockTestPairing.mockRejectedValue(new Error("Pairing test failed"));
+    mockTestPairing.mockRejectedValue({
+      response: { status: 403, data: { detail: "Invalid authentication" } },
+    });
 
     renderSettings();
 

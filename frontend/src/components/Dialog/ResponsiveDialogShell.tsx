@@ -161,7 +161,11 @@ export function ResponsiveDialogShell({
   };
 
   const getSurfaceSx = (currentTheme: Theme) => {
-    const surfaces = getOverlaySurfaceTokens(currentTheme.palette.background.default, currentTheme.palette.mode);
+    const surfaces = getOverlaySurfaceTokens(
+      currentTheme.palette.background.default,
+      currentTheme.palette.mode,
+      currentTheme.palette.chrome
+    );
     return {
       backgroundColor: surfaces.paper,
       [OVERLAY_SURFACE_CSS_VARIABLE]: surfaces.paper,

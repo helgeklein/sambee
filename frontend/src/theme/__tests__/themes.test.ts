@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import builtInThemeIds from "../../../../shared/built_in_theme_ids.json";
+import { resolveThemePalette } from "../palette";
 import { builtInThemes, getDefaultTheme, getThemeById } from "../themes";
 
 //
@@ -145,6 +146,20 @@ describe("Theme System - themes.ts", () => {
       const darkTheme = getThemeById("sambee-dark");
       expect(lightTheme?.action?.selected).toBe("#F4C43029");
       expect(darkTheme?.action?.selected).toBe("#D4A02038");
+    });
+
+    it("derives focus from primary text for both built-in and custom themes", () => {
+      const lightTheme = getDefaultTheme("light");
+      const darkTheme = getDefaultTheme("dark");
+      expect(resolveThemePalette(lightTheme).action.focus).toBe("rgba(31, 38, 43, 0.57)");
+      expect(resolveThemePalette(darkTheme).action.focus).toBe("rgba(246, 241, 232, 0.94)");
+
+      const customTheme = {
+        ...lightTheme,
+        text: { ...lightTheme.text, primary: "#123456" },
+        action: { ...lightTheme.action, focus: "#FF0000" },
+      };
+      expect(resolveThemePalette(customTheme).action.focus).toBe("rgba(18, 52, 86, 0.57)");
     });
   });
 });

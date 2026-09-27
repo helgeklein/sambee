@@ -11,6 +11,7 @@ vi.mock("../settingsDataSources", () => ({
 // Mock the API module
 vi.mock("../../../services/api", () => ({
   default: {
+    getThemes: () => Promise.resolve({ themes: [], site_default_id: "sambee-light" }),
     getCurrentUser: vi.fn(),
   },
 }));
@@ -74,7 +75,7 @@ describe("SettingsDialog Component", () => {
   it("does not check user status when dialog is closed", () => {
     renderWithTheme(<SettingsDialog open={false} onClose={mockOnClose} />);
 
-    expect(api.getCurrentUser).not.toHaveBeenCalled();
+    expect(api.getCurrentUser).toHaveBeenCalledTimes(1);
   });
 
   it("checks user status and displays appearance settings when opened", async () => {

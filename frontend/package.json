@@ -1,6 +1,6 @@
 {
   "name": "sambee-frontend",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -49,6 +49,7 @@
     "highlight.js": "^11.12.0",
     "i18next": "^26.4.2",
     "react": "^19.3.0",
+    "react-colorful": "^5.8.1",
     "react-dom": "^19.3.0",
     "react-i18next": "^17.0.14",
     "react-markdown": "^10.1.0",

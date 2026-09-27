@@ -8,6 +8,8 @@ import { AboutSettings } from "../AboutSettings";
 
 vi.mock("../../services/api", () => ({
   default: {
+    getThemes: () => Promise.resolve({ themes: [], site_default_id: "sambee-light" }),
+    getCurrentUser: () => Promise.resolve({ role: "editor" }),
     getAboutSettings: vi.fn(),
     getPublicSupportReport: vi.fn(),
   },

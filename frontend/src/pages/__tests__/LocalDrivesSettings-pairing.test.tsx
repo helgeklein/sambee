@@ -26,6 +26,8 @@ vi.mock("../../services/logger", () => ({
 vi.mock("../../services/api", () => ({
   __esModule: true,
   default: {
+    getThemes: () => Promise.resolve({ themes: [], site_default_id: "sambee-light" }),
+    getCurrentUser: () => Promise.resolve({ role: "editor" }),
     getCompanionDownloads: mockGetCompanionDownloads,
   },
 }));
@@ -43,6 +45,8 @@ vi.mock("../../services/companion", () => ({
   },
   clearStoredSecret: vi.fn(),
   hasStoredSecret: mockHasStoredSecret,
+  isCompanionAuthProtocolCompatible: (health: { auth_protocol_version?: number }) => health.auth_protocol_version === 2,
+  isCompanionAuthSignatureMismatch: vi.fn(() => false),
 }));
 
 function mockNavigatorDevice() {
@@ -65,7 +69,7 @@ describe("LocalDrivesSettings pairing dialog integration", () => {
     vi.clearAllMocks();
     clearCachedAsyncData();
     mockNavigatorDevice();
-    mockCheckHealth.mockResolvedValue({ status: "ok", paired: false });
+    mockCheckHealth.mockResolvedValue({ status: "ok", paired: false, auth_protocol_version: 2 });
     mockGetPairStatus.mockResolvedValue({
       current_origin: window.location.origin,
       current_origin_paired: false,

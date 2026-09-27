@@ -6,9 +6,9 @@ import uuid
 from datetime import datetime, timezone
 from json import JSONDecodeError
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.core.logging import get_logger
 from app.core.user_setting_definitions import (
@@ -23,14 +23,19 @@ from app.core.user_setting_definitions import (
     DEFAULT_TOUCH_FRIENDLY_FILE_SELECTION,
     UserSettingKey,
 )
+from app.models.system_settings import SystemSetting
+from app.models.theme import StoredTheme
 from app.models.user_settings import (
     AppearanceUserSettingsRead,
     BrowserUserSettingsRead,
     CurrentUserSettingsRead,
     CurrentUserSettingsUpdate,
     CurrentUserSettingsUpdateResult,
+    LanguagePreference,
     LocalizationUserSettingsRead,
+    QuickBarShortcutHintVisibility,
     TextEditorUserSettingsRead,
+    TouchFriendlyFileSelection,
     UserSetting,
 )
 
@@ -44,7 +49,6 @@ VALID_QUICK_BAR_SHORTCUT_HINT_VISIBILITIES = {"auto", "always", "never"}
 VALID_TOUCH_FRIENDLY_FILE_SELECTIONS = {"auto", "always", "never"}
 MIN_TEXT_EDITOR_MAX_FILE_SIZE_BYTES = 65_536
 MAX_TEXT_EDITOR_MAX_FILE_SIZE_BYTES = 104_857_600
-VALID_THEME_MODES = {"light", "dark"}
 VALID_LANGUAGE_PREFERENCES = {DEFAULT_LANGUAGE_PREFERENCE, "en", "en-XA"}
 REGIONAL_LOCALE_PATTERN = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
 BUILT_IN_THEME_IDS_PATHS = (
@@ -166,52 +170,6 @@ def _parse_int(raw_value: str | None, *, key: UserSettingKey, default: int) -> i
         return default
 
 
-def _is_valid_theme_config(theme: Any) -> bool:
-    if not isinstance(theme, dict):
-        return False
-
-    theme_id = theme.get("id")
-    name = theme.get("name")
-    mode = theme.get("mode")
-    primary = theme.get("primary")
-
-    if not isinstance(theme_id, str) or not theme_id.strip():
-        return False
-    if not isinstance(name, str) or not name.strip():
-        return False
-    if mode not in VALID_THEME_MODES:
-        return False
-    if not isinstance(primary, dict):
-        return False
-
-    primary_main = primary.get("main")
-    return isinstance(primary_main, str) and bool(primary_main.strip())
-
-
-def _parse_custom_themes(raw_value: str | None) -> list[dict[str, Any]]:
-    if raw_value is None:
-        return []
-
-    try:
-        parsed = json.loads(raw_value)
-    except JSONDecodeError:
-        logger.error("Invalid stored custom themes JSON for user settings")
-        return []
-
-    if not isinstance(parsed, list):
-        logger.error("Invalid stored custom themes value for user settings: expected list")
-        return []
-
-    valid_themes: list[dict[str, Any]] = []
-    for theme in parsed:
-        if _is_valid_theme_config(theme):
-            valid_themes.append(cast(dict[str, Any], theme))
-        else:
-            logger.error("Invalid stored custom theme definition encountered in user settings")
-
-    return valid_themes
-
-
 def _parse_viewer_associations(raw_value: str | None) -> dict[str, str]:
     if raw_value is None:
         return {}
@@ -245,13 +203,15 @@ def _parse_viewer_associations(raw_value: str | None) -> dict[str, str]:
 
 def build_current_user_settings_read(*, user_id: uuid.UUID, session: Session) -> CurrentUserSettingsRead:
     values = _load_user_setting_map(user_id, session)
+    explicit_theme_id = values.get(UserSettingKey.APPEARANCE_THEME_ID.value)
+    site_default = session.get(SystemSetting, "appearance.site_default_theme_id")
     return CurrentUserSettingsRead(
         appearance=AppearanceUserSettingsRead(
-            theme_id=_parse_theme_id(values.get(UserSettingKey.APPEARANCE_THEME_ID.value)),
-            custom_themes=_parse_custom_themes(values.get(UserSettingKey.APPEARANCE_CUSTOM_THEMES.value)),
+            theme_id=_parse_theme_id(explicit_theme_id or (site_default.value if site_default else None)),
+            has_theme_override=explicit_theme_id is not None,
         ),
         localization=LocalizationUserSettingsRead(
-            language=_parse_language_preference(values.get(UserSettingKey.LOCALIZATION_LANGUAGE.value)),
+            language=cast(LanguagePreference, _parse_language_preference(values.get(UserSettingKey.LOCALIZATION_LANGUAGE.value))),
             regional_locale=_parse_regional_locale_preference(values.get(UserSettingKey.LOCALIZATION_REGIONAL_LOCALE.value)),
         ),
         browser=BrowserUserSettingsRead(
@@ -260,17 +220,23 @@ def build_current_user_settings_read(*, user_id: uuid.UUID, session: Session) ->
                 key=UserSettingKey.BROWSER_QUICK_NAV_INCLUDE_DOT_DIRECTORIES,
                 default=DEFAULT_QUICK_NAV_INCLUDE_DOT_DIRECTORIES,
             ),
-            quick_bar_shortcut_hint_visibility=_parse_choice(
-                values.get(UserSettingKey.BROWSER_QUICK_BAR_SHORTCUT_HINT_VISIBILITY.value),
-                key=UserSettingKey.BROWSER_QUICK_BAR_SHORTCUT_HINT_VISIBILITY,
-                valid_values=VALID_QUICK_BAR_SHORTCUT_HINT_VISIBILITIES,
-                default=DEFAULT_QUICK_BAR_SHORTCUT_HINT_VISIBILITY,
+            quick_bar_shortcut_hint_visibility=cast(
+                QuickBarShortcutHintVisibility,
+                _parse_choice(
+                    values.get(UserSettingKey.BROWSER_QUICK_BAR_SHORTCUT_HINT_VISIBILITY.value),
+                    key=UserSettingKey.BROWSER_QUICK_BAR_SHORTCUT_HINT_VISIBILITY,
+                    valid_values=VALID_QUICK_BAR_SHORTCUT_HINT_VISIBILITIES,
+                    default=DEFAULT_QUICK_BAR_SHORTCUT_HINT_VISIBILITY,
+                ),
             ),
-            touch_friendly_file_selection=_parse_choice(
-                values.get(UserSettingKey.BROWSER_TOUCH_FRIENDLY_FILE_SELECTION.value),
-                key=UserSettingKey.BROWSER_TOUCH_FRIENDLY_FILE_SELECTION,
-                valid_values=VALID_TOUCH_FRIENDLY_FILE_SELECTIONS,
-                default=DEFAULT_TOUCH_FRIENDLY_FILE_SELECTION,
+            touch_friendly_file_selection=cast(
+                TouchFriendlyFileSelection,
+                _parse_choice(
+                    values.get(UserSettingKey.BROWSER_TOUCH_FRIENDLY_FILE_SELECTION.value),
+                    key=UserSettingKey.BROWSER_TOUCH_FRIENDLY_FILE_SELECTION,
+                    valid_values=VALID_TOUCH_FRIENDLY_FILE_SELECTIONS,
+                    default=DEFAULT_TOUCH_FRIENDLY_FILE_SELECTION,
+                ),
             ),
             file_browser_view_mode=_parse_choice(
                 values.get(UserSettingKey.BROWSER_FILE_BROWSER_VIEW_MODE.value),
@@ -333,18 +299,6 @@ def _built_in_theme_ids() -> set[str]:
     raise RuntimeError("The built-in theme manifest is unavailable")
 
 
-def _validate_custom_themes(custom_themes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    if any(not _is_valid_theme_config(theme) for theme in custom_themes):
-        raise ValueError("Custom themes payload contains an invalid theme definition")
-    built_in_ids = _built_in_theme_ids()
-    custom_ids = [str(theme["id"]).strip() for theme in custom_themes]
-    if len(custom_ids) != len(set(custom_ids)):
-        raise ValueError("Custom theme IDs must be unique")
-    if built_in_ids.intersection(custom_ids):
-        raise ValueError("Custom theme IDs cannot match built-in theme IDs")
-    return custom_themes
-
-
 def _begin_immediate_transaction(session: Session) -> None:
     if session.get_bind().dialect.name == "sqlite" and not session.in_transaction():
         session.connection().exec_driver_sql("BEGIN IMMEDIATE")
@@ -356,23 +310,19 @@ def update_current_user_settings(
     key = UserSettingKey(payload.field)
     value: object = payload.value
 
-    if key in {UserSettingKey.APPEARANCE_THEME_ID, UserSettingKey.APPEARANCE_CUSTOM_THEMES}:
+    if key is UserSettingKey.APPEARANCE_THEME_ID:
         _begin_immediate_transaction(session)
 
     if key is UserSettingKey.APPEARANCE_THEME_ID:
         value = str(value).strip()
         if not value:
             raise ValueError("Theme ID cannot be empty")
-        current = build_current_user_settings_read(user_id=user_id, session=session)
-        allowed_ids = _built_in_theme_ids().union(theme["id"] for theme in current.appearance.custom_themes)
+        rows = session.exec(
+            select(StoredTheme.id).where((col(StoredTheme.owner_user_id) == user_id) | col(StoredTheme.owner_user_id).is_(None))
+        ).all()
+        allowed_ids = _built_in_theme_ids().union(rows)
         if value not in allowed_ids:
             raise ValueError("Theme ID must identify a built-in or current custom theme")
-    elif key is UserSettingKey.APPEARANCE_CUSTOM_THEMES:
-        value = _validate_custom_themes(cast(list[dict[str, Any]], value))
-        current_theme_id = build_current_user_settings_read(user_id=user_id, session=session).appearance.theme_id
-        allowed_ids = _built_in_theme_ids().union(theme["id"] for theme in value)
-        if current_theme_id not in allowed_ids:
-            raise ValueError("Cannot remove the active custom theme before selecting another theme")
     elif key is UserSettingKey.LOCALIZATION_LANGUAGE:
         value = _parse_language_preference(cast(str, value))
     elif key is UserSettingKey.LOCALIZATION_REGIONAL_LOCALE:

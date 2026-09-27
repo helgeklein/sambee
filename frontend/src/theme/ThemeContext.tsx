@@ -1,6 +1,8 @@
 import { alpha, createTheme, type Theme } from "@mui/material";
-import { createContext, type ReactNode, useContext, useEffect, useMemo } from "react";
-import { useCurrentUserSetting } from "../services/userSettingsStore";
+import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
+import api, { type StoredTheme } from "../services/api";
+import { authSession } from "../services/authSession";
+import { refreshCurrentUserSettings, useCurrentUserSetting } from "../services/userSettingsStore";
 import { COMPACT_LAYOUT_SIZE } from "./constants";
 import {
   FORM_SURFACE_CSS_VARIABLE,
@@ -32,6 +34,10 @@ interface ThemeContextValue {
   muiTheme: Theme;
   /** All available themes */
   availableThemes: ThemeConfig[];
+  storedThemes: StoredTheme[];
+  siteDefaultId: string;
+  isAdmin: boolean;
+  refreshThemes: () => Promise<void>;
 }
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
@@ -49,16 +55,67 @@ interface ThemeProviderProps {
  */
 export function SambeeThemeProvider({ children }: ThemeProviderProps) {
   const themeIdSetting = useCurrentUserSetting("appearance.theme_id");
-  const customThemesSetting = useCurrentUserSetting("appearance.custom_themes");
-  const currentThemeId = themeIdSetting.confirmedValue ?? getDefaultTheme().id;
-  const customThemes = customThemesSetting.confirmedValue ?? [];
+  const [storedThemes, setStoredThemes] = useState<StoredTheme[]>([]);
+  const [siteDefaultId, setSiteDefaultId] = useState(getDefaultTheme().id);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const refreshSequence = useRef(0);
+  const currentThemeId = themeIdSetting.confirmedValue ?? siteDefaultId;
+
+  const refreshThemes = async () => {
+    const sequence = ++refreshSequence.current;
+    const epoch = authSession.getIdentity().epoch;
+    const result = await api.getThemes();
+    if (sequence !== refreshSequence.current || epoch !== authSession.getIdentity().epoch) return;
+    setStoredThemes(result.themes);
+    setSiteDefaultId(result.site_default_id);
+    await refreshCurrentUserSettings();
+  };
+
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      const sequence = ++refreshSequence.current;
+      const epoch = authSession.getIdentity().epoch;
+      void Promise.all([api.getThemes(), api.getCurrentUser()])
+        .then(([result, user]) => {
+          if (!active || sequence !== refreshSequence.current || epoch !== authSession.getIdentity().epoch) return;
+          setStoredThemes(result.themes);
+          setSiteDefaultId(result.site_default_id);
+          setIsAdmin(user.role === "admin");
+          void refreshCurrentUserSettings();
+        })
+        .catch(() => undefined);
+    };
+    refresh();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisibility);
+    const unsubscribe = authSession.subscribeToIdentity(() => {
+      refreshSequence.current += 1;
+      setStoredThemes([]);
+      setSiteDefaultId(getDefaultTheme().id);
+      setIsAdmin(false);
+      refresh();
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
 
   // All available themes (built-in + custom)
-  const availableThemes = useMemo(() => [...builtInThemes, ...customThemes], [customThemes]);
+  const availableThemes = useMemo(
+    () => [...builtInThemes, ...storedThemes.map((stored) => ({ ...stored.definition, id: stored.id }))],
+    [storedThemes]
+  );
 
   // Current theme configuration
   const currentTheme = useMemo(
-    () => availableThemes.find((t) => t.id === currentThemeId) ?? getDefaultTheme(),
+    () => availableThemes.find((theme) => theme.id === currentThemeId) ?? getDefaultTheme(),
     [availableThemes, currentThemeId]
   );
 
@@ -68,8 +125,8 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     const palette = resolveThemePalette(currentTheme);
     const { appBar, action, background, link, statusBar, text } = palette;
     const focusColor = action.focus;
-    const dialogSurfaces = getOverlaySurfaceTokens(background.default, currentTheme.mode);
-    const menuBackground = isDark ? getDarkChromeSurfaceColor() : background.default;
+    const dialogSurfaces = getOverlaySurfaceTokens(background.default, currentTheme.mode, currentTheme.background?.chrome);
+    const menuBackground = isDark ? getDarkChromeSurfaceColor(currentTheme) : background.default;
     const alertColors = currentTheme.components?.alert;
     const getStandardAlertStyle = (severity: "info" | "success" | "warning" | "error") => {
       const alertColor = alertColors?.[severity];
@@ -115,12 +172,14 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
       },
       palette: {
         mode: currentTheme.mode,
+        chrome: currentTheme.background?.chrome,
         primary: currentTheme.primary,
         background,
         text,
         action,
         appBar,
         statusBar,
+        markdownDocument: currentTheme.components?.markdownViewer?.document,
       },
       typography: {
         fontFamily: ["-apple-system", "BlinkMacSystemFont", '"Segoe UI"', "Roboto", '"Helvetica Neue"', "Arial", "sans-serif"].join(","),
@@ -335,12 +394,12 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
             disableFocusRipple: true,
           },
           styleOverrides: {
-            root: ({ theme }) => ({
+            root: {
               "&.Mui-focusVisible": {
-                outline: `${FOCUS_OUTLINE_WIDTH_PX}px solid ${theme.palette.primary.main}`,
+                outline: `${FOCUS_OUTLINE_WIDTH_PX}px solid ${focusColor}`,
                 outlineOffset: `${FOCUS_OUTLINE_OFFSET_PX}px`,
               },
-            }),
+            },
           },
         },
         // Keep form labels readable when focused (don't use primary yellow color)
@@ -388,6 +447,10 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     currentTheme,
     muiTheme,
     availableThemes,
+    storedThemes,
+    siteDefaultId,
+    isAdmin,
+    refreshThemes,
   };
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

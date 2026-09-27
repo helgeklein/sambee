@@ -1,34 +1,27 @@
-import {
-  Box,
-  Divider,
-  FormControl,
-  InputLabel,
-  ListItem,
-  ListItemButton,
-  MenuItem,
-  Radio,
-  Select,
-  Typography,
-  useMediaQuery,
-  useTheme,
-} from "@mui/material";
+import { Box, Button, Chip, FormControl, InputLabel, MenuItem, Radio, Select, Typography } from "@mui/material";
 import type { SelectChangeEvent } from "@mui/material/Select";
+import axios from "axios";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ResponsiveDialogShell } from "../components/Dialog/ResponsiveDialogShell";
 import { formSelectMenuProps, formSelectSx } from "../components/Form/FormLayout";
 import { SettingSaveStatus } from "../components/Settings/SettingSaveStatus";
 import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
-import { SettingsList } from "../components/Settings/SettingsList";
 import { SettingsPage } from "../components/Settings/SettingsPage";
 import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
 import { getSettingsPageSurfaceColor } from "../components/Settings/settingsSurface";
+import { ThemeEditorDialog } from "../components/Settings/ThemeEditorDialog";
 import { useRestoreFocusAfterPending } from "../hooks/useRestoreFocusAfterPending";
 import { getAvailableLanguages } from "../i18n";
 import { useLocalePreferences } from "../i18n/LocalePreferencesProvider";
 import { PSEUDO_LANGUAGE } from "../i18n/resources";
+import api, { getThemeRequestError } from "../services/api";
 import { useCurrentUserSetting } from "../services/userSettingsStore";
 import { useSambeeTheme } from "../theme";
+import { resolveThemePalette } from "../theme/palette";
+import { editableDefinition, getThemeCopyName } from "../theme/themeDefinition";
+import type { ThemeConfig } from "../theme/types";
 import type { LanguagePreference } from "../types";
 import { formatLocalizedDateTime, formatLocalizedNumber } from "../utils/localeFormatting";
 
@@ -48,16 +41,8 @@ function getLanguageOptionLabel(t: ReturnType<typeof useTranslation>["t"], langu
     : t("settings.appearancePage.englishLanguageOption");
 }
 
-function ThemePreview({
-  theme,
-}: {
-  theme: {
-    primary: { main: string };
-    background?: { default?: string };
-    text?: { primary?: string };
-    components?: { link?: { main: string } };
-  };
-}) {
+function ThemePreview({ theme }: { theme: ThemeConfig }) {
+  const colors = resolveThemePalette(theme);
   return (
     <Box sx={{ display: "flex", gap: 1, mt: 1.5 }}>
       <Box
@@ -65,7 +50,7 @@ function ThemePreview({
           width: 40,
           height: 40,
           borderRadius: 1,
-          bgcolor: theme.background?.default || "#FBF9F4",
+          bgcolor: colors.background.default,
           border: "1px solid",
           borderColor: "divider",
         }}
@@ -75,7 +60,7 @@ function ThemePreview({
           width: 40,
           height: 40,
           borderRadius: 1,
-          bgcolor: theme.text?.primary || "#1F262B",
+          bgcolor: colors.text.primary,
           border: "1px solid",
           borderColor: "divider",
         }}
@@ -86,7 +71,7 @@ function ThemePreview({
           width: 40,
           height: 40,
           borderRadius: 1,
-          bgcolor: theme.components?.link?.main || theme.primary.main,
+          bgcolor: colors.link.main,
           border: "1px solid",
           borderColor: "divider",
         }}
@@ -96,16 +81,25 @@ function ThemePreview({
 }
 
 export function AppearanceSettings() {
-  const { currentTheme, availableThemes } = useSambeeTheme();
+  const {
+    currentTheme,
+    availableThemes,
+    storedThemes = [],
+    siteDefaultId = "sambee-light",
+    isAdmin = false,
+    refreshThemes,
+  } = useSambeeTheme();
   const themeSetting = useCurrentUserSetting("appearance.theme_id");
   const languageSetting = useCurrentUserSetting("localization.language");
   const regionalLocaleSetting = useCurrentUserSetting("localization.regional_locale");
   const [pendingThemeId, setPendingThemeId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<ThemeConfig | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [themeActionPending, setThemeActionPending] = useState(false);
+  const [themeActionError, setThemeActionError] = useState<string | null>(null);
   const restoreThemeFocus = useRestoreFocusAfterPending(themeSetting.pending || pendingThemeId !== null);
   const restoreLanguageFocus = useRestoreFocusAfterPending(languageSetting.pending);
   const restoreRegionalLocaleFocus = useRestoreFocusAfterPending(regionalLocaleSetting.pending);
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t } = useTranslation();
   const { languagePreference, regionalLocalePreference, setLanguagePreference, setRegionalLocalePreference } = useLocalePreferences();
   const availableLanguages = getAvailableLanguages();
@@ -152,7 +146,7 @@ export function AppearanceSettings() {
   };
 
   const handleThemeSelect = (themeId: string) => {
-    if (!themeSetting.pending && themeId !== currentTheme.id) {
+    if (!themeSetting.pending && pendingThemeId === null) {
       setPendingThemeId(themeId);
       themeSetting.clearError();
       void themeSetting
@@ -164,118 +158,223 @@ export function AppearanceSettings() {
 
   const selectedThemeId = pendingThemeId ?? currentTheme.id;
   const themeSelectionPending = themeSetting.pending || pendingThemeId !== null;
+  const selectedTile = availableThemes.find((themeOption) => themeOption.id === selectedThemeId);
+  const selectedStored = storedThemes.find((entry) => entry.id === selectedTile?.id);
+  const selectedWritable = Boolean(selectedStored && (selectedStored.scope === "user" || isAdmin));
+
+  const runThemeAction = async (action: () => Promise<void>) => {
+    setThemeActionPending(true);
+    setThemeActionError(null);
+    try {
+      await action();
+      await refreshThemes?.();
+    } catch (error) {
+      setThemeActionError(getThemeRequestError(error));
+    } finally {
+      setThemeActionPending(false);
+    }
+  };
+
+  const copyTheme = () => {
+    if (!selectedTile) return;
+    const scope = selectedWritable && selectedStored ? selectedStored.scope : "user";
+    void runThemeAction(async () => {
+      const name = getThemeCopyName(
+        selectedTile.name,
+        storedThemes.filter((candidate) => candidate.scope === scope).map((candidate) => candidate.definition.name),
+        true
+      );
+      await api.createTheme({ ...editableDefinition(selectedTile), name }, scope);
+    });
+  };
 
   return (
     <SettingsPage category="appearance">
       <SettingsSectionList>
         <SettingsGroup title={t("settings.appearancePage.themeTitle")}>
-          {isMobile ? (
-            <SettingsList>
-              {availableThemes.map((themeOption) => (
-                <Box key={themeOption.id}>
-                  <ListItem disablePadding>
-                    <ListItemButton
-                      disabled={themeSelectionPending}
-                      onFocus={() => restoreThemeFocus()}
-                      onClick={() => handleThemeSelect(themeOption.id)}
-                      sx={{ py: 2, px: 0 }}
-                    >
-                      <Box sx={{ display: "flex", alignItems: "flex-start", width: "100%", gap: 2 }}>
-                        <Radio checked={selectedThemeId === themeOption.id} sx={{ mt: -0.5 }} />
-                        <Box sx={{ flex: 1 }}>
-                          <Typography variant="h6" sx={{ fontWeight: 500 }}>
-                            {themeOption.name}
-                          </Typography>
-                          {themeOption.description && (
-                            <Typography variant="body2" sx={{ mt: 0.5, color: "text.secondary" }}>
-                              {themeOption.description}
-                            </Typography>
-                          )}
-                          <ThemePreview theme={themeOption} />
-                        </Box>
-                        {selectedThemeId === themeOption.id ? (
-                          <SettingSaveStatus
-                            pending={themeSelectionPending}
-                            saved={themeSetting.saved}
-                            savingLabel={t("settings.saveStatus.saving")}
-                            savedLabel={t("settings.saveStatus.saved")}
-                          />
-                        ) : null}
-                      </Box>
-                    </ListItemButton>
-                  </ListItem>
-                  <Divider />
-                </Box>
-              ))}
-            </SettingsList>
-          ) : (
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", md: "repeat(3, 1fr)" },
-                gap: 2,
-              }}
-            >
-              {availableThemes.map((themeOption) => (
+          {(["user", "site", "built-in"] as const).map((scope) => {
+            const options = availableThemes.filter(
+              (option) =>
+                (storedThemes.find((entry) => entry.id === option.id)?.scope ?? (option.id.startsWith("sambee-") ? "built-in" : "user")) ===
+                scope
+            );
+            if (!options.length) return null;
+            return (
+              <Box key={scope} sx={{ mb: 2 }}>
+                <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                  {scope === "user" ? "Your themes" : scope === "site" ? "Site themes" : "Built-in themes"}
+                </Typography>
                 <Box
-                  component="label"
-                  key={themeOption.id}
                   sx={{
-                    p: 3,
-                    border: selectedThemeId === themeOption.id ? 2 : 1,
-                    borderColor: selectedThemeId === themeOption.id ? "primary.main" : "divider",
-                    borderRadius: 1,
-                    cursor: themeSelectionPending ? "default" : "pointer",
-                    transition: "all 0.2s",
-                    ...(themeSelectionPending
-                      ? {}
-                      : {
-                          "&:hover": {
-                            borderColor: selectedThemeId === themeOption.id ? "primary.main" : "text.secondary",
-                            bgcolor: "action.selected",
-                          },
-                        }),
+                    display: "grid",
+                    gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", md: "repeat(3, minmax(0, 1fr))" },
+                    gap: 2,
                   }}
                 >
-                  <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
-                    <Radio
-                      checked={selectedThemeId === themeOption.id}
-                      disabled={themeSelectionPending}
-                      slotProps={{ input: { "aria-label": themeOption.name } }}
-                      onFocus={() => restoreThemeFocus()}
-                      onChange={() => handleThemeSelect(themeOption.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          handleThemeSelect(themeOption.id);
-                        }
+                  {options.map((themeOption) => (
+                    <Box
+                      key={themeOption.id}
+                      onClick={() => handleThemeSelect(themeOption.id)}
+                      sx={{
+                        position: "relative",
+                        p: 3,
+                        border: 2,
+                        borderColor: selectedTile?.id === themeOption.id ? "primary.main" : "divider",
+                        borderRadius: 1,
+                        cursor: themeSelectionPending ? "default" : "pointer",
+                        transition: "all 0.2s",
+                        ...(themeSelectionPending
+                          ? {}
+                          : {
+                              "&:hover": {
+                                borderColor: selectedTile?.id === themeOption.id ? "primary.main" : "text.secondary",
+                                bgcolor: "action.selected",
+                              },
+                            }),
                       }}
-                    />
-                    <Typography variant="h6" sx={{ ml: 1 }}>
-                      {themeOption.name}
-                    </Typography>
-                    {selectedThemeId === themeOption.id ? (
-                      <Box sx={{ ml: "auto" }}>
-                        <SettingSaveStatus
-                          pending={themeSelectionPending}
-                          saved={themeSetting.saved}
-                          savingLabel={t("settings.saveStatus.saving")}
-                          savedLabel={t("settings.saveStatus.saved")}
+                    >
+                      {siteDefaultId === themeOption.id && (
+                        <Chip
+                          label="Default"
+                          title="Site default"
+                          size="small"
+                          variant="outlined"
+                          sx={{ position: "absolute", top: 8, right: 8, bgcolor: "background.paper" }}
                         />
+                      )}
+                      <Box sx={{ display: "flex", alignItems: "center", mb: 1, minWidth: 0 }}>
+                        <Radio
+                          checked={selectedThemeId === themeOption.id}
+                          disabled={themeSelectionPending}
+                          slotProps={{ input: { "aria-label": themeOption.name } }}
+                          onFocus={() => restoreThemeFocus()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleThemeSelect(themeOption.id);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              handleThemeSelect(themeOption.id);
+                            }
+                          }}
+                        />
+                        <Typography
+                          component="span"
+                          variant="subtitle1"
+                          sx={{
+                            ml: 1,
+                            minWidth: 0,
+                            overflowWrap: "anywhere",
+                          }}
+                        >
+                          {themeOption.name}
+                        </Typography>
+                        {selectedThemeId === themeOption.id ? (
+                          <Box sx={{ ml: "auto" }}>
+                            <SettingSaveStatus
+                              pending={themeSelectionPending}
+                              saved={themeSetting.saved}
+                              savingLabel={t("settings.saveStatus.saving")}
+                              savedLabel={t("settings.saveStatus.saved")}
+                            />
+                          </Box>
+                        ) : null}
                       </Box>
-                    ) : null}
-                  </Box>
-                  {themeOption.description && (
-                    <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
-                      {themeOption.description}
-                    </Typography>
-                  )}
-                  <ThemePreview theme={themeOption} />
+                      {themeOption.description && (
+                        <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
+                          {themeOption.description}
+                        </Typography>
+                      )}
+                      <ThemePreview theme={themeOption} />
+                    </Box>
+                  ))}
                 </Box>
-              ))}
-            </Box>
-          )}
+              </Box>
+            );
+          })}
+          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+            <Button variant="outlined" onClick={copyTheme} disabled={!selectedTile || themeActionPending}>
+              Copy
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => selectedTile && setEditing(selectedTile)}
+              disabled={!selectedTile || themeActionPending}
+            >
+              Edit
+            </Button>
+            <Button variant="outlined" onClick={() => setConfirmDelete(true)} disabled={!selectedWritable || themeActionPending}>
+              Delete
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() =>
+                selectedTile &&
+                void runThemeAction(async () => {
+                  await api.setSiteDefaultTheme(selectedTile.id);
+                })
+              }
+              disabled={
+                !isAdmin ||
+                !selectedTile ||
+                Boolean(selectedStored?.scope === "user") ||
+                siteDefaultId === selectedTile?.id ||
+                themeActionPending
+              }
+            >
+              Set as default
+            </Button>
+          </Box>
+          {themeActionError && <SettingsFieldHelp sx={{ color: "error.main" }}>{themeActionError}</SettingsFieldHelp>}
           {themeSetting.error ? <SettingsFieldHelp sx={{ color: "error.main" }}>{themeSetting.error}</SettingsFieldHelp> : null}
+          {editing && (
+            <ThemeEditorDialog
+              key={editing.id}
+              theme={editing}
+              stored={storedThemes.find((entry) => entry.id === editing.id)}
+              storedThemes={storedThemes}
+              isAdmin={isAdmin}
+              onClose={() => setEditing(null)}
+              onSaved={async (themeId, isCopy) => {
+                await refreshThemes?.();
+                if (!isCopy && editing.id === selectedThemeId && themeId !== selectedThemeId) await themeSetting.commit(themeId);
+              }}
+            />
+          )}
+          <ResponsiveDialogShell
+            open={confirmDelete}
+            onClose={() => setConfirmDelete(false)}
+            title="Delete theme?"
+            actions={
+              <>
+                <Button onClick={() => setConfirmDelete(false)}>Cancel</Button>
+                <Button
+                  color="error"
+                  onClick={() => {
+                    const target = selectedStored;
+                    if (!target) return;
+                    void runThemeAction(async () => {
+                      try {
+                        await api.deleteTheme(target);
+                      } catch (error) {
+                        if (axios.isAxiosError(error) && error.response?.status === 409) {
+                          setConfirmDelete(false);
+                          await refreshThemes?.();
+                        }
+                        throw error;
+                      }
+                      setConfirmDelete(false);
+                    });
+                  }}
+                >
+                  Delete
+                </Button>
+              </>
+            }
+          >
+            <Typography>Delete {selectedTile?.name}? Users who selected it will use the site default.</Typography>
+          </ResponsiveDialogShell>
         </SettingsGroup>
 
         <SettingsGroup title={t("settings.appearancePage.localizationTitle")}>
