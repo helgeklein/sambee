@@ -1,6 +1,7 @@
 import type { SxProps, Theme } from "@mui/material";
 import { alpha } from "@mui/material";
 import { getContainedButtonFocusVisibleBoxShadow, getControlAccentColor, getElevatedButtonFocusRing } from "../../theme/commonStyles";
+import { OVERLAY_SURFACE_CSS_VARIABLE } from "../../theme/palette";
 
 const SETTINGS_BUTTON_MIN_HEIGHT_PX = 40;
 const SETTINGS_ICON_BUTTON_SIZE_PX = 36;
@@ -43,6 +44,11 @@ export const settingsUtilityButtonSx = {
     bgcolor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.3 : 0.2),
     boxShadow: (theme) => getSettingsFocusRing(theme),
   },
+} satisfies SxProps<Theme>;
+
+export const settingsFormSurfaceUtilityButtonSx = {
+  ...settingsUtilityButtonSx,
+  bgcolor: (theme: Theme) => `var(${OVERLAY_SURFACE_CSS_VARIABLE}, ${theme.palette.background.default})`,
 } satisfies SxProps<Theme>;
 
 export const settingsPrimaryButtonSx = {

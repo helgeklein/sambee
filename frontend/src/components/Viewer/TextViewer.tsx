@@ -30,6 +30,7 @@ import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supp
 import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
 import { HelpMenu } from "../FileBrowser/HelpMenu";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
+import { settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
 import { CodeMirrorFindReplacePopover } from "./CodeMirrorFindReplacePopover";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
@@ -1278,7 +1279,14 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
         disableRestoreFocus
         actions={
           <>
-            <Button ref={unsavedChangesCancelButtonRef} onClick={() => setPendingUnsavedChangesAction(null)} disabled={isSaving} autoFocus>
+            <Button
+              ref={unsavedChangesCancelButtonRef}
+              onClick={() => setPendingUnsavedChangesAction(null)}
+              disabled={isSaving}
+              autoFocus
+              variant="outlined"
+              sx={settingsUtilityButtonSx}
+            >
               {t("common.actions.cancel")}
             </Button>
             <Button
@@ -1293,7 +1301,8 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
                 }
               }}
               disabled={isSaving}
-              color="warning"
+              color="error"
+              variant="contained"
             >
               {t("common.actions.discard")}
             </Button>

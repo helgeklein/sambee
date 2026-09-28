@@ -60,6 +60,7 @@ import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supp
 import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
 import { HelpMenu } from "../FileBrowser/HelpMenu";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
+import { settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
 import { CodeMirrorFindReplacePopover } from "./CodeMirrorFindReplacePopover";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import { loadMarkdownRichEditor } from "./loadMarkdownRichEditor";
@@ -2084,10 +2085,17 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
         onTransitionExited={handleUnsavedChangesDialogExited}
         actions={
           <>
-            <Button ref={unsavedChangesCancelButtonRef} onClick={handleUnsavedChangesDialogClose} disabled={isSaving} autoFocus>
+            <Button
+              ref={unsavedChangesCancelButtonRef}
+              onClick={handleUnsavedChangesDialogClose}
+              disabled={isSaving}
+              autoFocus
+              variant="outlined"
+              sx={settingsUtilityButtonSx}
+            >
               {t("common.actions.cancel")}
             </Button>
-            <Button onClick={() => void handleUnsavedChangesDiscard()} disabled={isSaving} color="warning">
+            <Button onClick={() => void handleUnsavedChangesDiscard()} disabled={isSaving} color="error" variant="contained">
               {t("common.actions.discard")}
             </Button>
             <Button onClick={() => void handleUnsavedChangesSave()} disabled={isSaving} variant="contained">
