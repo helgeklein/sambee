@@ -1,7 +1,7 @@
 fastapi==0.141.1
 uvicorn[standard]==0.53.0
 python-multipart==0.0.32
-sqlmodel==0.0.42
+sqlmodel==0.0.47
 Authlib==1.8.0
 joserfc==1.7.5
 cryptography==50.0.1
