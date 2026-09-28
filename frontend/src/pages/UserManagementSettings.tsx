@@ -713,6 +713,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const [mappingTargetUser, setMappingTargetUser] = useState<AdminUser | null>(null);
   const [mappingTargetsLoading, setMappingTargetsLoading] = useState(false);
   const [oidcDetailsUser, setOidcDetailsUser] = useState<AdminUser | null>(null);
+  const [oidcConfirmation, setOidcConfirmation] = useState<{ user: AdminUser; action: "cancel" | "detach" } | null>(null);
+  const [oidcConfirmationSubmitting, setOidcConfirmationSubmitting] = useState(false);
+  const oidcConfirmationCancelRef = useRef<HTMLButtonElement>(null);
   const [userActionsMenu, setUserActionsMenu] = useState<{
     anchor: HTMLElement | null;
     user: AdminUser | null;
@@ -945,25 +948,30 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     }
   };
 
-  const handleCancelPendingMapping = async (user: AdminUser) => {
-    if (!oidcConfiguration || !window.confirm(`Cancel the pending OIDC mapping for ${user.username}?`)) return;
+  const handleOidcConfirmation = async () => {
+    if (!oidcConfiguration || !oidcConfirmation || oidcConfirmationSubmitting) return;
+    const { user, action } = oidcConfirmation;
+    setOidcConfirmationSubmitting(true);
     try {
-      await api.cancelPendingOidcMapping(user.id, oidcConfiguration.identity_mapping_revision);
-      showNotification("Pending OIDC mapping canceled.", "success");
+      if (action === "cancel") {
+        await api.cancelPendingOidcMapping(user.id, oidcConfiguration.identity_mapping_revision);
+        showNotification("Pending OIDC mapping canceled.", "success");
+      } else {
+        await api.detachOidcIdentity(user.id, oidcConfiguration.identity_mapping_revision);
+        showNotification("OIDC identity detached.", "success");
+      }
+      setOidcConfirmation(null);
       await refreshDirectory();
     } catch (error: unknown) {
-      showNotification(getApiErrorMessage(error, "The pending OIDC mapping could not be canceled."), "error");
-    }
-  };
-
-  const handleDetachIdentity = async (user: AdminUser) => {
-    if (!oidcConfiguration || !window.confirm(`Detach the OIDC identity from ${user.username}? This does not revoke IdP access.`)) return;
-    try {
-      await api.detachOidcIdentity(user.id, oidcConfiguration.identity_mapping_revision);
-      showNotification("OIDC identity detached.", "success");
-      await refreshDirectory();
-    } catch (error: unknown) {
-      showNotification(getApiErrorMessage(error, "The OIDC identity could not be detached."), "error");
+      showNotification(
+        getApiErrorMessage(
+          error,
+          action === "cancel" ? "The pending OIDC mapping could not be canceled." : "The OIDC identity could not be detached."
+        ),
+        "error"
+      );
+    } finally {
+      setOidcConfirmationSubmitting(false);
     }
   };
 
@@ -2451,7 +2459,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 onClick={() => {
                   const user = userActionsMenu.user;
                   closeUserActionsMenu();
-                  if (user) void handleCancelPendingMapping(user);
+                  if (user) setOidcConfirmation({ user, action: "cancel" });
                 }}
               >
                 <LinkOffIcon fontSize="small" sx={{ mr: 1.5 }} />
@@ -2495,7 +2503,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                   onClick={() => {
                     const user = userActionsMenu.user;
                     closeUserActionsMenu();
-                    if (user) void handleDetachIdentity(user);
+                    if (user) setOidcConfirmation({ user, action: "detach" });
                   }}
                 >
                   <LinkOffIcon fontSize="small" sx={{ mr: 1.5 }} />
@@ -2533,6 +2541,41 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           </>
         )}
       </Menu>
+
+      <ResponsiveDialogShell
+        open={oidcConfirmation !== null}
+        onClose={() => setOidcConfirmation(null)}
+        disableClose={oidcConfirmationSubmitting}
+        disableAutoFocus
+        onTransitionEntered={() => oidcConfirmationCancelRef.current?.focus()}
+        onKeyDown={dialogEnterKeyHandler()}
+        title={oidcConfirmation?.action === "detach" ? "Detach OIDC identity?" : "Cancel pending OIDC mapping?"}
+        description={
+          oidcConfirmation?.action === "detach"
+            ? `Detach the OIDC identity from ${oidcConfirmation.user.username}? This does not revoke IdP access.`
+            : `Cancel the pending OIDC mapping for ${oidcConfirmation?.user.username ?? ""}?`
+        }
+        actions={
+          <>
+            <Button
+              ref={oidcConfirmationCancelRef}
+              variant="outlined"
+              sx={settingsUtilityButtonSx}
+              disabled={oidcConfirmationSubmitting}
+              onClick={() => setOidcConfirmation(null)}
+              onKeyDownCapture={dialogEnterKeyHandler()}
+            >
+              Cancel
+            </Button>
+            <Button variant="contained" color="error" disabled={oidcConfirmationSubmitting} onClick={() => void handleOidcConfirmation()}>
+              {oidcConfirmation?.action === "detach" ? "Detach OIDC identity" : "Cancel pending OIDC mapping"}
+            </Button>
+          </>
+        }
+        maxWidth="xs"
+      >
+        {null}
+      </ResponsiveDialogShell>
 
       <ResponsiveDialogShell
         open={oidcAuthenticationEnabled && oidcDetailsUser !== null}

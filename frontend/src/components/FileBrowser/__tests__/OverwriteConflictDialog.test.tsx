@@ -125,6 +125,24 @@ describe("OverwriteConflictDialog", () => {
     expect(screen.getByRole("radiogroup")).toHaveStyle({ display: "grid" });
   });
 
+  it("changes Continue's tone only for overwrite resolutions", async () => {
+    const user = userEvent.setup();
+    render(<OverwriteConflictDialog {...defaultProps} />);
+
+    expect(screen.getByRole("button", { name: S.CANCEL_OPERATION("copy") })).toHaveClass("MuiButton-outlined");
+    const continueButton = screen.getByRole("button", { name: S.BUTTON_CONTINUE });
+    expect(continueButton).toHaveClass("MuiButton-contained", "MuiButton-colorPrimary");
+
+    await user.click(screen.getByRole("radio", { name: S.BUTTON_OVERWRITE }));
+    expect(continueButton).toHaveClass("MuiButton-contained", "MuiButton-colorError");
+    await user.click(screen.getByRole("radio", { name: S.BUTTON_OVERWRITE_ONLY_OLDER }));
+    expect(continueButton).toHaveClass("MuiButton-colorError");
+    await user.click(screen.getByRole("radio", { name: S.BUTTON_RENAME }));
+    expect(continueButton).toHaveClass("MuiButton-colorPrimary");
+    await user.click(screen.getByRole("radio", { name: S.BUTTON_SKIP }));
+    expect(continueButton).toHaveClass("MuiButton-colorPrimary");
+  });
+
   it("focuses Skip and submits the selected bulk resolution", async () => {
     const onResolve = vi.fn();
     const user = userEvent.setup();

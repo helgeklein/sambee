@@ -26,6 +26,7 @@ import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
 import { DialogNoticeRegion } from "../Dialog/DialogNotice";
 import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
 import { FormGroup, FormRow, FormSurface, formOutlinedControlSx } from "../Form/FormLayout";
+import { settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
 import { COPY_MOVE_STRINGS as S } from "./copyMoveDialogStrings";
 import { DialogIdentifierDisplay } from "./DialogIdentifierDisplay";
 import { DialogOperationContext } from "./DialogOperationContext";
@@ -253,7 +254,7 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
 
   const actions = (
     <>
-      <Button ref={isTerminal ? closeButtonRef : cancelButtonRef} onClick={onCancel}>
+      <Button ref={isTerminal ? closeButtonRef : cancelButtonRef} onClick={onCancel} variant="outlined" sx={settingsUtilityButtonSx}>
         {isTerminal ? "Close" : S.BUTTON_CANCEL}
       </Button>
       {!isTerminal ? (

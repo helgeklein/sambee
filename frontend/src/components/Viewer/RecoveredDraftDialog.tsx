@@ -65,7 +65,7 @@ export function RecoveredDraftDialog({
       actionNotice={error ? <Alert severity="error">{error}</Alert> : null}
       actions={
         <>
-          <Button color="warning" disabled={isResuming} onClick={onDiscard}>
+          <Button color="error" variant="contained" disabled={isResuming} onClick={onDiscard}>
             {t("viewer.edit.recovery.discard")}
           </Button>
           <Button variant="contained" disabled={isResuming} onClick={onResume}>

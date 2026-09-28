@@ -1935,6 +1935,9 @@ describe("MarkdownViewer", () => {
     await waitFor(() => {
       expect(within(unsavedDialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
     });
+    expect(within(unsavedDialog).getByRole("button", { name: "Cancel" })).toHaveClass("MuiButton-outlined");
+    expect(within(unsavedDialog).getByRole("button", { name: "Discard" })).toHaveClass("MuiButton-contained", "MuiButton-colorError");
+    expect(within(unsavedDialog).getByRole("button", { name: "Save" })).toHaveClass("MuiButton-contained", "MuiButton-colorPrimary");
 
     fireEvent.keyDown(unsavedDialog, { key: "Escape" });
 

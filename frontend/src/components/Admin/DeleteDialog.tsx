@@ -5,7 +5,7 @@ import { useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
 import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
-import { settingsDestructiveButtonSx, settingsPrimaryButtonSx, settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
+import { settingsPrimaryButtonSx, settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
 import { adminDialogActionButtonSx, adminDialogEndActionRowSx } from "./dialogActionStyles";
 
 interface DeleteDialogProps {
@@ -38,7 +38,6 @@ const DeleteDialog: React.FC<DeleteDialogProps> = ({
   const { t } = useTranslation();
   const resolvedConfirmLabel = confirmLabel ?? t("common.actions.delete");
   const resolvedCancelLabel = cancelLabel ?? t("common.actions.cancel");
-  const confirmButtonSx = confirmTone === "primary" ? settingsPrimaryButtonSx : settingsDestructiveButtonSx;
   const handleClose = () => onClose();
   const descriptionWithItemName = descriptionItemName ? (
     <>
@@ -68,7 +67,7 @@ const DeleteDialog: React.FC<DeleteDialogProps> = ({
         disabled={submitting}
         variant="contained"
         color={confirmTone === "destructive" ? "error" : "primary"}
-        sx={[confirmButtonSx, adminDialogActionButtonSx]}
+        sx={confirmTone === "primary" ? [settingsPrimaryButtonSx, adminDialogActionButtonSx] : adminDialogActionButtonSx}
         startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : confirmTone === "destructive" ? <DeleteIcon /> : undefined}
       >
         {resolvedConfirmLabel}

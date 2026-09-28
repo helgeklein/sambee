@@ -23,6 +23,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DialogNotice } from "../Dialog/DialogNotice";
 import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
 import { FormGroup, FormRow, FormSurface, formOutlinedControlSx } from "../Form/FormLayout";
+import { settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
 import { FILENAME_FIELD_PROPS, FILENAME_INPUT_PROPS, FILENAME_INPUT_SX } from "./filenameFieldProps";
 import { canonicalizeItemName } from "./itemNameNormalization";
 import { NAME_DIALOG_STRINGS, validateItemName } from "./nameDialogStrings";
@@ -253,18 +254,30 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
       actions={
         isSubmitting && submittingContent ? (
           onCancelSubmitting ? (
-            <Button ref={cancelSubmittingRef} onClick={onCancelSubmitting} disabled={isCancelling}>
+            <Button
+              ref={cancelSubmittingRef}
+              onClick={onCancelSubmitting}
+              disabled={isCancelling}
+              variant="outlined"
+              sx={settingsUtilityButtonSx}
+            >
               {cancelSubmittingLabel ?? NAME_DIALOG_STRINGS.BUTTON_CANCEL}
             </Button>
           ) : null
         ) : (
           <>
             {isSubmitting && onCancelSubmitting ? (
-              <Button ref={cancelSubmittingRef} onClick={onCancelSubmitting} disabled={isCancelling}>
+              <Button
+                ref={cancelSubmittingRef}
+                onClick={onCancelSubmitting}
+                disabled={isCancelling}
+                variant="outlined"
+                sx={settingsUtilityButtonSx}
+              >
                 {cancelSubmittingLabel ?? NAME_DIALOG_STRINGS.BUTTON_CANCEL}
               </Button>
             ) : (
-              <Button onClick={onClose} disabled={isSubmitting}>
+              <Button onClick={onClose} disabled={isSubmitting} variant="outlined" sx={settingsUtilityButtonSx}>
                 {NAME_DIALOG_STRINGS.BUTTON_CANCEL}
               </Button>
             )}

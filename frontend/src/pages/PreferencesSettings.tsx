@@ -1,3 +1,7 @@
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import DeleteIcon from "@mui/icons-material/Delete";
+import EditIcon from "@mui/icons-material/Edit";
+import StarIcon from "@mui/icons-material/Star";
 import { Box, Button, Chip, FormControl, InputLabel, MenuItem, Radio, Select, Typography } from "@mui/material";
 import type { SelectChangeEvent } from "@mui/material/Select";
 import axios from "axios";
@@ -10,6 +14,7 @@ import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsPage } from "../components/Settings/SettingsPage";
 import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
+import { settingsDestructiveButtonSx, settingsUtilityButtonSx } from "../components/Settings/settingsButtonStyles";
 import { getSettingsPageSurfaceColor } from "../components/Settings/settingsSurface";
 import { ThemeEditorDialog } from "../components/Settings/ThemeEditorDialog";
 import { useRestoreFocusAfterPending } from "../hooks/useRestoreFocusAfterPending";
@@ -294,21 +299,37 @@ export function AppearanceSettings() {
             );
           })}
           <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-            <Button variant="outlined" onClick={copyTheme} disabled={!selectedTile || themeActionPending}>
+            <Button
+              variant="outlined"
+              sx={settingsUtilityButtonSx}
+              startIcon={<ContentCopyIcon />}
+              onClick={copyTheme}
+              disabled={!selectedTile || themeActionPending}
+            >
               Copy
             </Button>
             <Button
               variant="outlined"
+              sx={settingsUtilityButtonSx}
+              startIcon={<EditIcon />}
               onClick={() => selectedTile && setEditing(selectedTile)}
               disabled={!selectedTile || themeActionPending}
             >
               Edit
             </Button>
-            <Button variant="outlined" onClick={() => setConfirmDelete(true)} disabled={!selectedWritable || themeActionPending}>
+            <Button
+              variant="outlined"
+              sx={settingsDestructiveButtonSx}
+              startIcon={<DeleteIcon />}
+              onClick={() => setConfirmDelete(true)}
+              disabled={!selectedWritable || themeActionPending}
+            >
               Delete
             </Button>
             <Button
               variant="outlined"
+              sx={settingsUtilityButtonSx}
+              startIcon={<StarIcon />}
               onClick={() =>
                 selectedTile &&
                 void runThemeAction(async () => {
@@ -348,9 +369,12 @@ export function AppearanceSettings() {
             title="Delete theme?"
             actions={
               <>
-                <Button onClick={() => setConfirmDelete(false)}>Cancel</Button>
+                <Button onClick={() => setConfirmDelete(false)} variant="outlined" sx={settingsUtilityButtonSx}>
+                  Cancel
+                </Button>
                 <Button
                   color="error"
+                  variant="contained"
                   onClick={() => {
                     const target = selectedStored;
                     if (!target) return;

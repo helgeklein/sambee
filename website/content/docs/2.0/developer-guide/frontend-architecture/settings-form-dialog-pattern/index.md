@@ -1,16 +1,30 @@
 +++
-title = "Settings Form Dialog Pattern"
+title = "Settings Forms and Actions"
 +++
 
-Use this pattern for stateful settings editors that create or update configuration. It keeps the same form behavior across a phone drawer, a narrow dialog, and a desktop dialog while avoiding separate mobile and desktop forms.
+Use these conventions for settings pages and stateful settings editors. Pages share section, surface, and action styles. Editors keep the same form behavior across a phone drawer, a narrow dialog, and a desktop dialog without separate mobile and desktop forms.
 
-The reference implementation is `frontend/src/components/Admin/ConnectionDialog.tsx`.
+The page reference is `frontend/src/pages/LocalDrivesSettings.tsx`; the dialog reference is `frontend/src/components/Admin/ConnectionDialog.tsx`.
 
 ## When To Use It
 
-Use the pattern when a dialog edits several related settings and needs validation, field descriptions, or more than one action.
+Use the page conventions for settings content and actions. Use the dialog pattern when an editor changes several related settings and needs validation, field descriptions, or more than one action.
 
-Do not use it for a confirmation or destructive-action dialog. Those should continue to use `ResponsiveDialogShell` directly with focused content and actions.
+Do not use the form pattern for a confirmation or destructive-action dialog. Those should continue to use `ResponsiveDialogShell` directly with focused content and actions.
+
+## Settings Page Layout and Actions
+
+Compose settings pages with `SettingsPage`, `SettingsSectionList`, and `SettingsGroup`. Use `FormSurface` for the subdued background of an action section, not an additional bordered card. For action sections, put the description or metadata on the left and controls on the right in a `FormRow`: the columns stack below `md` and share the row at `md` and above. Right-align actions on desktop, allow them to wrap, and keep result notices below the row. An informational section such as Local Drives' Current status can keep its own layout; don't force it into an action row.
+
+Choose button styling by the action's role, not by whether its MUI variant is `outlined` or `contained`:
+
+| Role | Treatment | Example |
+|---|---|---|
+| Regular or secondary | Neutral `settingsUtilityButtonSx`; on a grey `FormSurface`, use `settingsFormSurfaceUtilityButtonSx` so the overlay background shows through, as it does for dialog inputs. Keep the existing border, hover, and keyboard-focus treatment. | Account > Change password; Local Drives > Test Current Pairing. |
+| Danger or alert | Red-tinted `settingsDestructiveButtonSx` for settings-page actions. Use the dialog action rules below for the confirmation. | Local Drives > Unpair This Browser. |
+| Main or default | Prominent `settingsPrimaryButtonSx` for the main action on a grey settings-page surface and for the main action in a page footer or dialog. Avoid giving several routine actions the same emphasis. | Authentication > Configure OIDC; Local Drives > Pair This Browser. |
+
+Add a relevant `@mui/icons-material` icon with `startIcon` to labeled outlined or contained settings-page action buttons that lack one. Leave text-only buttons, including buttons without an explicit outlined or contained variant, without icons. Adding an icon must not change the button's variant, colors, label, or behavior.
 
 ## Dialog Categories
 
@@ -31,7 +45,19 @@ Choose the content pattern that matches the job:
 
 The desktop settings overlay and mobile settings drawer are navigation containers, not form dialogs. Keep their information architecture separate while composing settings-form pages inside them.
 
-For safety-critical decisions, focus the least destructive action after opening. For input workflows, focus the first input. Do not make a destructive action the default Enter action unless the user has already focused it.
+## Dialog Action Buttons
+
+Choose each action's treatment by what it does, including in decisions embedded inside full-screen viewers. Keep the viewer workspace shell and toolbars separate from its decision dialogs.
+
+| Role | Treatment | Example |
+|---|---|---|
+| Destructive confirmation | MUI `variant="contained" color="error"`, as in the File delete dialog. Do not use the red-tinted settings-page `settingsDestructiveButtonSx` or introduce another red button style. | Delete, Discard unsaved changes, or Continue with overwrite selected. |
+| Main non-destructive action | MUI `variant="contained"` in the theme's primary color. | Create directory, Save, Retry, or the sole Close action. |
+| Secondary or alternate action | MUI `variant="outlined"` with the existing subdued utility fill and focus treatment. | Cancel, Later, Ignore, or Open without saving. |
+
+An action's role can change with the selected option: a conflict dialog's Continue is destructive only when it will overwrite an existing item. When a decision offers both Save and Discard, distinguish the primary and destructive actions without changing what either one does. Do not restyle settings-page triggers when styling their confirmation dialogs.
+
+Visual priority does not determine Enter behavior. For safety-critical decisions, focus the least destructive action on opening; for input workflows, focus the first input. Never make a destructive action the default Enter action unless the user has already focused it. Keep cancellation available and focused during cancellable pending operations. Use `ResponsiveDialogShell` for application confirmations rather than native `window.confirm`, whose buttons cannot follow these styles.
 
 ## Shared Building Blocks
 
@@ -147,6 +173,10 @@ Prefer a safe, valid default over presenting a predictable error when the dialog
 Use a stable form-level alert only when no editable field owns the remedy, such as a multi-item copy whose destination directory is also its source directory. Use error severity when the state blocks confirmation. Keep API failures in this form-level feedback region as well, above the form surface so they do not disrupt a desktop field row.
 
 ## Testing And Review
+
+For settings-page action sections, check the one-column layout below `md` and the two-column description/action layout at `md` and above. Check neutral-button contrast against grey form surfaces in light and dark themes, including hover and keyboard focus. Check that added icons do not change accessible names or cause button labels to overflow at phone widths. Keep informational sections readable without imposing the action-row grid, and verify that notices remain below the row.
+
+For dialog actions, check contained error and primary buttons and outlined secondary buttons in light and dark themes, including hover and keyboard focus. Verify that option-dependent destructive actions change treatment without changing their safe initial focus or Enter behavior.
 
 For every dialog that adopts this pattern, cover all of the following:
 

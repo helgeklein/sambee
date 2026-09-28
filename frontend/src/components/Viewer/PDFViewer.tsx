@@ -51,6 +51,7 @@ import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, supportsNativeShare } from "../../utils/nativeShare";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
+import { settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
 import { ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
 import { downloadViewerBlob } from "./viewerContent";
 
@@ -1728,20 +1729,10 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({
                   sx={{ mt: 3 }}
                 />
                 <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: 3 }}>
-                  <Button color="inherit" onClick={handlePdfPasswordCancel}>
+                  <Button onClick={handlePdfPasswordCancel} variant="outlined" sx={settingsUtilityButtonSx}>
                     Cancel
                   </Button>
-                  <Button
-                    color="inherit"
-                    type="submit"
-                    variant="contained"
-                    disabled={!pdfPassword}
-                    sx={{
-                      bgcolor: "text.primary",
-                      color: "background.paper",
-                      "&:hover": { bgcolor: "text.secondary" },
-                    }}
-                  >
+                  <Button type="submit" variant="contained" disabled={!pdfPassword}>
                     Open PDF
                   </Button>
                 </Box>

@@ -139,7 +139,14 @@ describe("LocalDrivesSettings", () => {
 
     expect(screen.queryByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.unpairThisBrowserButton })).toBeEnabled();
-    expect(screen.getByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.testCurrentPairingButton })).toBeEnabled();
+    expect(screen.getByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.testCurrentPairingButton })).toHaveClass("MuiButton-outlined");
+    expect(screen.getByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.unpairThisBrowserButton })).toHaveClass("MuiButton-colorError");
+    expect(screen.getByTestId("local-drives-summary-surface")).toBeInTheDocument();
+    expect(screen.getByTestId("local-drives-verification-surface")).toBeInTheDocument();
+    expect(screen.getByTestId("local-drives-troubleshooting-surface")).toBeInTheDocument();
+    expect(screen.getByTestId("local-drives-summary-surface").firstElementChild).toHaveClass("MuiStack-root");
+    expect(screen.getByTestId("local-drives-verification-surface").firstElementChild?.firstElementChild?.children).toHaveLength(2);
+    expect(screen.getByTestId("local-drives-troubleshooting-surface").firstElementChild?.children).toHaveLength(2);
     expect(screen.getByText(LOCAL_DRIVES_PAGE_COPY.verificationSectionTitle)).toBeInTheDocument();
     expect(screen.queryByText(LOCAL_DRIVES_PAGE_COPY.downloadSectionTitle)).not.toBeInTheDocument();
     expect(screen.queryByText(LOCAL_DRIVES_PAGE_COPY.pairingSectionTitle)).not.toBeInTheDocument();
@@ -266,7 +273,9 @@ describe("LocalDrivesSettings", () => {
       expect(mockGetPairStatus).toHaveBeenCalled();
     });
 
-    expect(screen.getByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton })).toBeEnabled();
+    expect(screen.getByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton })).toHaveClass("MuiButton-contained");
+    expect(screen.getByTestId("local-drives-pairing-surface")).toBeInTheDocument();
+    expect(screen.getByTestId("local-drives-pairing-surface").firstElementChild?.children).toHaveLength(2);
     expect(screen.queryByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.unpairThisBrowserButton })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.testCurrentPairingButton })).not.toBeInTheDocument();
     expect(screen.getByText(LOCAL_DRIVES_PAGE_COPY.pairingSectionTitle)).toBeInTheDocument();
@@ -331,6 +340,9 @@ describe("LocalDrivesSettings", () => {
     expect(await screen.findByText(LOCAL_DRIVES_PAGE_COPY.downloadSectionTitle)).toBeInTheDocument();
     const downloadLink = screen.getByRole("link", { name: /Download for this computer/i });
     expect(downloadLink).toHaveAttribute("href", "https://downloads.example.test/Sambee-Companion.exe");
+    expect(downloadLink).toHaveClass("MuiButton-contained");
+    expect(screen.getByTestId("local-drives-download-surface")).toBeInTheDocument();
+    expect(screen.getByTestId("local-drives-download-surface").firstElementChild?.children).toHaveLength(2);
   });
 
   it("shows an actionable metadata error when companion downloads cannot be resolved", async () => {
