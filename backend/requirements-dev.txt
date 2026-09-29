@@ -7,7 +7,7 @@ black==26.5.1
 ruff==0.16.9
 mypy==2.3.1
 httpx==0.28.1
-httpx2==2.13.0
+httpx2==2.13.1
 faker==40.39.0
 ipython==9.17.1
 rich==15.0.0

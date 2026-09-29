@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from typing import Literal
 
 from sqlalchemy import update
 from sqlmodel import Session, select
@@ -33,7 +34,7 @@ def _raise_mapping_validation_errors(errors: list[OidcMappingError]) -> None:
         raise OidcMappingError("OIDC mapping validation failed", validation_errors=tuple(errors))
 
 
-def _target_state(user: User, now: datetime) -> str:
+def _target_state(user: User, now: datetime) -> Literal["active", "inactive", "expired"]:
     if not user.is_active:
         return "inactive"
     expires_at = normalize_utc_datetime(user.expires_at)
@@ -72,6 +73,8 @@ def derive_mapping_plan(
         state = _target_state(user, current_time)
         identity = identities.get(user.id)
         pending_mapping = pending.get(user.id)
+        mapping_state: Literal["unmapped", "pending", "established"]
+        prefill_source: Literal["pending", "last_seen", "local"]
         if pending_mapping is not None:
             mapping_state = "pending"
             suggested_username = pending_mapping.expected_username

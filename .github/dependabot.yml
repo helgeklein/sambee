@@ -72,6 +72,10 @@ updates:
       # impossible to install under --require-hashes until a newer pydantic
       # release adopts that core version.
       - dependency-name: "pydantic-core"
+      # SQLModel 0.0.47 requires SQLAlchemy<2.1. Revisit when SQLModel
+      # supports the newer series.
+      - dependency-name: "sqlalchemy"
+        versions: [">=2.1.0"]
     groups:
       backend-python-dev-tools:
         patterns:
