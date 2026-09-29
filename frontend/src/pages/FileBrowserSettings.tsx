@@ -1,3 +1,4 @@
+import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
 import { Box, Button, Checkbox, FormControl, FormControlLabel, InputLabel, MenuItem, Select, Stack } from "@mui/material";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -178,10 +179,22 @@ export function FileBrowserSettings() {
       </SettingsGroup>
       <SettingsGroup title={t("settings.fileBrowserPage.fileSearchTitle")}>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ alignSelf: "flex-start" }}>
-          <Button color="error" variant="outlined" onClick={() => openClearHistoryDialog("files")}>
+          <Button
+            color="error"
+            variant="outlined"
+            sx={settingsDestructiveButtonSx}
+            startIcon={<DeleteSweepIcon />}
+            onClick={() => openClearHistoryDialog("files")}
+          >
             {t("settings.fileBrowserPage.clearRecentFiles")}
           </Button>
-          <Button color="error" variant="outlined" onClick={() => openClearHistoryDialog("directories")}>
+          <Button
+            color="error"
+            variant="outlined"
+            sx={settingsDestructiveButtonSx}
+            startIcon={<DeleteSweepIcon />}
+            onClick={() => openClearHistoryDialog("directories")}
+          >
             {t("settings.fileBrowserPage.clearRecentDirectories")}
           </Button>
         </Stack>
@@ -199,13 +212,7 @@ export function FileBrowserSettings() {
             <Button variant="outlined" sx={settingsUtilityButtonSx} disabled={clearingHistory} onClick={() => setHistoryToClear(null)}>
               {t("common.actions.cancel")}
             </Button>
-            <Button
-              color="error"
-              variant="contained"
-              sx={settingsDestructiveButtonSx}
-              disabled={clearingHistory}
-              onClick={() => void clearSelectedHistory()}
-            >
+            <Button color="error" variant="contained" disabled={clearingHistory} onClick={() => void clearSelectedHistory()}>
               {selectedHistory?.title}
             </Button>
           </>

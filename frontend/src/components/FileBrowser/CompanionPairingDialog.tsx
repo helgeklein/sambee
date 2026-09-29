@@ -18,6 +18,7 @@ import { logger } from "../../services/logger";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
 import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
 import { COMPANION_PAIRING_DIALOG_COPY } from "../Settings/localDrivesCopy";
+import { settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -178,20 +179,24 @@ const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, o
   const actions =
     step === "idle" ? (
       <>
-        <Button onClick={handleClose}>{COMPANION_PAIRING_DIALOG_COPY.cancelButton}</Button>
+        <Button onClick={handleClose} variant="outlined" sx={settingsUtilityButtonSx}>
+          {COMPANION_PAIRING_DIALOG_COPY.cancelButton}
+        </Button>
         <Button ref={startButtonRef} onClick={handleStart} variant="contained">
           {COMPANION_PAIRING_DIALOG_COPY.startButton}
         </Button>
       </>
     ) : step === "showing_code" && pairingCode ? (
       <>
-        <Button onClick={handleClose}>{COMPANION_PAIRING_DIALOG_COPY.cancelButton}</Button>
+        <Button onClick={handleClose} variant="outlined" sx={settingsUtilityButtonSx}>
+          {COMPANION_PAIRING_DIALOG_COPY.cancelButton}
+        </Button>
         <Button ref={confirmButtonRef} onClick={handleConfirm} variant="contained">
           {COMPANION_PAIRING_DIALOG_COPY.confirmButton}
         </Button>
       </>
     ) : step === "confirming" ? (
-      <Button onClick={handleClose} disabled>
+      <Button onClick={handleClose} disabled variant="outlined" sx={settingsUtilityButtonSx}>
         {COMPANION_PAIRING_DIALOG_COPY.cancelButton}
       </Button>
     ) : step === "success" ? (
@@ -200,7 +205,9 @@ const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, o
       </Button>
     ) : (
       <>
-        <Button onClick={handleClose}>{COMPANION_PAIRING_DIALOG_COPY.closeButton}</Button>
+        <Button onClick={handleClose} variant="outlined" sx={settingsUtilityButtonSx}>
+          {COMPANION_PAIRING_DIALOG_COPY.closeButton}
+        </Button>
         <Button ref={retryButtonRef} onClick={handleStart} variant="contained">
           {COMPANION_PAIRING_DIALOG_COPY.retryButton}
         </Button>

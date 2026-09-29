@@ -20,6 +20,7 @@ import { getViewerDefinitions } from "../../utils/FileTypeRegistry";
 import { DialogNoticeRegion } from "../Dialog/DialogNotice";
 import { DialogReadOnlyField } from "../Dialog/DialogReadOnlyField";
 import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
+import { settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
 
 interface BrowserViewerPickerProps {
   open?: boolean;
@@ -138,9 +139,11 @@ export function BrowserViewerPicker({
       actionNotice={<DialogNoticeRegion notices={[{ message: saveError }]} />}
       actions={
         <>
-          <Button onClick={onClose}>{t("common.actions.cancel")}</Button>
+          <Button onClick={onClose} variant="outlined" sx={settingsUtilityButtonSx}>
+            {t("common.actions.cancel")}
+          </Button>
           {saveError ? (
-            <Button onClick={handleOpenWithoutSaving} disabled={!selectedValue || saving}>
+            <Button onClick={handleOpenWithoutSaving} disabled={!selectedValue || saving} variant="outlined" sx={settingsUtilityButtonSx}>
               {t("fileBrowser.viewerPicker.openWithoutSaving")}
             </Button>
           ) : null}

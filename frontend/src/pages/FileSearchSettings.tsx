@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsPage } from "../components/Settings/SettingsPage";
+import { settingsUtilityButtonSx } from "../components/Settings/settingsButtonStyles";
 import { useRestoreFocusAfterPending } from "../hooks/useRestoreFocusAfterPending";
 import {
   SettingPersistenceAdornment,
@@ -281,7 +282,7 @@ export function FileSearchSettings() {
               disabled={!extensionInput.trim() || persistence.isPending("excluded_extensions")}
               onClick={addExtension}
               onFocus={() => restoreExtensionFocus()}
-              sx={{ alignSelf: "flex-start" }}
+              sx={[settingsUtilityButtonSx, { alignSelf: "flex-start" }]}
             >
               {t("settings.fileSearch.excludedExtensionsAdd")}
             </Button>

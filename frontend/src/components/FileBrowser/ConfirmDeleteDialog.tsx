@@ -18,6 +18,7 @@ import { useTranslation } from "react-i18next";
 import { type FileEntry, FileType } from "../../types";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
 import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
+import { settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
 import { CONFIRM_DELETE_STRINGS } from "./confirmDeleteDialogStrings";
 import { DialogIdentifierDisplay } from "./DialogIdentifierDisplay";
 import { DialogOperationContext } from "./DialogOperationContext";
@@ -104,7 +105,7 @@ const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({
       maxWidth="sm"
       actions={
         <>
-          <Button ref={cancelRef} onClick={onClose} disabled={isDeleting}>
+          <Button ref={cancelRef} onClick={onClose} disabled={isDeleting} variant="outlined" sx={settingsUtilityButtonSx}>
             {CONFIRM_DELETE_STRINGS.BUTTON_CANCEL}
           </Button>
           <Button

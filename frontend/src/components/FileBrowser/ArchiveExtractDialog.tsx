@@ -10,6 +10,7 @@ import { type ConflictInfo, FileType } from "../../types";
 import { DialogNotice } from "../Dialog/DialogNotice";
 import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
 import { FormGroup, FormRow, FormSurface, formOutlinedControlSx } from "../Form/FormLayout";
+import { settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
 import { ArchiveMemberErrorResolver } from "./ArchiveMemberErrorResolver";
 import { ArchiveOperationProgress } from "./ArchiveOperationProgress";
 import { DialogOperationContext } from "./DialogOperationContext";
@@ -277,13 +278,20 @@ export function ArchiveExtractDialog({
         memberError ? (
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, justifyContent: { xs: "flex-start", sm: "flex-end" }, width: "100%" }}>
             {onCancelExtraction ? (
-              <Button onClick={onCancelExtraction} disabled={isCancelling || isSubmittingConflictDecision}>
+              <Button
+                onClick={onCancelExtraction}
+                disabled={isCancelling || isSubmittingConflictDecision}
+                variant="outlined"
+                sx={settingsUtilityButtonSx}
+              >
                 {t("fileBrowser.archive.buttonCancelExtraction")}
               </Button>
             ) : null}
             <Button
               onClick={() => onMemberErrorDecision?.("ignore")}
               disabled={isCancelling || isSubmittingConflictDecision || !onMemberErrorDecision}
+              variant="outlined"
+              sx={settingsUtilityButtonSx}
             >
               {t("fileBrowser.archive.buttonIgnoreMemberError")}
             </Button>
@@ -298,13 +306,21 @@ export function ArchiveExtractDialog({
           </Box>
         ) : isExtracting ? (
           onCancelExtraction ? (
-            <Button ref={cancelExtractionButtonRef} onClick={onCancelExtraction} disabled={isCancelling}>
+            <Button
+              ref={cancelExtractionButtonRef}
+              onClick={onCancelExtraction}
+              disabled={isCancelling}
+              variant="outlined"
+              sx={settingsUtilityButtonSx}
+            >
               {t("fileBrowser.archive.buttonCancelExtraction")}
             </Button>
           ) : null
         ) : (
           <>
-            <Button onClick={onClose}>{t("common.actions.cancel")}</Button>
+            <Button onClick={onClose} variant="outlined" sx={settingsUtilityButtonSx}>
+              {t("common.actions.cancel")}
+            </Button>
             <Button ref={extractButtonRef} variant="contained" onClick={handleConfirm}>
               {t("fileBrowser.archive.buttonExtract")}
             </Button>
