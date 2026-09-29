@@ -273,6 +273,28 @@ describe("content operations", () => {
     expect(api.copyItem).not.toHaveBeenCalled();
   });
 
+  it("creates a transfer idempotency key when randomUUID is unavailable", async () => {
+    const copyWithinBackend = vi.fn().mockResolvedValue({ status: "completed" });
+    const resolvedTarget = { kind: "smb", connectionId: "source" };
+    const storageRegistry = {
+      resolveItem: vi.fn(() => ({ target: resolvedTarget, path: "report.txt" })),
+      resolveDirectory: vi.fn(() => ({ target: resolvedTarget, path: "output" })),
+      getCapabilities: vi.fn(() => ({ writable: true })),
+      getBackend: vi.fn(() => ({ copyWithinBackend })),
+    };
+    vi.stubGlobal("crypto", { getRandomValues: (bytes: Uint8Array) => bytes.fill(0) });
+    try {
+      await executeTransfer({ kind: "copy", source: physicalSource, destination: physicalLocation("source", "output") }, {
+        ...environment,
+        storageRegistry,
+      } as never);
+
+      expect(copyWithinBackend).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: "00000000-0000-4000-8000-000000000000" }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("allows and dispatches a writable same-provider move", async () => {
     const sourceResolvedTarget = {
       target: { kind: "smb", connectionId: "source" },

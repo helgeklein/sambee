@@ -12,6 +12,7 @@ import type {
   User,
 } from "../../types";
 import { FileType } from "../../types";
+import { randomUuid } from "../../utils/randomUuid";
 
 // Mock axios before importing the API service - use factory function
 // The factory needs to define the mock instance inside
@@ -211,6 +212,23 @@ describe("API Service", () => {
       expect.objectContaining({ idempotency_key: "00000000-0000-4000-8000-000000000004" }),
       expect.anything()
     );
+  });
+
+  it("generates secure v4 IDs for copy and move without randomUUID", async () => {
+    const getRandomValues = vi.fn((bytes: Uint8Array) => bytes.fill(0xff));
+    vi.stubGlobal("crypto", { getRandomValues });
+    mockAxiosInstance.post.mockResolvedValue({
+      data: { status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } },
+    } as AxiosResponse);
+
+    expect(randomUuid()).toBe("ffffffff-ffff-4fff-bfff-ffffffffffff");
+    await apiService.copyItem("connection", "source.txt", "destination.txt", "copy-key");
+    await apiService.moveItem("connection", "source.txt", "destination.txt", "move-key");
+
+    expect(getRandomValues).toHaveBeenCalledTimes(3);
+    for (const [, body] of mockAxiosInstance.post.mock.calls) {
+      expect(body.transfer_attempt_id).toBe("ffffffff-ffff-4fff-bfff-ffffffffffff");
+    }
   });
 
   it("forwards cancellation to a same-provider transfer request", async () => {

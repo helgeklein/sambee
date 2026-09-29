@@ -59,6 +59,7 @@ import type {
   User,
 } from "../types";
 import { FileType } from "../types";
+import { randomUuid } from "../utils/randomUuid";
 import { AuthSessionError, authSession } from "./authSession";
 import {
   getBackendAvailabilitySnapshot,
@@ -1558,7 +1559,7 @@ class ApiService {
     }
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
-    const transferAttemptId = options.transferAttemptId ?? crypto.randomUUID();
+    const transferAttemptId = options.transferAttemptId ?? randomUuid();
     return this.postTransfer(
       client,
       `/browse/${segment}/copy`,
@@ -1590,7 +1591,7 @@ class ApiService {
     }
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
-    const transferAttemptId = options.transferAttemptId ?? crypto.randomUUID();
+    const transferAttemptId = options.transferAttemptId ?? randomUuid();
     return this.postTransfer(
       client,
       `/browse/${segment}/move`,

@@ -282,6 +282,9 @@ export const EN_TRANSLATIONS = {
       headerDescription: "Pair Sambee Companion and control local-drive access from this browser.",
       intro: "Manage Sambee Companion pairing for this browser and verify local-drive access on this computer.",
       summaryTitle: "Current status",
+      secureContextTitle: "Local drives need a secure browser with Web Crypto",
+      secureContextMessage:
+        "Pairing and local-drive access require a secure browser context with Web Crypto support. Use HTTPS (or localhost for local development) and a browser with Web Crypto enabled.",
       unsupportedMobileTitle: "Local drives require a desktop browser",
       unsupportedMobileDescription: "Sambee Companion is not available on iOS or Android.",
       unsupportedMobileAlert:

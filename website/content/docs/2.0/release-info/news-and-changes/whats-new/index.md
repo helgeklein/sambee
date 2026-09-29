@@ -32,6 +32,16 @@ Sambee now checks local-drive access before saying the browser is ready to use C
 
 When Companion rejects a request while browsing a local drive, the file list points to the affected pane and offers a way to reload Sambee or open Local Drives, depending on what went wrong.
 
+### Unencrypted HTTP Support
+
+Sambee now deals with unencrypted HTTP explicitly:
+
+- Companion pairing and operations are unavailable.
+- File copying caused a `crypto.randomUUID` error. This has been fixed by implementing a fallback.
+- Copying to the clipboard (used in Settings) is now disabled.
+
+HTTP for development on `localhost` is treated as secure by browsers and continues to be supported by Sambee.
+
 ## Under the Hood
 
 ### Security Review
@@ -41,3 +51,11 @@ When Companion rejects a request while browsing a local drive, the file list poi
 - Companion requests now use signatures tied to the HTTP method and requested URL, so a signature can't be reused for another request.
 - Mobile log uploads have a size limit, and stored logs are pruned when they exceed the storage budget.
 - HTML, XHTML, and SVG files, including archive members, download instead of running as active content in the viewer.
+
+### Dependency Security
+
+- Updated all **dependencies** with known issues or vulnerabilities to fixed versions
+
+## Internals
+
+- Companion build for Windows: Authenticode signing was removed from PR check builds and only remains on release workflows.

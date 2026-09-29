@@ -77,6 +77,7 @@ export function AboutSettings({ dialogSafeHeader = false }: AboutSettingsProps) 
   const unavailable = t("settings.aboutPage.unavailableValue");
   const formatOptionalMemory =
     data?.memory_bytes === null || data?.memory_bytes === undefined ? unavailable : formatMemorySize(data.memory_bytes);
+  const clipboardAvailable = typeof navigator.clipboard?.writeText === "function";
   const copyAboutInformation = useCallback(() => {
     if (!data) {
       return;
@@ -131,20 +132,22 @@ export function AboutSettings({ dialogSafeHeader = false }: AboutSettingsProps) 
             contentSpacing="compact"
             actionsLayout="inline"
             actions={
-              <>
-                <Tooltip title={t("settings.aboutPage.copyTooltip")}>
-                  <IconButton
-                    aria-label={t("settings.aboutPage.copyAriaLabel")}
-                    onClick={(event) => setCopyMenuAnchor(event.currentTarget)}
-                  >
-                    <ContentCopyIcon />
-                  </IconButton>
-                </Tooltip>
-                <Menu anchorEl={copyMenuAnchor} open={Boolean(copyMenuAnchor)} onClose={() => setCopyMenuAnchor(null)}>
-                  <MenuItem onClick={handleCopyAboutInformation}>{t("settings.aboutPage.copyAboutMenuItem")}</MenuItem>
-                  <MenuItem onClick={copyPublicSupportReport}>{t("settings.aboutPage.copyPublicSupportReportMenuItem")}</MenuItem>
-                </Menu>
-              </>
+              clipboardAvailable ? (
+                <>
+                  <Tooltip title={t("settings.aboutPage.copyTooltip")}>
+                    <IconButton
+                      aria-label={t("settings.aboutPage.copyAriaLabel")}
+                      onClick={(event) => setCopyMenuAnchor(event.currentTarget)}
+                    >
+                      <ContentCopyIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Menu anchorEl={copyMenuAnchor} open={Boolean(copyMenuAnchor)} onClose={() => setCopyMenuAnchor(null)}>
+                    <MenuItem onClick={handleCopyAboutInformation}>{t("settings.aboutPage.copyAboutMenuItem")}</MenuItem>
+                    <MenuItem onClick={copyPublicSupportReport}>{t("settings.aboutPage.copyPublicSupportReportMenuItem")}</MenuItem>
+                  </Menu>
+                </>
+              ) : undefined
             }
           >
             <Table aria-label={t("settings.aboutPage.applicationTitle")} size="small" sx={{ tableLayout: "fixed", width: "100%" }}>

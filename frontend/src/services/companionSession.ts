@@ -4,6 +4,10 @@ const COMPANION_SECRET_KEY = "companion_secret";
 
 type Listener = () => void;
 
+export function canSignCompanionRequests(): boolean {
+  return window.isSecureContext === true && typeof crypto.subtle !== "undefined";
+}
+
 function haveSameDrives(left: readonly CompanionDriveDescriptor[], right: readonly CompanionDriveDescriptor[]): boolean {
   return (
     left.length === right.length &&

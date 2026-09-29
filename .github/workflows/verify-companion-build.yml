@@ -45,11 +45,6 @@ jobs:
     runs-on: windows-latest
     env:
       CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
-      AZURE_CLIENT_ID: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && secrets.AZURE_CLIENT_ID || '' }}
-      AZURE_CLIENT_SECRET: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && secrets.AZURE_CLIENT_SECRET || '' }}
-      AZURE_TENANT_ID: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && secrets.AZURE_TENANT_ID || '' }}
-      AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: HK-Artifact-Signing
-      AZURE_CERTIFICATE_PROFILE_NAME: HK-Certificate-Profile
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
@@ -80,14 +75,14 @@ jobs:
       - name: Assert verification-only secret boundary
         shell: pwsh
         run: |
-          foreach ($name in @('TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD')) {
+          foreach ($name in @('TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET', 'AZURE_TENANT_ID')) {
             if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($name))) {
               throw "$name must be unset for verification-only builds."
             }
           }
           $isFork = '${{ github.event_name }}' -eq 'pull_request' -and '${{ github.event.pull_request.head.repo.full_name }}' -ne '${{ github.repository }}'
           if ($isFork) {
-            foreach ($name in @('AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET', 'AZURE_TENANT_ID', 'APPLE_CERTIFICATE', 'APPLE_CERTIFICATE_PASSWORD', 'COMPANION_RELEASE_REPO_TOKEN')) {
+            foreach ($name in @('APPLE_CERTIFICATE', 'APPLE_CERTIFICATE_PASSWORD', 'COMPANION_RELEASE_REPO_TOKEN')) {
               if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($name))) {
                 throw "$name must be unset for fork pull requests."
               }
@@ -101,16 +96,9 @@ jobs:
           $env:TAURI_CI_CONFIG = Join-Path $env:RUNNER_TEMP 'tauri.verification.json'
           $config = Get-Content $configPath -Raw | ConvertFrom-Json
           $config.bundle.createUpdaterArtifacts = $false
-          if ('${{ github.event_name }}' -eq 'pull_request' -and '${{ github.event.pull_request.head.repo.full_name }}' -ne '${{ github.repository }}') {
-            $config.bundle.windows.PSObject.Properties.Remove('signCommand')
-          }
+          $config.bundle.windows.PSObject.Properties.Remove('signCommand')
           $config | ConvertTo-Json -Depth 20 | Set-Content $env:TAURI_CI_CONFIG
           "TAURI_CI_CONFIG=$env:TAURI_CI_CONFIG" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Install Azure signing client
-        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-        shell: pwsh
-        run: cargo install trusted-signing-cli --version 0.9.0 --locked
 
       - name: Build Windows x64 package
         shell: pwsh
