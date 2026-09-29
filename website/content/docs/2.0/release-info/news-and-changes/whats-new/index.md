@@ -51,3 +51,11 @@ HTTP for development on `localhost` is treated as secure by browsers and continu
 - Companion requests now use signatures tied to the HTTP method and requested URL, so a signature can't be reused for another request.
 - Mobile log uploads have a size limit, and stored logs are pruned when they exceed the storage budget.
 - HTML, XHTML, and SVG files, including archive members, download instead of running as active content in the viewer.
+
+### Dependency Security
+
+- Updated all **dependencies** with known issues or vulnerabilities to fixed versions
+
+## Internals
+
+- Companion build for Windows: Authenticode signing was removed from PR check builds and only remains on release workflows.
