@@ -15,6 +15,15 @@ items = [
   "whats-new",
 ]
 
+[[sections.release-info.items]]
+slug = "system-requirements"
+title = "System Requirements"
+
+[pages.release-info.system-requirements]
+items = [
+  "requirements",
+]
+
 [[sections.user-guide.items]]
 slug = "getting-started"
 title = "Getting Started"

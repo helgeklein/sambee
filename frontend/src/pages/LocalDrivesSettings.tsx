@@ -30,6 +30,7 @@ import {
 } from "../components/Settings/settingsDataSources";
 import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
 import companionService, { clearStoredSecret, hasStoredSecret, isCompanionAuthSignatureMismatch } from "../services/companion";
+import { canSignCompanionRequests } from "../services/companionSession";
 import { logger } from "../services/logger";
 import type { CompanionDownloadPlatform } from "../types";
 
@@ -96,6 +97,7 @@ interface LocalDrivesSettingsProps {
 }
 
 type LocalDrivesViewState =
+  | "secure_context_required"
   | "unavailable"
   | "unpaired"
   | "pending_local_approval"
@@ -127,6 +129,7 @@ const EMPTY_LOCAL_DRIVES_STATE: LocalDrivesSettingsData = {
  */
 export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectionDescription }: LocalDrivesSettingsProps) {
   const companionUnsupportedOnCurrentDevice = useMemo(() => isUnsupportedMobileCompanionPlatform(), []);
+  const companionSigningAvailable = canSignCompanionRequests();
   const [testing, setTesting] = useState(false);
   const [pairingTestResult, setPairingTestResult] = useState<PairingTestResult | null>(null);
   const [pairingDialogOpen, setPairingDialogOpen] = useState(false);
@@ -266,6 +269,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
   }, [currentOrigin, onConnectionsChanged, refresh, showNotification]);
 
   const viewState: LocalDrivesViewState = useMemo(() => {
+    if (!companionSigningAvailable) return "secure_context_required";
     if (!state.companionAvailable) {
       return "unavailable";
     }
@@ -294,6 +298,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
 
     return "unpaired";
   }, [
+    companionSigningAvailable,
     browserHasStoredSecret,
     pairingTestResult,
     state.authProtocolStatus,
@@ -353,6 +358,13 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
   );
   const summaryState = useMemo(() => {
     switch (viewState) {
+      case "secure_context_required":
+        return {
+          badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelActionRequired,
+          badgeVariant: "warning" as const,
+          title: LOCAL_DRIVES_PAGE_COPY.secureContextTitle,
+          message: LOCAL_DRIVES_PAGE_COPY.secureContextMessage,
+        };
       case "unavailable":
         return {
           badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelUnavailable,
@@ -423,7 +435,8 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
               ? alpha(theme.palette.success.main, theme.palette.mode === "dark" ? 0.16 : 0.08)
               : alpha(theme.palette.warning.main, theme.palette.mode === "dark" ? 0.16 : 0.08),
         };
-  const shouldShowInstallSection = showStatusContent && !loading && ["unavailable", "update_required"].includes(viewState);
+  const shouldShowInstallSection =
+    showStatusContent && !loading && ["secure_context_required", "unavailable", "update_required"].includes(viewState);
   const shouldShowPairingSection =
     showStatusContent && !loading && ["unpaired", "pending_local_approval", "needs_repair"].includes(viewState);
   const shouldShowVerificationSection =
@@ -455,25 +468,33 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
                     <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
                       {summaryState.title}
                     </Typography>
-                    <Typography variant="body2" sx={{ mt: 0.75, maxWidth: 720, color: "text.secondary" }}>
-                      {summaryState.message}
-                    </Typography>
+                    {viewState === "secure_context_required" ? (
+                      <SettingsInlineAlert severity="warning" sx={{ mt: 1 }}>
+                        {summaryState.message}
+                      </SettingsInlineAlert>
+                    ) : (
+                      <Typography variant="body2" sx={{ mt: 0.75, maxWidth: 720, color: "text.secondary" }}>
+                        {summaryState.message}
+                      </Typography>
+                    )}
                   </Box>
 
-                  <Stack spacing={1}>
-                    {statusChecklist.map((item) => (
-                      <Stack key={item.label} direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
-                        {item.complete ? (
-                          <CheckCircleOutlineIcon color="success" fontSize="small" />
-                        ) : (
-                          <RadioButtonUncheckedIcon sx={{ color: "text.disabled" }} fontSize="small" />
-                        )}
-                        <Typography variant="body2" sx={{ color: item.complete ? "text.primary" : "text.secondary" }}>
-                          {item.label}
-                        </Typography>
-                      </Stack>
-                    ))}
-                  </Stack>
+                  {viewState !== "secure_context_required" && (
+                    <Stack spacing={1}>
+                      {statusChecklist.map((item) => (
+                        <Stack key={item.label} direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
+                          {item.complete ? (
+                            <CheckCircleOutlineIcon color="success" fontSize="small" />
+                          ) : (
+                            <RadioButtonUncheckedIcon sx={{ color: "text.disabled" }} fontSize="small" />
+                          )}
+                          <Typography variant="body2" sx={{ color: item.complete ? "text.primary" : "text.secondary" }}>
+                            {item.label}
+                          </Typography>
+                        </Stack>
+                      ))}
+                    </Stack>
+                  )}
                   {viewState === "verification_unavailable" && !browserHasStoredSecret && (
                     <Button
                       variant="outlined"
@@ -675,7 +696,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
           )}
         </SettingsSectionList>
       )}
-      {!companionUnsupportedOnCurrentDevice && (
+      {!companionUnsupportedOnCurrentDevice && companionSigningAvailable && (
         <CompanionPairingDialog
           open={pairingDialogOpen}
           onClose={() => setPairingDialogOpen(false)}

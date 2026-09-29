@@ -1118,24 +1118,25 @@ export function AuthenticationSettings() {
                             slotProps={{
                               input: {
                                 readOnly: true,
-                                endAdornment: (
-                                  <InputAdornment position="end">
-                                    <Tooltip title="Copy redirect URI">
-                                      <IconButton
-                                        aria-label="Copy redirect URI"
-                                        edge="end"
-                                        onClick={() => {
-                                          void navigator.clipboard
-                                            .writeText(configuration.health.redirect_uri ?? "")
-                                            .then(() => setConfigurationActionNotice("Redirect URI copied."))
-                                            .catch(() => setConfigurationActionError("The redirect URI could not be copied."));
-                                        }}
-                                      >
-                                        <ContentCopy />
-                                      </IconButton>
-                                    </Tooltip>
-                                  </InputAdornment>
-                                ),
+                                endAdornment:
+                                  typeof navigator.clipboard?.writeText === "function" ? (
+                                    <InputAdornment position="end">
+                                      <Tooltip title="Copy redirect URI">
+                                        <IconButton
+                                          aria-label="Copy redirect URI"
+                                          edge="end"
+                                          onClick={() => {
+                                            void navigator.clipboard
+                                              .writeText(configuration.health.redirect_uri ?? "")
+                                              .then(() => setConfigurationActionNotice("Redirect URI copied."))
+                                              .catch(() => setConfigurationActionError("The redirect URI could not be copied."));
+                                          }}
+                                        >
+                                          <ContentCopy />
+                                        </IconButton>
+                                      </Tooltip>
+                                    </InputAdornment>
+                                  ) : undefined,
                               },
                               htmlInput: { "aria-describedby": usesDesktopFormLayout ? "redirect-uri-description" : undefined },
                             }}

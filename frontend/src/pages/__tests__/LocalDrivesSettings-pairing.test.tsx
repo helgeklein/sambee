@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { COMPANION_PAIRING_DIALOG_COPY, LOCAL_DRIVES_PAGE_COPY } from "../../components/Settings/localDrivesCopy";
 import { clearCachedAsyncData } from "../../hooks/useCachedAsyncData";
 import { SambeeThemeProvider } from "../../theme";
@@ -70,7 +70,11 @@ function mockNavigatorDevice() {
 }
 
 describe("LocalDrivesSettings pairing dialog integration", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   beforeEach(() => {
+    vi.stubGlobal("isSecureContext", true);
+    vi.stubGlobal("crypto", { subtle: {} });
     vi.clearAllMocks();
     clearCachedAsyncData();
     mockNavigatorDevice();

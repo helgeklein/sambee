@@ -1284,6 +1284,23 @@ describe("Authentication settings", () => {
     expect(screen.queryByText("The redirect URI could not be copied.")).not.toBeInTheDocument();
   });
 
+  it("omits the redirect URI copy action when the Clipboard API is unavailable", async () => {
+    const user = userEvent.setup();
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    try {
+      renderSettings();
+      await openOidcConfiguration(user);
+
+      expect(await screen.findByRole("textbox", { name: /redirect uri/i })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Copy redirect URI" })).not.toBeInTheDocument();
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
   it("blocks testing for normalized group collisions and empty selected-group admission", async () => {
     const user = userEvent.setup();
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
