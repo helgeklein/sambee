@@ -29,6 +29,7 @@ import { formatLocalizedDateTime, formatLocalizedNumber } from "../../utils/loca
 import { DialogNotice } from "../Dialog/DialogNotice";
 import { DialogReadOnlyField } from "../Dialog/DialogReadOnlyField";
 import { ResponsiveDialogShell } from "../Dialog/ResponsiveDialogShell";
+import { settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
 import { DialogIdentifierDisplay } from "./DialogIdentifierDisplay";
 import { validateItemName } from "./nameDialogStrings";
 import { OVERWRITE_CONFLICT_STRINGS as S } from "./overwriteConflictStrings";
@@ -294,10 +295,15 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
       actionNotice={<DialogNotice message={displayedError} testId="overwrite-conflict-notice" />}
       actions={
         <>
-          <Button onClick={onCancel} disabled={isSubmittingOrPending}>
+          <Button onClick={onCancel} disabled={isSubmittingOrPending} variant="outlined" sx={settingsUtilityButtonSx}>
             {S.CANCEL_OPERATION(operation)}
           </Button>
-          <Button onClick={handleContinue} variant="contained" disabled={!canContinue}>
+          <Button
+            onClick={handleContinue}
+            variant="contained"
+            color={resolution === "overwrite" || resolution === "overwrite-older" ? "error" : "primary"}
+            disabled={!canContinue}
+          >
             {S.BUTTON_CONTINUE}
           </Button>
         </>

@@ -9,6 +9,7 @@ import { CURRENT_BUILD_INFO, hasBuildMismatch, shortenCommit } from "../utils/bu
 import type { VersionInfo } from "../utils/version";
 import { fetchVersionInfo } from "../utils/version";
 import { ResponsiveDialogShell } from "./Dialog/ResponsiveDialogShell";
+import { settingsUtilityButtonSx } from "./Settings/settingsButtonStyles";
 
 const UPDATE_CHECK_INTERVAL_MS = 5 * 60_000;
 const VISIBILITY_RECHECK_DELAY_MS = 1_500;
@@ -116,7 +117,9 @@ export function AppUpdatePrompt() {
       maxWidth="xs"
       actions={
         <>
-          <Button onClick={handleLater}>{translate("app.updateAvailable.later")}</Button>
+          <Button onClick={handleLater} variant="outlined" sx={settingsUtilityButtonSx}>
+            {translate("app.updateAvailable.later")}
+          </Button>
           <Button onClick={handleReload} variant="contained" autoFocus>
             {translate("app.updateAvailable.reload")}
           </Button>

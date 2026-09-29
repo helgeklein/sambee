@@ -18,6 +18,8 @@ vi.mock("../../services/api", () => ({
     getCurrentUser: vi.fn(),
     getOidcConfiguration: vi.fn(),
     moveOidcIdentity: vi.fn(),
+    cancelPendingOidcMapping: vi.fn(),
+    detachOidcIdentity: vi.fn(),
     createUser: vi.fn(),
     updateUser: vi.fn(),
     resetUserPassword: vi.fn(),
@@ -1427,6 +1429,113 @@ describe("UserManagementSettings", () => {
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
+    restoreViewport();
+  });
+
+  it.each([
+    {
+      action: "Cancel pending OIDC mapping",
+      username: "pending-user",
+      method: "cancelPendingOidcMapping",
+      warning: "Cancel the pending OIDC mapping for pending-user?",
+    },
+    {
+      action: "Detach OIDC identity",
+      username: "linked-user",
+      method: "detachOidcIdentity",
+      warning: "Detach the OIDC identity from linked-user? This does not revoke IdP access.",
+    },
+  ] as const)("confirms $action only after explicit acceptance", async ({ action, username, method, warning }) => {
+    const restoreViewport = mockViewportWidth(1200);
+    vi.mocked(api.getUsers).mockResolvedValue([
+      {
+        id: "user-1",
+        username: "pending-user",
+        role: "editor",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: true,
+        oidc_role_assignment: null,
+        oidc: null,
+        pending_oidc: { expected_username: "pending-user", created_by_username: "admin", created_at: "2026-03-01T10:00:00Z" },
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+      {
+        id: "user-2",
+        username: "linked-user",
+        role: "editor",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: true,
+        oidc_role_assignment: null,
+        oidc: { identity_id: "identity-2", provider_display_name: "Corporate login", last_login_at: null },
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+    ]);
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue({
+      configuration: {
+        display_name: "Corporate login",
+        issuer_url: "https://idp.example.test",
+        client_id: "sambee",
+        client_secret_configured: true,
+        scopes: ["openid"],
+        username_claim: "preferred_username",
+        name_claim: "name",
+        email_claim: "email",
+        groups_claim: "groups",
+        sign_in_mode: "oidc_or_password",
+        interactive_reauthentication_max_age_days: 30,
+        admission_mode: "all_idp_users",
+        admission_groups: [],
+        role_assignment_mode: "uniform",
+        uniform_role: "editor",
+        role_mappings: { admin: [], editor: [], viewer: [] },
+        auto_link_by_username: true,
+        configuration_revision: 2,
+        identity_mapping_revision: 1,
+      },
+      active_passwordless_user_count: 0,
+      auth_mode: "oidc_or_password",
+      auth_enforcement_disabled: false,
+      health: { status: "healthy", public_url_configured: false, public_url: null, redirect_uri: null, reasons: [] },
+    });
+    vi.mocked(api[method]).mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    const openConfirmation = async () => {
+      await openUserActions(user, username);
+      await user.click(screen.getByRole("menuitem", { name: action }));
+      return screen.findByRole("dialog", { name: `${action}?` });
+    };
+
+    let dialog = await openConfirmation();
+    expect(within(dialog).getByText(warning)).toBeInTheDocument();
+    const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+    await waitFor(() => expect(cancel).toHaveFocus());
+    expect(cancel).toHaveClass("MuiButton-outlined");
+    expect(within(dialog).getByRole("button", { name: action })).toHaveClass("MuiButton-contained", "MuiButton-colorError");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: `${action}?` })).not.toBeInTheDocument());
+    expect(api[method]).not.toHaveBeenCalled();
+
+    dialog = await openConfirmation();
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus());
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: `${action}?` })).not.toBeInTheDocument());
+    expect(api[method]).not.toHaveBeenCalled();
+
+    dialog = await openConfirmation();
+    await user.click(within(dialog).getByRole("button", { name: action }));
+    await waitFor(() => expect(api[method]).toHaveBeenCalledOnce());
+    expect(api[method]).toHaveBeenCalledWith(username === "pending-user" ? "user-1" : "user-2", 1);
     restoreViewport();
   });
 

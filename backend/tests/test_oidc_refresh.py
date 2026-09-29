@@ -15,7 +15,7 @@ from app.services.oidc_configuration import get_active_oidc_session_cipher, get_
 from app.services.oidc_http import OidcHttpError, OidcHttpErrorCode
 
 
-def _create_browser_session(session: Session, *, last_refreshed_at: datetime | None = None) -> tuple[User, OidcBrowserSession, str]:
+def _create_browser_session(session: Session) -> tuple[User, OidcBrowserSession, str]:
     user = User(username="renewable-session-user", role=UserRole.EDITOR)
     configuration = OidcProviderConfiguration(
         display_name="Test provider",
@@ -43,7 +43,6 @@ def _create_browser_session(session: Session, *, last_refreshed_at: datetime | N
         status=OidcBrowserSessionStatus.ACTIVE,
         authenticated_at=current_time,
         absolute_expires_at=current_time + timedelta(days=1),
-        last_refreshed_at=last_refreshed_at,
     )
     session.add(browser_session)
     session.commit()
@@ -77,7 +76,14 @@ def test_refresh_deduplicates_a_naive_sqlite_timestamp_and_accepts_normalized_or
     client: TestClient,
     session: Session,
 ) -> None:
-    _, browser_session, cookie_value = _create_browser_session(session, last_refreshed_at=datetime.now())
+    _, browser_session, cookie_value = _create_browser_session(session)
+    result = session.connection().exec_driver_sql(
+        "UPDATE oidcbrowsersession SET last_refreshed_at = ? WHERE id = ?",
+        (datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" "), browser_session.id.hex),
+    )
+    assert result.rowcount == 1
+    session.commit()
+    session.expire(browser_session)
     client.cookies.set(OIDC_BROWSER_SESSION_COOKIE_NAME, cookie_value)
 
     response = client.post("/api/auth/oidc/refresh", headers={"Origin": "HTTP://TESTSERVER"})
