@@ -15,7 +15,7 @@ You do not need Companion for accessing SMB shares from the browser.
 
 ## Pair Sambee With Companion
 
-Open Sambee over HTTPS before pairing from another computer or a network address. Browsers don't provide the cryptographic APIs needed by Companion on ordinary HTTP sites. Local development on `http://localhost` is an exception. If **Local Drives** asks you to use HTTPS, reopen Sambee at its HTTPS address; pairing and local-drive actions remain unavailable from that HTTP page. You don't need HTTPS to download the Companion installer.
+Open Sambee over HTTPS before pairing from another computer or a network address. Browsers don't provide the cryptographic APIs needed by Companion on ordinary HTTP sites. Local development on `http://localhost` is an exception. If **Local Drives** warns that a secure browser context with Web Crypto support is unavailable, use HTTPS; if you're already using HTTPS, check that your browser supports and permits Web Crypto. You don't need HTTPS to download the Companion installer.
 
 {{< admonition type="note" title="" >}}
 During pairing, Sambee and Companion exchange data that is needed to establish a secure connection. The concept is similar in nature to Bluetooth pairing.

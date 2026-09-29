@@ -142,6 +142,16 @@ describe("LocalDrivesSettings", () => {
     expect(mockGetPairStatus).not.toHaveBeenCalled();
   });
 
+  it("explains missing Web Crypto on a secure origin", async () => {
+    vi.stubGlobal("crypto", { getRandomValues: vi.fn() });
+
+    renderSettings();
+
+    expect(await screen.findByText(LOCAL_DRIVES_PAGE_COPY.secureContextMessage)).toHaveTextContent("Web Crypto support");
+    expect(screen.getByText(LOCAL_DRIVES_PAGE_COPY.secureContextTitle)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton })).not.toBeInTheDocument();
+  });
+
   it("shows Unpair This Browser instead of Pair This Browser when this browser is fully paired", async () => {
     mockGetPairStatus.mockResolvedValue({
       current_origin: window.location.origin,
