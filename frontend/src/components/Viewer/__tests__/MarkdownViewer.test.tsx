@@ -1470,10 +1470,9 @@ describe("MarkdownViewer", () => {
 
     renderViewer();
 
-    const link = await screen.findByRole("link", { name: "Docs" });
-    const viewerContent = link.closest('[tabindex="0"]');
-
-    expect(viewerContent).not.toBeNull();
+    const viewerContent = screen.getByTestId("markdown-viewer-content");
+    const link = await within(viewerContent).findByRole("link", { name: "Docs" });
+    expect(viewerContent).toHaveAttribute("tabindex", "0");
 
     act(() => {
       link.focus();
