@@ -320,7 +320,7 @@ def build_file_search_settings_read(session: Session) -> FileSearchSettingsRead:
                 values["excluded_extensions"].value, key=FILE_SEARCH_SETTING_KEYS["excluded_extensions"]
             )
         source = SystemSettingSource.DATABASE if overrides else SystemSettingSource.DEFAULT
-        return FileSearchSettingsRead(settings=FileSearchSettings(**overrides), source=source)
+        return FileSearchSettingsRead(settings=FileSearchSettings.model_validate(overrides), source=source)
     except ValueError as exc:
         logger.critical("Invalid persisted File Search setting: %s", exc)
         raise ValueError("The persisted File Search policy is invalid") from exc

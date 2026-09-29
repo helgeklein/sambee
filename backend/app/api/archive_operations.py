@@ -572,11 +572,12 @@ async def create_archive_companion_session(
         data=claims,
         expires_delta=timedelta(minutes=ARCHIVE_COMPANION_TOKEN_EXPIRE_MINUTES),
     )
+    selected_member_roots = _selected_member_roots(operation)
     return ArchiveCompanionSession(
         token=token,
         expires_in=ARCHIVE_COMPANION_TOKEN_EXPIRE_MINUTES * 60,
         operation=ArchiveOperationRead.model_validate(operation),
-        selected_member_paths=_selected_member_roots(operation),
+        selected_member_paths=list(selected_member_roots) if selected_member_roots is not None else None,
     )
 
 
@@ -848,12 +849,14 @@ def _companion_creation_manifest_response(
 
     try:
         entries = [
-            ArchiveCompanionCreationManifestEntry(
-                source_path=entry.source_path,
-                archive_path=entry.archive_path,
-                is_directory=entry.is_directory,
-                source_size=entry.source_size,
-                modified_at=entry.source_modified_at,
+            ArchiveCompanionCreationManifestEntry.model_validate(
+                {
+                    "source_path": entry.source_path,
+                    "archive_path": entry.archive_path,
+                    "is_directory": entry.is_directory,
+                    "source_size": entry.source_size,
+                    "modified_at": entry.source_modified_at,
+                }
             )
             for entry in manifest.members
         ]
@@ -1004,15 +1007,17 @@ async def next_live_companion_local_archive_member(relay: ScopedCompanionRelay) 
         return None
     if member.is_directory:
         await source_session.mark_directory_delivery_ready(member.source_session_id, member.delivery_sequence)
-    return ArchiveCompanionLiveExtractionMember(
-        source_session_id=member.source_session_id,
-        delivery_sequence=member.delivery_sequence,
-        member_path=member.path,
-        is_directory=member.is_directory,
-        uncompressed_size=member.uncompressed_size,
-        modified_at=member.modified_at if isinstance(member.modified_at, datetime) else None,
-        target_path=member.target_path,
-        collision_policy=member.collision_policy,
+    return ArchiveCompanionLiveExtractionMember.model_validate(
+        {
+            "source_session_id": member.source_session_id,
+            "delivery_sequence": member.delivery_sequence,
+            "member_path": member.path,
+            "is_directory": member.is_directory,
+            "uncompressed_size": member.uncompressed_size,
+            "modified_at": member.modified_at if isinstance(member.modified_at, datetime) else None,
+            "target_path": member.target_path,
+            "collision_policy": member.collision_policy,
+        }
     )
 
 
