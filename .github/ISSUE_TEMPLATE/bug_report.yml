@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a broken behavior, regression, or workflow failure in Sambee.
+description: Report broken behavior in Sambee.
 title: "[Bug]: "
 labels:
   - bug
@@ -8,7 +8,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Use this form for defects in Sambee, including backend, frontend, companion, docs, and deployment behavior.
+        Use this form for defects in Sambee.
 
   - type: checkboxes
     id: checks
@@ -17,9 +17,9 @@ body:
       options:
         - label: I searched for existing issues before filing this report.
           required: true
-        - label: I reviewed relevant docs or troubleshooting guidance before filing.
+        - label: I reviewed relevant docs or troubleshooting guidance.
           required: true
-        - label: I can reproduce this issue again, or I have explained why I cannot.
+        - label: I can reproduce this issue, or I'll explain why I cannot.
           required: true
 
   - type: textarea
@@ -42,6 +42,7 @@ body:
     id: expected
     attributes:
       label: Expected behavior
+      description: Describe what you expected to happen.
     validations:
       required: true
 
@@ -49,6 +50,7 @@ body:
     id: actual
     attributes:
       label: Actual behavior
+      description: Describe what actually happens.
     validations:
       required: true
 
@@ -68,7 +70,7 @@ body:
     id: version
     attributes:
       label: Sambee version
-      description: List the Sambee version (e.g., 1.0.33), to be found in Settings > About.
+      description: Sambee version (e.g., 1.0.33), to be found in Settings > About.
     validations:
       required: true
 
@@ -76,7 +78,7 @@ body:
     id: platform
     attributes:
       label: OS type and version
-      description: List the OS type and version of the machine on which you're running the browser from which you're accessing Sambee.
+      description: OS of the machine on which you're running the browser from which you're accessing Sambee.
     validations:
       required: true
 
@@ -84,7 +86,7 @@ body:
     id: browser
     attributes:
       label: Browser type and version
-      description: List the browser and its version you're using to access Sambee.
+      description: Browser and its version you're using to access Sambee.
     validations:
       required: true
 
@@ -93,10 +95,6 @@ body:
     attributes:
       label: Logs, diagnostics, screenshots, or console output
       description: Paste relevant log lines, browser console errors, backend logs, or companion logs. Redact secrets.
-      placeholder: |
-        - Companion log excerpt:
-        - Browser console error:
-        - Backend log excerpt:
     validations:
       required: true
 
