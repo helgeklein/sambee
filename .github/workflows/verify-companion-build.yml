@@ -96,7 +96,7 @@ jobs:
           $env:TAURI_CI_CONFIG = Join-Path $env:RUNNER_TEMP 'tauri.verification.json'
           $config = Get-Content $configPath -Raw | ConvertFrom-Json
           $config.bundle.createUpdaterArtifacts = $false
-          $config.bundle.windows.PSObject.Properties.Remove('signCommand')
+          $config.bundle.windows.signCommand = $null
           $config | ConvertTo-Json -Depth 20 | Set-Content $env:TAURI_CI_CONFIG
           "TAURI_CI_CONFIG=$env:TAURI_CI_CONFIG" | Out-File -FilePath $env:GITHUB_ENV -Append
 
