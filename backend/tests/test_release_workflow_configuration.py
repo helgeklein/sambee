@@ -166,6 +166,20 @@ def test_version_only_updates_skip_the_companion_package_build() -> None:
     assert package_build["if"] == "needs.change-scope.outputs.requires-build == 'true'"
 
 
+def test_companion_verification_packages_are_never_signed() -> None:
+    verification = load_workflow("verify-companion-build.yml")["jobs"]["windows-x64"]
+    steps = verification["steps"]
+    configure = next(step for step in steps if step.get("name") == "Configure verification-only Tauri bundle")
+    release_steps = load_workflow("build-companion.yml")["jobs"]["build"]["steps"]
+
+    assert not any(name.startswith("AZURE_") for name in verification["env"])
+    assert "AZURE_CLIENT_ID" in next(step for step in steps if step.get("name") == "Assert verification-only secret boundary")["run"]
+    assert "$config.bundle.windows.PSObject.Properties.Remove('signCommand')" in configure["run"]
+    assert "if (" not in configure["run"]
+    assert not any("trusted-signing-cli" in step.get("run", "") for step in steps)
+    assert any(step.get("name") == "Install trusted-signing-cli" for step in release_steps)
+
+
 def test_workflow_output_references_use_direct_dependencies() -> None:
     dependency_pattern = re.compile(r"needs\.([A-Za-z0-9_-]+)\.outputs")
     workflow_directory = WORKSPACE / ".github/workflows"
