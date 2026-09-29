@@ -1456,7 +1456,7 @@ describe("MarkdownViewer", () => {
     // The onClick handler on external links calls window.open() directly,
     // ensuring the link opens even if the browser misses the native
     // <a target="_blank"> navigation due to mid-event React re-renders.
-    fireEvent.click(link);
+    fireEvent.click(screen.getByRole("link", { name: "Docs" }));
     expect(windowOpenSpy).toHaveBeenCalledWith("https://example.com/docs", "_blank", "noopener,noreferrer");
 
     windowOpenSpy.mockRestore();
