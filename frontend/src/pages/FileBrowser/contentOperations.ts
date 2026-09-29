@@ -12,6 +12,7 @@ import {
   transferAcrossStorageBackends,
 } from "../../services/storageTransferOperations";
 import { type ConflictInfo, type DirectoryListing, type FileInfo, FileType, isApiError } from "../../types";
+import { randomUuid } from "../../utils/randomUuid";
 import { startZipArchiveExtraction } from "./archiveExtractionExecution";
 import type {
   ArchiveExtractionExecution,
@@ -365,7 +366,7 @@ export async function executeTransfer(request: TransferRequest, environment: Con
     path: request.source.path,
   });
   const destination = environment.storageRegistry.resolveDirectory(request.destination);
-  const idempotencyKey = crypto.randomUUID();
+  const idempotencyKey = randomUuid();
   const targetResolutionPolicy = request.targetResolutionPolicy ?? "ask";
   const targetName = request.targetName ?? source.path.split("/").pop() ?? "";
   const requiresStreamRelay = source.target.kind !== destination.target.kind;

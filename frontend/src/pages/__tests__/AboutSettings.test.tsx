@@ -94,4 +94,22 @@ describe("AboutSettings", () => {
     expect(writeText).toHaveBeenCalledWith("# Sambee public support report");
     expect(await screen.findByText("Public support report copied.")).toBeInTheDocument();
   });
+
+  it("omits the copy menu when the Clipboard API is unavailable", async () => {
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    try {
+      render(
+        <SambeeThemeProvider>
+          <AboutSettings />
+        </SambeeThemeProvider>
+      );
+
+      expect(await screen.findByRole("table", { name: "Application" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Copy information" })).not.toBeInTheDocument();
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
 });

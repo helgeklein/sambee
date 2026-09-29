@@ -22,6 +22,12 @@ export const LOCAL_DRIVES_PAGE_COPY = {
   get summaryTitle() {
     return translate("settings.localDrives.summaryTitle");
   },
+  get secureContextTitle() {
+    return translate("settings.localDrives.secureContextTitle");
+  },
+  get secureContextMessage() {
+    return translate("settings.localDrives.secureContextMessage");
+  },
   get unsupportedMobileTitle() {
     return translate("settings.localDrives.unsupportedMobileTitle");
   },

@@ -7,6 +7,7 @@ import companionService, {
   isCompanionAuthSignatureMismatch,
   type PairStatusResponse,
 } from "../../services/companion";
+import { canSignCompanionRequests } from "../../services/companionSession";
 import { logger } from "../../services/logger";
 import type {
   AboutSettings,
@@ -142,27 +143,29 @@ export async function loadLocalDrivesSettingsData(): Promise<LocalDrivesSettings
   let downloadMetadata: CompanionDownloadMetadata | null = null;
   let downloadError: string | null = null;
 
-  try {
-    const health = await companionService.checkHealth();
+  if (canSignCompanionRequests()) {
+    try {
+      const health = await companionService.checkHealth();
 
-    companionAvailable = health !== null;
-    if (health) {
-      authProtocolStatus = getCompanionAuthProtocolStatus(health);
-      if (authProtocolStatus === "compatible") {
-        currentPairStatus = await companionService.getPairStatus();
-        if (currentPairStatus.status === "paired" && hasStoredSecret()) {
-          try {
-            await companionService.testPairing();
-            pairingVerified = true;
-          } catch (error) {
-            pairingVerified = isCompanionAuthSignatureMismatch(error) ? false : null;
-            logger.warn("Failed to verify local drive pairing", { error }, "companion");
+      companionAvailable = health !== null;
+      if (health) {
+        authProtocolStatus = getCompanionAuthProtocolStatus(health);
+        if (authProtocolStatus === "compatible") {
+          currentPairStatus = await companionService.getPairStatus();
+          if (currentPairStatus.status === "paired" && hasStoredSecret()) {
+            try {
+              await companionService.testPairing();
+              pairingVerified = true;
+            } catch (error) {
+              pairingVerified = isCompanionAuthSignatureMismatch(error) ? false : null;
+              logger.warn("Failed to verify local drive pairing", { error }, "companion");
+            }
           }
         }
       }
+    } catch (error) {
+      logger.warn("Failed to refresh local drives companion status", { error }, "companion");
     }
-  } catch (error) {
-    logger.warn("Failed to refresh local drives companion status", { error }, "companion");
   }
 
   try {

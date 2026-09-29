@@ -32,6 +32,16 @@ Sambee now checks local-drive access before saying the browser is ready to use C
 
 When Companion rejects a request while browsing a local drive, the file list points to the affected pane and offers a way to reload Sambee or open Local Drives, depending on what went wrong.
 
+### Unencrypted HTTP Support
+
+Sambee now deals with unencrypted HTTP explicitly:
+
+- Companion pairing and operations are unavailable.
+- File copying caused a `crypto.randomUUID` error. This has been fixed by implementing a fallback.
+- Copying to the clipboard (used in Settings) is now disabled.
+
+HTTP for development on `localhost` is treated as secure by browsers and continues to be supported by Sambee.
+
 ## Under the Hood
 
 ### Security Review

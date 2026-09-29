@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LOCAL_DRIVES_PAGE_COPY } from "../../components/Settings/localDrivesCopy";
 import { clearCachedAsyncData } from "../../hooks/useCachedAsyncData";
 import { SambeeThemeProvider } from "../../theme";
@@ -84,7 +84,11 @@ function mockNavigatorDevice({
 }
 
 describe("LocalDrivesSettings", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   beforeEach(() => {
+    vi.stubGlobal("isSecureContext", true);
+    vi.stubGlobal("crypto", { subtle: {} });
     vi.clearAllMocks();
     clearCachedAsyncData();
     mockNavigatorDevice({
@@ -121,6 +125,21 @@ describe("LocalDrivesSettings", () => {
 
     expect(screen.queryByText(LOCAL_DRIVES_PAGE_COPY.statusUnavailable)).not.toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toBeInTheDocument();
+  });
+
+  it("requires HTTPS for companion actions on an insecure origin", async () => {
+    vi.stubGlobal("isSecureContext", false);
+    mockHasStoredSecret.mockReturnValue(true);
+
+    renderSettings();
+
+    expect(await screen.findByText(LOCAL_DRIVES_PAGE_COPY.secureContextMessage)).toBeInTheDocument();
+    expect(screen.getByTestId("local-drives-download-surface")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.testCurrentPairingButton })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.unpairThisBrowserButton })).not.toBeInTheDocument();
+    expect(mockCheckHealth).not.toHaveBeenCalled();
+    expect(mockGetPairStatus).not.toHaveBeenCalled();
   });
 
   it("shows Unpair This Browser instead of Pair This Browser when this browser is fully paired", async () => {
