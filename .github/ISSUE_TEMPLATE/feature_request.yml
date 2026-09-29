@@ -1,5 +1,5 @@
 name: Feature request
-description: Propose a new capability or workflow improvement for Sambee.
+description: Propose a new capability or improvement for Sambee.
 title: "[Feature]: "
 labels:
   - enhancement
@@ -8,7 +8,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Use this form for new capabilities, workflow improvements, or meaningful UX changes.
+        Use this form for new capabilities, improvements, or meaningful UX changes.
 
         Strong requests describe the user problem first, then the desired outcome.
 
@@ -42,7 +42,6 @@ body:
     attributes:
       label: Problem to solve
       description: Describe the current limitation, pain point, or missing workflow.
-      placeholder: Administrators can troubleshoot Companion log locations, but end users do not have a clear in-product path to collect the right diagnostics.
     validations:
       required: true
 
@@ -51,7 +50,6 @@ body:
     attributes:
       label: Desired outcome
       description: Describe the result you want, independent of implementation details where possible.
-      placeholder: Users should be able to export a sanitized diagnostics bundle directly from the product.
     validations:
       required: true
 
@@ -60,19 +58,6 @@ body:
     attributes:
       label: Who benefits and why
       description: Explain the user, operator, or developer impact.
-      placeholder: This would help admins support remote users and reduce support back-and-forth during Companion issues.
-    validations:
-      required: true
-
-  - type: textarea
-    id: acceptance
-    attributes:
-      label: Acceptance criteria
-      description: List concrete behaviors that would make this request complete.
-      placeholder: |
-        - A user can trigger diagnostic export from the UI.
-        - Sensitive secrets are excluded or redacted.
-        - The export includes frontend and companion logs when available.
     validations:
       required: true
 
@@ -81,7 +66,6 @@ body:
     attributes:
       label: Alternatives or workarounds considered
       description: Include current workarounds or competing approaches.
-      placeholder: We currently walk users through file-system log collection, which is slow and error-prone.
     validations:
       required: false
 
@@ -90,6 +74,5 @@ body:
     attributes:
       label: Additional context
       description: Add mockups, related issues, prior discussion, or technical constraints.
-      placeholder: This is related to support friction around local-drive pairing and desktop-app handoff.
     validations:
       required: false

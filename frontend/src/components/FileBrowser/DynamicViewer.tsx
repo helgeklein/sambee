@@ -11,7 +11,7 @@ import {
 import { logger } from "../../services/logger";
 import type { ViewerComponentLoadResult, ViewerComponent as ViewerComponentType } from "../../utils/FileTypeRegistry";
 import { getViewerComponentLoadResult, getViewerLoadErrorDiagnostics } from "../../utils/FileTypeRegistry";
-import { settingsSubduedIconButtonSx } from "../Settings/settingsButtonStyles";
+import { settingsSubduedIconButtonSx, settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
 
 interface DynamicViewerProps {
   connectionId: string;
@@ -94,7 +94,11 @@ function ViewerFallbackDialog({ mode, path, error, onClose, onRetry }: ViewerFal
         </Stack>
       </DialogContent>
       <DialogActions>
-        {mode === "failed" && onRetry ? <Button onClick={onRetry}>{t("viewer.fallback.retry")}</Button> : null}
+        {mode === "failed" && onRetry ? (
+          <Button onClick={onRetry} variant="outlined" sx={settingsUtilityButtonSx}>
+            {t("viewer.fallback.retry")}
+          </Button>
+        ) : null}
         <Button variant="contained" onClick={onClose}>
           {t("common.actions.close")}
         </Button>

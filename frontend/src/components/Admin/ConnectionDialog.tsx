@@ -746,7 +746,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
           }
         }}
         actions={
-          <Button autoFocus onClick={dismissResultDialog}>
+          <Button autoFocus onClick={dismissResultDialog} variant="contained">
             {t("common.actions.close")}
           </Button>
         }

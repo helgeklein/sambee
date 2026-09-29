@@ -11,10 +11,13 @@
 
 ## Companion
 
-- Auto-update service on Windows that doesn't require user interaction (UAC prompts)
-   - Does Tauri already have infrastructure for this?
-   - It would have to be a system service (preferred) or scheduled task that runs with elevated rights
-   - It should install new updates silently and restart Companion automatically
+- Allow auto-updates on Windows without UAC prompts (admin rights)
+   - Tauri doesn't have an update service that could be run with elevated privileges.
+   - Auto-updating is, therefore, only possible for per-user installations.
+   - The NSIS installer is currently configured in `both` mode.
+      - Caveat:
+         - This mode requires admin rights even for per-user installations ([docs](https://v2.tauri.app/reference/config/#nsisinstallermode)).
+         - Reason: The NSIS installer executable has the "require elevation" flag in `both` mode, so it needs elevation to even start.
 
 ## Image viewer
 

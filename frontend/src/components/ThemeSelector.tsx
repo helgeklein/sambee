@@ -89,7 +89,11 @@ export function ThemeSelectorDialog({ open, onClose }: ThemeSelectorDialogProps)
       title={THEME_SELECTOR_STRINGS.DIALOG_TITLE}
       maxWidth="md"
       actionNotice={<DialogNotice message={themeSetting.error} />}
-      actions={<Button onClick={onClose}>Close</Button>}
+      actions={
+        <Button onClick={onClose} variant="contained">
+          Close
+        </Button>
+      }
     >
       <Box
         sx={{
