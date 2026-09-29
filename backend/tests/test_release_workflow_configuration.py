@@ -174,7 +174,7 @@ def test_companion_verification_packages_are_never_signed() -> None:
 
     assert not any(name.startswith("AZURE_") for name in verification["env"])
     assert "AZURE_CLIENT_ID" in next(step for step in steps if step.get("name") == "Assert verification-only secret boundary")["run"]
-    assert "$config.bundle.windows.PSObject.Properties.Remove('signCommand')" in configure["run"]
+    assert "$config.bundle.windows.signCommand = $null" in configure["run"]
     assert "if (" not in configure["run"]
     assert not any("trusted-signing-cli" in step.get("run", "") for step in steps)
     assert any(step.get("name") == "Install trusted-signing-cli" for step in release_steps)
