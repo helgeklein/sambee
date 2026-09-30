@@ -21,4 +21,3 @@ Companion pairing and operations are only available over HTTPS (or `http://local
 ## Sambee Companion
 
 Sambee Companion is available for Windows 11 on x64 and ARM64.
-
