@@ -48,7 +48,9 @@ function AppContent() {
   useDraftRecoveryCleanup();
 
   useEffect(() => {
+    const unsubscribe = authSession.subscribeToBootstrap(() => setAuthBootstrapComplete(true));
     void authSession.bootstrap().finally(() => setAuthBootstrapComplete(true));
+    return unsubscribe;
   }, []);
 
   useBackendRecoveryMonitor({

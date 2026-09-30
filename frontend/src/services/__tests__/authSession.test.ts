@@ -1,5 +1,5 @@
 import { HttpResponse, http } from "msw";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { server } from "../../test/mocks/server";
 import { type AuthSessionError, AuthSessionManager } from "../authSession";
 
@@ -53,5 +53,34 @@ describe("AuthSessionManager", () => {
       { epoch: 2, userId: null },
       { epoch: 3, userId: "user-1" },
     ]);
+  });
+
+  it.each(["success", "failure"])("keeps a new login when an older bootstrap refresh finishes with %s", async (outcome) => {
+    let finishRefresh!: () => void;
+    const refreshWait = new Promise<void>((resolve) => {
+      finishRefresh = resolve;
+    });
+    server.use(
+      http.post(OIDC_REFRESH_URL, async () => {
+        await refreshWait;
+        return outcome === "success"
+          ? HttpResponse.json({ access_token: "old-session", token_type: "bearer", user_id: "same-user" })
+          : HttpResponse.json({ detail: { code: "oidc_reauthentication_required" } }, { status: 401 });
+      })
+    );
+    session = new AuthSessionManager();
+    const identities: number[] = [];
+    session.subscribeToIdentity(({ epoch }) => identities.push(epoch));
+    const bootstrap = session.bootstrap();
+    await vi.waitFor(() => expect(session?.getState()).toBe("refreshing"));
+    session.setAuthenticated({ access_token: "new-session", token_type: "bearer", user_id: "same-user" }, true);
+    session.completeLoginBootstrap();
+    finishRefresh();
+    await bootstrap;
+
+    expect(session.getAccessToken()).toBe("new-session");
+    expect(session.getState()).toBe("active");
+    expect(session.isBootstrapComplete()).toBe(true);
+    expect(identities).toEqual([1]);
   });
 });

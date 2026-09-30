@@ -33,6 +33,9 @@ def _user(session: Session) -> User:
 def test_safe_return_path_rejects_external_and_protocol_relative_values() -> None:
     assert safe_return_path("https://evil.example/path") == "/browse"
     assert safe_return_path("//evil.example/path") == "/browse"
+    assert safe_return_path("/\\evil.example/path") == "/browse"
+    assert safe_return_path("/login/oidc/callback") == "/browse"
+    assert safe_return_path("/login/oidc/callback?grant=expired") == "/browse"
     assert safe_return_path("/browse/folder?view=grid#ignored") == "/browse/folder?view=grid"
 
 

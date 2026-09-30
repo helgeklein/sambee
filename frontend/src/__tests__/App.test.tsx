@@ -15,6 +15,7 @@ vi.mock("react-router-dom", async (importOriginal) => {
 
 import App from "../App";
 import api from "../services/api";
+import { authSession } from "../services/authSession";
 import { markBackendUnavailable, resetBackendAvailabilityForTests } from "../services/backendAvailability";
 import { subscribeBackendRecoveryConfirmed, subscribeBackendRecoveryReconnect } from "../services/backendRecoveryEvents";
 
@@ -38,8 +39,9 @@ vi.mock("../services/authSession", async (importOriginal) => {
   return {
     ...actual,
     authSession: {
-      isBootstrapComplete: () => true,
+      isBootstrapComplete: vi.fn(() => true),
       bootstrap: vi.fn().mockResolvedValue("idle"),
+      subscribeToBootstrap: vi.fn(() => () => undefined),
       getAccessToken: () => null,
       getIdentity: () => ({ epoch: 0, userId: null }),
       getUserId: () => null,
@@ -93,6 +95,21 @@ describe("App backend recovery integration", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("leaves the protected-route fallback when login completes before bootstrap", async () => {
+    vi.mocked(authSession.isBootstrapComplete).mockReturnValueOnce(false);
+    vi.mocked(authSession.bootstrap).mockReturnValueOnce(new Promise(() => undefined));
+    let completeBootstrap!: () => void;
+    vi.mocked(authSession.subscribeToBootstrap).mockImplementationOnce((listener) => {
+      completeBootstrap = listener;
+      return () => undefined;
+    });
+
+    render(<App />);
+    expect(screen.queryByTestId("mock-file-browser")).not.toBeInTheDocument();
+    act(() => completeBootstrap());
+    expect(await screen.findByTestId("mock-file-browser")).toBeInTheDocument();
   });
 
   it("emits a reconnect event on focus when backend recovery is needed", async () => {

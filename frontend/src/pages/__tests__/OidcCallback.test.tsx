@@ -6,13 +6,16 @@ import OidcCallback from "../OidcCallback";
 
 vi.mock("../../services/api", () => ({
   exchangeOidcGrant: vi.fn(),
+  setOidcExchangePending: vi.fn(),
 }));
 
 vi.mock("../../services/logger", () => ({
   logger: { initializeBackendTracing: vi.fn().mockResolvedValue(undefined) },
 }));
 
-import { exchangeOidcGrant } from "../../services/api";
+import { exchangeOidcGrant, setOidcExchangePending } from "../../services/api";
+import { authSession } from "../../services/authSession";
+import { loginPath, loginReturnPath, sanitizeReturnPath } from "../../services/oidcAuth";
 
 describe("OIDC callback", () => {
   beforeEach(() => {
@@ -54,6 +57,8 @@ describe("OIDC callback", () => {
     await waitFor(() => expect(exchangeOidcGrant).toHaveBeenCalledWith("one-time-grant"));
     expect(fragmentScrubbedBeforeExchange).toBe(true);
     expect(await screen.findByText("File browser")).toBeInTheDocument();
+    expect(authSession.getAccessToken()).toBe("sambee-token");
+    expect(authSession.isBootstrapComplete()).toBe(true);
     expect(exchangeOidcGrant).toHaveBeenCalledTimes(1);
     expect(screen.queryByLabelText("Completing sign in")).not.toBeInTheDocument();
   });
@@ -70,5 +75,41 @@ describe("OIDC callback", () => {
 
     expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(exchangeOidcGrant).not.toHaveBeenCalled();
+    expect(setOidcExchangePending).toHaveBeenCalledWith(false);
+  });
+
+  it("keeps the callback error visible when exchange fails", async () => {
+    let rejectExchange!: (reason: Error) => void;
+    vi.mocked(exchangeOidcGrant).mockReturnValue(
+      new Promise((_, reject) => {
+        rejectExchange = reject;
+      })
+    );
+    render(
+      <MemoryRouter>
+        <OidcCallback />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(setOidcExchangePending).toHaveBeenCalledWith(true));
+    rejectExchange(new Error("Grant expired"));
+    expect(await screen.findByText("Sign in could not be completed.")).toBeInTheDocument();
+    expect(setOidcExchangePending).toHaveBeenLastCalledWith(false);
+  });
+
+  it.each([
+    "/login/oidc/callback",
+    "/login/oidc/callback?grant=expired",
+    "https://outside.example/path",
+    "//outside.example/path",
+    "/\\outside.example/path",
+  ])("rejects an unsafe return path: %s", (path) => {
+    expect(sanitizeReturnPath(path)).toBe("/browse");
+    expect(loginReturnPath(`?return_path=${encodeURIComponent(path)}`)).toBe("/browse");
+    expect(loginPath(path)).toBe("/login?return_path=%2Fbrowse");
+  });
+
+  it("preserves internal return paths and queries", () => {
+    expect(sanitizeReturnPath("/browse/folder?view=grid")).toBe("/browse/folder?view=grid");
+    expect(loginReturnPath("?return_path=%2Flogin%2Foidc%2Fcallback")).toBe("/browse");
   });
 });
