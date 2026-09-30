@@ -23,6 +23,7 @@ With Sambee's new theme editor, users can change all theme colors via hex values
 - Overlapping download requests were allowed.
 - A failed background connection refresh no longer hides a recovered file listing.
 - Uploads and copy or move operations no longer interfere with each other's conflict decisions.
+- Renaming a file to a name that differed by case only failed on local drive connections.
 
 ## Miscellaneous
 
@@ -43,7 +44,7 @@ Sambee now deals with unencrypted HTTP explicitly:
 
 HTTP for development on `localhost` is treated as secure by browsers and continues to be supported by Sambee.
 
-### Supported Browser Detection
+### Detection of Supported Browsers
 
 If your browser is too old or lacks features Sambee needs, you'll now see a clear message instead of a blank page. The message identifies missing capabilities and links to the browser requirements so you can choose a supported browser.
 
