@@ -1392,10 +1392,51 @@ pub async fn browse_rename(Path(drive): Path<String>, Json(body): Json<RenameReq
     let new_full_path = parent.join(&body.new_name);
 
     if new_full_path.exists() {
-        return Err(ApiError::conflict_message(format!(
-            "An item named '{}' already exists",
-            body.new_name
-        )));
+        let candidate_is_source = new_full_path != full_path
+            && !tokio::fs::symlink_metadata(&new_full_path)
+                .await
+                .map_err(|error| map_io_error(error, &new_full_path))?
+                .file_type()
+                .is_symlink();
+        #[cfg(unix)]
+        let same_source = if candidate_is_source
+            && full_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.to_lowercase() == body.new_name.to_lowercase())
+        {
+            use std::os::unix::fs::MetadataExt;
+
+            let source = tokio::fs::metadata(&full_path)
+                .await
+                .map_err(|error| map_io_error(error, &full_path))?;
+            let target = tokio::fs::metadata(&new_full_path)
+                .await
+                .map_err(|error| map_io_error(error, &new_full_path))?;
+            let mut entries = tokio::fs::read_dir(parent).await.map_err(|error| map_io_error(error, parent))?;
+            let mut exact_target_exists = false;
+            while let Some(entry) = entries.next_entry().await.map_err(|error| map_io_error(error, parent))? {
+                if entry.file_name().to_str() == Some(body.new_name.as_str()) {
+                    exact_target_exists = true;
+                    break;
+                }
+            }
+            source.dev() == target.dev() && source.ino() == target.ino() && !exact_target_exists
+        } else {
+            false
+        };
+        #[cfg(not(unix))]
+        let same_source = candidate_is_source
+            && tokio::fs::canonicalize(&new_full_path)
+                .await
+                .map_err(|error| map_io_error(error, &new_full_path))?
+                == full_path;
+        if !same_source {
+            return Err(ApiError::conflict_message(format!(
+                "An item named '{}' already exists",
+                body.new_name
+            )));
+        }
     }
 
     tokio::fs::rename(&full_path, &new_full_path)
@@ -6686,6 +6727,114 @@ async fn rename_noreplace(_source: &FsPath, _destination: &FsPath) -> Result<(),
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn local_rename_changes_only_case_for_files_and_directories() {
+        let directory = tempfile::tempdir().expect("temporary drive should be created");
+        let drive = format!("rename-{}", uuid::Uuid::new_v4());
+        super::drives::register_test_drive_path(drive.clone(), directory.path().to_path_buf());
+
+        for (old_name, new_name, is_directory) in [("A.PDF", "A.pdf", false), ("FOLDER", "folder", true)] {
+            let source = directory.path().join(old_name);
+            if is_directory {
+                tokio::fs::create_dir(&source).await.expect("source directory should be created");
+            } else {
+                tokio::fs::write(&source, b"content").await.expect("source file should be created");
+            }
+
+            let response = super::browse_rename(
+                axum::extract::Path(drive.clone()),
+                axum::Json(super::RenameRequest {
+                    path: old_name.to_string(),
+                    new_name: new_name.to_string(),
+                }),
+            )
+            .await
+            .expect("case-only rename should succeed");
+
+            assert_eq!(response.0.name, new_name);
+            assert_eq!(response.0.path, new_name);
+            assert!(directory.path().join(new_name).exists());
+        }
+    }
+
+    #[tokio::test]
+    async fn local_rename_rejects_a_different_existing_item() {
+        let directory = tempfile::tempdir().expect("temporary drive should be created");
+        let drive = format!("rename-{}", uuid::Uuid::new_v4());
+        super::drives::register_test_drive_path(drive.clone(), directory.path().to_path_buf());
+        tokio::fs::write(directory.path().join("source.txt"), b"source")
+            .await
+            .expect("source should be created");
+        tokio::fs::write(directory.path().join("target.txt"), b"target")
+            .await
+            .expect("target should be created");
+
+        let response = super::browse_rename(
+            axum::extract::Path(drive),
+            axum::Json(super::RenameRequest {
+                path: "source.txt".to_string(),
+                new_name: "target.txt".to_string(),
+            }),
+        )
+        .await;
+
+        assert!(matches!(response, Err(crate::server::errors::ApiError::Conflict(_))));
+        assert_eq!(tokio::fs::read(directory.path().join("source.txt")).await.unwrap(), b"source");
+        assert_eq!(tokio::fs::read(directory.path().join("target.txt")).await.unwrap(), b"target");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn local_rename_rejects_aliases_to_the_source() {
+        let directory = tempfile::tempdir().expect("temporary drive should be created");
+        let drive = format!("rename-{}", uuid::Uuid::new_v4());
+        super::drives::register_test_drive_path(drive.clone(), directory.path().to_path_buf());
+        let source = directory.path().join("source.txt");
+        tokio::fs::write(&source, b"source").await.expect("source should be created");
+        std::fs::hard_link(&source, directory.path().join("hard-link.txt")).expect("hard link should be created");
+        std::os::unix::fs::symlink(&source, directory.path().join("symbolic-link.txt")).expect("symbolic link should be created");
+
+        for alias in ["hard-link.txt", "symbolic-link.txt"] {
+            let response = super::browse_rename(
+                axum::extract::Path(drive.clone()),
+                axum::Json(super::RenameRequest {
+                    path: "source.txt".to_string(),
+                    new_name: alias.to_string(),
+                }),
+            )
+            .await;
+
+            assert!(matches!(response, Err(crate::server::errors::ApiError::Conflict(_))));
+            assert!(source.exists());
+            assert!(directory.path().join(alias).exists());
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn local_rename_rejects_case_variant_hard_link() {
+        let directory = tempfile::tempdir().expect("temporary drive should be created");
+        let drive = format!("rename-{}", uuid::Uuid::new_v4());
+        super::drives::register_test_drive_path(drive.clone(), directory.path().to_path_buf());
+        let source = directory.path().join("A.PDF");
+        let target = directory.path().join("A.pdf");
+        tokio::fs::write(&source, b"source").await.expect("source should be created");
+        std::fs::hard_link(&source, &target).expect("case-variant hard link should be created");
+
+        let response = super::browse_rename(
+            axum::extract::Path(drive),
+            axum::Json(super::RenameRequest {
+                path: "A.PDF".to_string(),
+                new_name: "A.pdf".to_string(),
+            }),
+        )
+        .await;
+
+        assert!(matches!(response, Err(crate::server::errors::ApiError::Conflict(_))));
+        assert!(source.exists());
+        assert!(target.exists());
+    }
+
     #[tokio::test]
     async fn active_viewer_files_are_downloaded() {
         let directory = tempfile::tempdir().expect("temporary viewer directory should be created");

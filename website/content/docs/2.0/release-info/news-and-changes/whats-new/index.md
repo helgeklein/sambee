@@ -23,6 +23,7 @@ With Sambee's new theme editor, users can change all theme colors via hex values
 - Overlapping download requests were allowed.
 - A failed background connection refresh no longer hides a recovered file listing.
 - Uploads and copy or move operations no longer interfere with each other's conflict decisions.
+- Renaming a file to a name that differed by case only failed on local drive connections.
 
 ## Miscellaneous
 
