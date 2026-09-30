@@ -12,6 +12,10 @@ Sambee's frontend supports the latest versions of desktop and mobile browsers, i
 - Mozilla Firefox
 - Apple Safari
 
+If a browser lacks a required modern capability, Sambee shows a browser compatibility message instead of loading the app. This checks a few key capabilities, not every feature Sambee uses.
+
+To preview this message on the development server, open `http://localhost:3000/browse/smb/demo?simulateUnsupportedBrowser`. Remove the query parameter to load the app normally. This flag has no effect in production builds.
+
 ### HTTPS
 
 **Accessing Sambee over HTTPS is very much recommended.** Typically, a reverse proxy such as Caddy is used for that purpose. See the [reverse proxy docs](https://sambee.net/docs/admin-guide/network-and-reverse-proxy/put-sambee-behind-a-reverse-proxy/) for more information, and [this blog post by Helge Klein](https://helgeklein.com/blog/automatic-https-certificates-for-services-on-internal-home-network-without-opening-firewall-port/) for a detailed configuration guide.
