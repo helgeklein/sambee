@@ -132,6 +132,8 @@ describe("API Service", () => {
       authSession.setAuthenticated({ access_token: "session-a", token_type: "bearer", user_id: "same-user" }, true);
       const request = (await requestHandler?.({ url: "/themes", method: "get", headers: {} })) as { headers: Record<string, string> };
       authSession.setAuthenticated({ access_token: "session-b", token_type: "bearer", user_id: "same-user" }, true);
+      markBackendUnavailable("Recovery in progress");
+      const availabilityBeforeFailure = getBackendAvailabilitySnapshot();
       const refresh = vi.spyOn(authSession, "requestRefresh");
       const snapshot = vi.spyOn(draftRecovery, "snapshotRegisteredDrafts");
       const error = {
@@ -144,6 +146,7 @@ describe("API Service", () => {
       expect(refresh).not.toHaveBeenCalled();
       expect(snapshot).not.toHaveBeenCalled();
       expect(window.location.assign).not.toHaveBeenCalled();
+      expect(getBackendAvailabilitySnapshot()).toBe(availabilityBeforeFailure);
       const currentRequest = (await requestHandler?.({ url: "/themes", method: "get", headers: {} })) as {
         headers: Record<string, string>;
       };

@@ -287,6 +287,10 @@ export function setOidcExchangePending(pending: boolean): void {
   oidcExchangePending = pending;
 }
 
+export function isOidcExchangePending(): boolean {
+  return oidcExchangePending;
+}
+
 export function isControlledReauthenticationInProgress(): boolean {
   return controlledReauthenticationInProgress;
 }
@@ -435,6 +439,20 @@ class ApiService {
         return response;
       },
       (error: AxiosError) => {
+        const config = error.config as (AxiosRequestConfig & { _oidcRetried?: boolean; _oidcExchangePending?: boolean }) | undefined;
+        const sentAuthorization = error.config?.headers?.get?.("Authorization") ?? error.config?.headers?.Authorization;
+        const obsoleteSession = () => {
+          const currentToken = authSession.getAccessToken();
+          return (
+            currentToken &&
+            typeof sentAuthorization === "string" &&
+            sentAuthorization.startsWith("Bearer ") &&
+            sentAuthorization !== `Bearer ${currentToken}`
+          );
+        };
+        if (error.response?.status === 401 && (oidcExchangePending || config?._oidcExchangePending || obsoleteSession())) {
+          return Promise.reject(error);
+        }
         const backendSnapshot = getBackendAvailabilitySnapshot();
         const viewerBlobRequest = isViewerBlobRequest(error.config);
         const suppressViewerBlobErrorLog = viewerBlobRequest && isBackendConnectivityError(error);
@@ -474,21 +492,6 @@ class ApiService {
           );
         }
         if (error.response?.status === 401) {
-          const config = error.config as (AxiosRequestConfig & { _oidcRetried?: boolean; _oidcExchangePending?: boolean }) | undefined;
-          if (oidcExchangePending || config?._oidcExchangePending) return Promise.reject(error);
-          const sentAuthorization = error.config?.headers?.get?.("Authorization") ?? error.config?.headers?.Authorization;
-          const obsoleteSession = () => {
-            const currentToken = authSession.getAccessToken();
-            return (
-              currentToken &&
-              typeof sentAuthorization === "string" &&
-              sentAuthorization.startsWith("Bearer ") &&
-              sentAuthorization !== `Bearer ${currentToken}`
-            );
-          };
-          if (obsoleteSession()) {
-            return Promise.reject(error);
-          }
           const confirmedOidcReauthentication = isConfirmedOidcReauthentication(error);
           if (backendSnapshot.recoveryLock && !confirmedOidcReauthentication) {
             logger.warn(

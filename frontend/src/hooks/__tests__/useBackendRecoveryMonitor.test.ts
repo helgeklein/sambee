@@ -1,5 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setOidcExchangePending } from "../../services/api";
 import { AuthSessionError, authSession } from "../../services/authSession";
 import { getBackendAvailabilitySnapshot, resetBackendAvailabilityForTests } from "../../services/backendAvailability";
 import { useBackendRecoveryMonitor } from "../useBackendRecoveryMonitor";
@@ -17,6 +18,7 @@ describe("useBackendRecoveryMonitor", () => {
   });
 
   afterEach(() => {
+    setOidcExchangePending(false);
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -210,6 +212,90 @@ describe("useBackendRecoveryMonitor", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(getBackendAvailabilitySnapshot().status).toBe("available");
     expect(onReconnectNow).toHaveBeenCalledWith("health-probe-success");
+  });
+
+  it("ignores a late 401 from a probe sent with a superseded token", async () => {
+    let finishProbe!: (response: Response) => void;
+    const fetchMock = vi.fn<typeof fetch>().mockReturnValue(
+      new Promise((resolve) => {
+        finishProbe = resolve;
+      })
+    );
+    const refresh = vi.spyOn(authSession, "requestRefresh");
+    const onAuthenticationFailure = vi.fn();
+    authSession.setAuthenticated({ access_token: "session-a", token_type: "bearer" }, false);
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderHook(() => useBackendRecoveryMonitor({ status: "available", onAuthenticationFailure }));
+    act(() => window.dispatchEvent(new Event("focus")));
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer session-a" }) })
+    );
+    authSession.setAuthenticated({ access_token: "session-b", token_type: "bearer" }, false);
+    await act(async () => {
+      finishProbe(new Response(null, { status: 401 }));
+    });
+
+    expect(refresh).not.toHaveBeenCalled();
+    expect(onAuthenticationFailure).not.toHaveBeenCalled();
+    expect(getBackendAvailabilitySnapshot().status).toBe("available");
+    expect(authSession.getAccessToken()).toBe("session-b");
+    refresh.mockRestore();
+    authSession.clear();
+  });
+
+  it("keeps a failed callback in control when its protected probe returns 401 afterward", async () => {
+    let finishProbe!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockReturnValue(
+        new Promise((resolve) => {
+          finishProbe = resolve;
+        })
+      )
+    );
+    const refresh = vi.spyOn(authSession, "requestRefresh");
+    const onAuthenticationFailure = vi.fn();
+    authSession.setAuthenticated({ access_token: "session-a", token_type: "bearer" }, false);
+    setOidcExchangePending(true);
+    renderHook(() => useBackendRecoveryMonitor({ status: "available", onAuthenticationFailure }));
+    act(() => window.dispatchEvent(new Event("focus")));
+    setOidcExchangePending(false);
+    await act(async () => {
+      finishProbe(new Response(null, { status: 401 }));
+    });
+
+    expect(refresh).not.toHaveBeenCalled();
+    expect(onAuthenticationFailure).not.toHaveBeenCalled();
+    expect(getBackendAvailabilitySnapshot().status).toBe("available");
+    refresh.mockRestore();
+    authSession.clear();
+  });
+
+  it("ignores a failed A refresh when B arrives during the recovery probe", async () => {
+    let failRefresh!: (error: Error) => void;
+    const refresh = vi.spyOn(authSession, "requestRefresh").mockReturnValue(
+      new Promise((_, reject) => {
+        failRefresh = reject;
+      })
+    );
+    const onAuthenticationFailure = vi.fn();
+    authSession.setAuthenticated({ access_token: "session-a", token_type: "bearer" }, false);
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 401 })));
+    renderHook(() => useBackendRecoveryMonitor({ status: "available", onAuthenticationFailure }));
+    act(() => window.dispatchEvent(new Event("focus")));
+    await flushAsyncWork();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    authSession.setAuthenticated({ access_token: "session-b", token_type: "bearer" }, false);
+    await act(async () => {
+      failRefresh(new AuthSessionError("reauthentication-required", "A expired"));
+    });
+
+    expect(onAuthenticationFailure).not.toHaveBeenCalled();
+    expect(authSession.getAccessToken()).toBe("session-b");
+    refresh.mockRestore();
+    authSession.clear();
   });
 
   it("keeps retrying when an OIDC refresh result is uncertain but the access token is usable", async () => {
