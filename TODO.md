@@ -1,5 +1,12 @@
 # TODO
 
+## Issues
+
+### File renaming that changes only case
+
+- On an SMB backend, I can rename a file from `A.PDF` to `A.pdf`.
+- On a local drive connection, that fails with "file already exists".
+
 ## Misc. commands
 
 - Add a command to open the current file list location in a new browser tab (which keyboard shortcut to assign? Ctrl+(Shift)+Tab is needed by the browser)

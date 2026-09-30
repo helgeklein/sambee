@@ -44,7 +44,7 @@ Sambee now deals with unencrypted HTTP explicitly:
 
 HTTP for development on `localhost` is treated as secure by browsers and continues to be supported by Sambee.
 
-### Detection of Supported Browsers
+### Supported Browser Detection
 
 If your browser is too old or lacks features Sambee needs, you'll now see a clear message instead of a blank page. The message identifies missing capabilities and links to the browser requirements so you can choose a supported browser.
 
