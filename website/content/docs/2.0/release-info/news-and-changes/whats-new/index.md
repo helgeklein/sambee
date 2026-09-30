@@ -43,11 +43,15 @@ Sambee now deals with unencrypted HTTP explicitly:
 
 HTTP for development on `localhost` is treated as secure by browsers and continues to be supported by Sambee.
 
+### Bugfixes
+
+- OIDC login failures after password reset: OIDC login now completes reliably after an administrator resets the account’s password. Sambee ignores responses from the previous browser session while the new login finishes, reloads the user’s themes and settings, and returns to the file browser instead of the login page.
+
 ## Under the Hood
 
 ### Security Review
 
-- OIDC sign-in now binds the callback and login grant to the browser that started the sign-in flow, preventing a grant from being redeemed in another browser.
+- OIDC login now binds the callback and login grant to the browser that started the login flow, preventing a grant from being redeemed in another browser.
 - Only admins can list and download uploaded mobile logs; signed-in users can still upload logs for troubleshooting.
 - Companion requests now use signatures tied to the HTTP method and requested URL, so a signature can't be reused for another request.
 - Mobile log uploads have a size limit, and stored logs are pruned when they exceed the storage budget.

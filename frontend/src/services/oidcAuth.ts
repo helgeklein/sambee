@@ -36,6 +36,7 @@ export function startOidcAuthorization(path: string, returnPath = "/browse"): vo
 
 export async function completeAuthentication(response: AuthToken, fallbackReturnPath?: string, renewable = true): Promise<string> {
   const previousUserId = authSession.getUserId();
+  authSession.beginNewLogin();
   authSession.setAuthenticated(response, renewable);
   authSession.completeLoginBootstrap();
   if (renewable && previousUserId === (response.user_id ?? null)) authSession.notifyNewLogin();
