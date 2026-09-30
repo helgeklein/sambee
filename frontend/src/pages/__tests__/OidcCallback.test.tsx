@@ -1,27 +1,41 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { StrictMode } from "react";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import { HttpResponse, http } from "msw";
+import { StrictMode, useEffect, useState } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { server } from "../../test/mocks/server";
+import { SambeeThemeProvider, useSambeeTheme } from "../../theme";
 import OidcCallback from "../OidcCallback";
 
-vi.mock("../../services/api", () => ({
-  exchangeOidcGrant: vi.fn(),
-}));
+vi.mock("../../services/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../services/api")>();
+  return { ...actual, exchangeOidcGrant: vi.fn(), setOidcExchangePending: vi.fn(actual.setOidcExchangePending) };
+});
 
-vi.mock("../../services/logger", () => ({
-  logger: { initializeBackendTracing: vi.fn().mockResolvedValue(undefined) },
-}));
-
-import { exchangeOidcGrant } from "../../services/api";
+import api, { exchangeOidcGrant, setOidcExchangePending } from "../../services/api";
+import { authSession } from "../../services/authSession";
+import { logger } from "../../services/logger";
+import { loginPath, loginReturnPath, sanitizeReturnPath } from "../../services/oidcAuth";
+import { getConfirmedCurrentUserSetting, resetCurrentUserSettingsStoreForTests } from "../../services/userSettingsStore";
 
 describe("OIDC callback", () => {
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
+    authSession.clear();
+    resetCurrentUserSettingsStoreForTests();
+    setOidcExchangePending(false);
+    vi.mocked(window.location.assign).mockClear();
+    vi.spyOn(logger, "initializeBackendTracing").mockResolvedValue(undefined);
     vi.mocked(exchangeOidcGrant).mockReset();
     window.history.replaceState(null, "", "/login/oidc/callback");
     window.location.hash = "";
     window.location.hash = "grant=one-time-grant";
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    setOidcExchangePending(false);
   });
 
   it("clears the fragment before exchanging the one-time grant", async () => {
@@ -54,6 +68,8 @@ describe("OIDC callback", () => {
     await waitFor(() => expect(exchangeOidcGrant).toHaveBeenCalledWith("one-time-grant"));
     expect(fragmentScrubbedBeforeExchange).toBe(true);
     expect(await screen.findByText("File browser")).toBeInTheDocument();
+    expect(authSession.getAccessToken()).toBe("sambee-token");
+    expect(authSession.isBootstrapComplete()).toBe(true);
     expect(exchangeOidcGrant).toHaveBeenCalledTimes(1);
     expect(screen.queryByLabelText("Completing sign in")).not.toBeInTheDocument();
   });
@@ -70,5 +86,128 @@ describe("OIDC callback", () => {
 
     expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(exchangeOidcGrant).not.toHaveBeenCalled();
+    expect(setOidcExchangePending).toHaveBeenCalledWith(false);
+  });
+
+  it("keeps the callback error visible when exchange fails", async () => {
+    let rejectExchange!: (reason: Error) => void;
+    vi.mocked(exchangeOidcGrant).mockReturnValue(
+      new Promise((_, reject) => {
+        rejectExchange = reject;
+      })
+    );
+    render(
+      <MemoryRouter>
+        <OidcCallback />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(setOidcExchangePending).toHaveBeenCalledWith(true));
+    rejectExchange(new Error("Grant expired"));
+    expect(await screen.findByText("Sign in could not be completed.")).toBeInTheDocument();
+    expect(setOidcExchangePending).toHaveBeenLastCalledWith(false);
+  });
+
+  it("finishes the same-user callback despite late 401s from A and loads protected data with B", async () => {
+    const sessionA = { access_token: "session-a", token_type: "bearer", user_id: "same-user" };
+    const sessionB = { access_token: "session-b", token_type: "bearer", user_id: "same-user", return_path: "/login/oidc/callback" };
+    const refresh = vi.spyOn(authSession, "requestRefresh").mockImplementation(async () => {
+      authSession.setAuthenticated(sessionA, true);
+      return sessionA;
+    });
+    await authSession.bootstrap();
+    refresh.mockRestore();
+
+    let releaseOldRequests!: () => void;
+    let releaseGrant!: () => void;
+    const oldRequests = new Promise<void>((resolve) => {
+      releaseOldRequests = resolve;
+    });
+    const grantExchange = new Promise<void>((resolve) => {
+      releaseGrant = resolve;
+    });
+    const oldCalls = new Set<string>();
+    const newCalls: string[] = [];
+    const endpoint = (path: string, response: object) =>
+      http.get(`http://localhost:3000/api${path}`, async ({ request }) => {
+        const token = request.headers.get("Authorization");
+        if (token === "Bearer session-a") {
+          oldCalls.add(path);
+          await oldRequests;
+          return HttpResponse.json({ detail: { code: "oidc_reauthentication_required" } }, { status: 401 });
+        }
+        if (token === "Bearer session-b") {
+          newCalls.push(path);
+          return HttpResponse.json(response);
+        }
+        return HttpResponse.json({}, { status: 401 });
+      });
+    server.use(
+      endpoint("/themes", { themes: [], site_default_id: "sambee-dark" }),
+      endpoint("/auth/me", { id: "same-user", username: "alice", role: "admin" }),
+      endpoint("/auth/me/settings", { appearance: { theme_id: "sambee-dark", custom_themes: [] } }),
+      http.post("http://localhost:3000/api/auth/oidc/exchange", async () => {
+        await grantExchange;
+        return HttpResponse.json(sessionB);
+      })
+    );
+    vi.mocked(exchangeOidcGrant).mockImplementation((grant) => api.exchangeOidcGrant(grant));
+
+    function Browse() {
+      const { currentTheme, isAdmin } = useSambeeTheme();
+      const [protectedUser, setProtectedUser] = useState("");
+      useEffect(() => {
+        void api.getCurrentUser().then((user) => setProtectedUser(user.username));
+      }, []);
+      return (
+        <div>
+          Browse {protectedUser} {currentTheme.id} {isAdmin ? "admin" : "user"}
+        </div>
+      );
+    }
+
+    render(
+      <SambeeThemeProvider>
+        <MemoryRouter initialEntries={["/login/oidc/callback"]}>
+          <Routes>
+            <Route path="/login/oidc/callback" element={<OidcCallback />} />
+            <Route path="/browse" element={<Browse />} />
+          </Routes>
+        </MemoryRouter>
+      </SambeeThemeProvider>
+    );
+    await waitFor(() => {
+      expect(oldCalls.has("/themes")).toBe(true);
+      expect(oldCalls.has("/auth/me")).toBe(true);
+    });
+    await act(async () => {
+      releaseGrant();
+    });
+    expect(await screen.findByText("Browse alice sambee-dark admin")).toBeInTheDocument();
+    await act(async () => {
+      releaseOldRequests();
+    });
+    await waitFor(() => expect(newCalls).toEqual(expect.arrayContaining(["/themes", "/auth/me", "/auth/me/settings"])));
+    await waitFor(() => expect(getConfirmedCurrentUserSetting("appearance.theme_id")).toBe("sambee-dark"));
+    expect(newCalls.filter((path) => path === "/themes")).toHaveLength(1);
+    expect(authSession.getAccessToken()).toBe("session-b");
+    expect(authSession.isBootstrapComplete()).toBe(true);
+    expect(window.location.assign).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "/login/oidc/callback",
+    "/login/oidc/callback?grant=expired",
+    "https://outside.example/path",
+    "//outside.example/path",
+    "/\\outside.example/path",
+  ])("rejects an unsafe return path: %s", (path) => {
+    expect(sanitizeReturnPath(path)).toBe("/browse");
+    expect(loginReturnPath(`?return_path=${encodeURIComponent(path)}`)).toBe("/browse");
+    expect(loginPath(path)).toBe("/login?return_path=%2Fbrowse");
+  });
+
+  it("preserves internal return paths and queries", () => {
+    expect(sanitizeReturnPath("/browse/folder?view=grid")).toBe("/browse/folder?view=grid");
+    expect(loginReturnPath("?return_path=%2Flogin%2Foidc%2Fcallback")).toBe("/browse");
   });
 });

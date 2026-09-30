@@ -82,7 +82,7 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
           setStoredThemes(result.themes);
           setSiteDefaultId(result.site_default_id);
           setIsAdmin(user.role === "admin");
-          void refreshCurrentUserSettings();
+          void refreshCurrentUserSettings().catch(() => undefined);
         })
         .catch(() => undefined);
     };

@@ -1,7 +1,7 @@
 import { Alert, Box, Button, CircularProgress, Container, Typography } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { exchangeOidcGrant } from "../services/api";
+import { exchangeOidcGrant, setOidcExchangePending } from "../services/api";
 import { completeAuthentication } from "../services/oidcAuth";
 
 function readAndClearGrant(): string | null {
@@ -23,10 +23,14 @@ export default function OidcCallback() {
     if (!exchangePromise.current) {
       const grant = readAndClearGrant();
       if (!grant) {
+        setOidcExchangePending(false);
         setError(true);
         return;
       }
-      exchangePromise.current = exchangeOidcGrant(grant).then(completeAuthentication);
+      setOidcExchangePending(true);
+      exchangePromise.current = exchangeOidcGrant(grant)
+        .then(completeAuthentication)
+        .finally(() => setOidcExchangePending(false));
     }
     void exchangePromise.current
       .then((returnPath) => {

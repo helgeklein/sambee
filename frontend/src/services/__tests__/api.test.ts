@@ -47,8 +47,8 @@ vi.mock("axios", () => {
 // Get reference to the mocked functions for assertions
 import axios from "axios";
 // Now import the API service (it will use the mocked axios.create)
-import apiService, { ExpiredEditLockError, OIDC_FINALIZATION_REQUEST_TIMEOUT_MS } from "../api";
-import { authSession } from "../authSession";
+import apiService, { ExpiredEditLockError, OIDC_FINALIZATION_REQUEST_TIMEOUT_MS, setOidcExchangePending } from "../api";
+import { AuthSessionError, authSession } from "../authSession";
 import { getBackendAvailabilitySnapshot, markBackendUnavailable, resetBackendAvailabilityForTests } from "../backendAvailability";
 import * as backendRouter from "../backendRouter";
 import { companionSession } from "../companionSession";
@@ -107,6 +107,7 @@ describe("API Service", () => {
   }
 
   beforeEach(() => {
+    setOidcExchangePending(false);
     // Clear localStorage
     localStorage.clear();
     authSession.clear();
@@ -121,11 +122,121 @@ describe("API Service", () => {
   });
 
   afterEach(() => {
+    setOidcExchangePending(false);
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
   describe("OIDC request classification", () => {
+    it.each(["oidc_reauthentication_required", undefined])("ignores obsolete token 401s (%s)", async (code) => {
+      authSession.setAuthenticated({ access_token: "session-a", token_type: "bearer", user_id: "same-user" }, true);
+      const request = (await requestHandler?.({ url: "/themes", method: "get", headers: {} })) as { headers: Record<string, string> };
+      authSession.setAuthenticated({ access_token: "session-b", token_type: "bearer", user_id: "same-user" }, true);
+      markBackendUnavailable("Recovery in progress");
+      const availabilityBeforeFailure = getBackendAvailabilitySnapshot();
+      const refresh = vi.spyOn(authSession, "requestRefresh");
+      const snapshot = vi.spyOn(draftRecovery, "snapshotRegisteredDrafts");
+      const error = {
+        response: { status: 401, data: code ? { detail: { code } } : {}, headers: {} },
+        message: "Unauthorized",
+        config: { url: "/themes", method: "get", headers: request.headers },
+      };
+
+      await expect(responseErrorHandler?.(error as never)).rejects.toBe(error);
+      expect(refresh).not.toHaveBeenCalled();
+      expect(snapshot).not.toHaveBeenCalled();
+      expect(window.location.assign).not.toHaveBeenCalled();
+      expect(getBackendAvailabilitySnapshot()).toBe(availabilityBeforeFailure);
+      const currentRequest = (await requestHandler?.({ url: "/themes", method: "get", headers: {} })) as {
+        headers: Record<string, string>;
+      };
+      expect(currentRequest.headers.Authorization).toBe("Bearer session-b");
+      responseSuccessHandler?.({ config: { method: "get", url: "/themes" }, status: 200, statusText: "OK" } as never);
+      expect(window.location.assign).not.toHaveBeenCalled();
+    });
+
+    it("keeps current-token 401 handling and never replays a write", async () => {
+      authSession.setAuthenticated({ access_token: "session-b", token_type: "bearer" }, true);
+      const refresh = vi.spyOn(authSession, "requestRefresh").mockResolvedValue({ access_token: "renewed", token_type: "bearer" });
+      const error = {
+        response: { status: 401, headers: {} },
+        message: "Unauthorized",
+        config: { url: "/themes", method: "get", headers: { Authorization: "Bearer session-b" } },
+      };
+      mockAxiosInstance.request.mockResolvedValue({ data: {} });
+      await expect(responseErrorHandler?.(error as never)).resolves.toEqual({ data: {} });
+      expect(refresh).toHaveBeenCalledOnce();
+
+      const writeError = { ...error, config: { url: "/settings", method: "post", headers: { Authorization: "Bearer session-b" } } };
+      await expect(responseErrorHandler?.(writeError as never)).rejects.toBe(writeError);
+      expect(mockAxiosInstance.request).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(["success", "failure"])("does not act on A's 401 when its refresh settles after B (%s)", async (outcome) => {
+      authSession.setAuthenticated({ access_token: "session-a", token_type: "bearer" }, true);
+      let finishRefresh!: (response: AuthToken) => void;
+      let failRefresh!: (reason: Error) => void;
+      const refresh = new Promise<AuthToken>((resolve, reject) => {
+        finishRefresh = resolve;
+        failRefresh = reject;
+      });
+      vi.spyOn(authSession, "requestRefresh").mockReturnValue(refresh);
+      const snapshot = vi.spyOn(draftRecovery, "snapshotRegisteredDrafts");
+      const error = {
+        response: { status: 401, headers: {} },
+        message: "Unauthorized",
+        config: { url: "/themes", method: "get", headers: { Authorization: "Bearer session-a" } },
+      };
+      const pending = responseErrorHandler?.(error as never);
+      authSession.setAuthenticated({ access_token: "session-b", token_type: "bearer" }, true);
+      if (outcome === "success") finishRefresh({ access_token: "old-refresh", token_type: "bearer" });
+      else failRefresh(new Error("Refresh failed"));
+
+      await expect(pending).rejects.toBe(error);
+      expect(authSession.getAccessToken()).toBe("session-b");
+      expect(mockAxiosInstance.request).not.toHaveBeenCalled();
+      expect(snapshot).not.toHaveBeenCalled();
+      expect(window.location.assign).not.toHaveBeenCalled();
+    });
+
+    it("does not redirect for a request-time refresh failure after B arrives", async () => {
+      let failRefresh!: (reason: Error) => void;
+      const refreshIfNeeded = vi.spyOn(authSession, "refreshIfNeeded").mockReturnValue(
+        new Promise((_, reject) => {
+          failRefresh = reject;
+        })
+      );
+      authSession.setAuthenticated({ access_token: "session-a", token_type: "bearer" }, true);
+      const request = requestHandler?.({ url: "/themes", method: "get", headers: {} });
+      authSession.setAuthenticated({ access_token: "session-b", token_type: "bearer" }, true);
+      failRefresh(new AuthSessionError("reauthentication-required", "Session expired"));
+      await expect(request).rejects.toMatchObject({ code: "reauthentication-required" });
+      expect(window.location.assign).not.toHaveBeenCalled();
+      refreshIfNeeded.mockRestore();
+    });
+
+    it("suppresses exchange-time 401s even when they arrive after a failed exchange", async () => {
+      setOidcExchangePending(true);
+      const refresh = vi.spyOn(authSession, "requestRefresh");
+      const config = await requestHandler?.({ url: "/themes", method: "get", headers: {} });
+      expect(refresh).not.toHaveBeenCalled();
+      const error = {
+        response: { status: 401, data: { detail: { code: "oidc_reauthentication_required" } }, headers: {} },
+        message: "Unauthorized",
+        config,
+      };
+      await expect(responseErrorHandler?.(error as never)).rejects.toBe(error);
+      expect(window.location.assign).not.toHaveBeenCalled();
+      setOidcExchangePending(false);
+      await expect(responseErrorHandler?.(error as never)).rejects.toBe(error);
+      expect(window.location.assign).not.toHaveBeenCalled();
+      const currentRequest = await requestHandler?.({ url: "/themes", method: "get", headers: {} });
+      await expect(responseErrorHandler?.({ ...error, config: currentRequest } as never)).rejects.toMatchObject({
+        response: error.response,
+      });
+      expect(window.location.assign).toHaveBeenCalledOnce();
+    });
+
     it("refreshes before authenticated OIDC session-control requests", async () => {
       const refreshIfNeeded = vi.spyOn(authSession, "refreshIfNeeded").mockResolvedValue();
 

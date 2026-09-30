@@ -138,14 +138,14 @@ class UserSettingsStore {
   constructor() {
     this.channel?.addEventListener("message", (event: MessageEvent<{ type?: unknown }>) => {
       if (event.data?.type === INVALIDATE_MESSAGE) {
-        void this.refresh();
+        void this.refresh().catch(() => undefined);
       }
     });
     authSession.subscribeToIdentity(() => this.clearForIdentityChange());
-    window.addEventListener("focus", () => void this.refresh());
+    window.addEventListener("focus", () => void this.refresh().catch(() => undefined));
     window.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") {
-        void this.refresh();
+        void this.refresh().catch(() => undefined);
       }
     });
   }
@@ -196,7 +196,7 @@ class UserSettingsStore {
         this.refreshPromise = null;
         if (this.queuedRefresh) {
           this.queuedRefresh = false;
-          void this.refresh();
+          void this.refresh().catch(() => undefined);
         }
       });
     return this.refreshPromise;
@@ -272,7 +272,7 @@ class UserSettingsStore {
       );
       this.notify();
       if (requestVersion === this.snapshotVersion) {
-        void this.refresh(true);
+        void this.refresh(true).catch(() => undefined);
       }
       throw error;
     } finally {
@@ -312,7 +312,7 @@ class UserSettingsStore {
     this.snapshotVersion += 1;
     this.queuedRefresh = false;
     this.notify();
-    void this.refresh();
+    void this.refresh(authSession.getAccessToken() !== null).catch(() => undefined);
   }
 
   private async canAccessCurrentUserSettings(): Promise<boolean> {
@@ -395,7 +395,7 @@ export function resetCurrentUserSettingsStoreForTests(): void {
 export function useCurrentUserSetting<Field extends CurrentUserSettingsField>(field: Field): CurrentUserSetting<Field> {
   useSyncExternalStore(userSettingsStore.subscribe, userSettingsStore.getSnapshot, userSettingsStore.getSnapshot);
   useEffect(() => {
-    void userSettingsStore.refresh();
+    void userSettingsStore.refresh().catch(() => undefined);
   }, []);
   return userSettingsStore.getValue(field);
 }

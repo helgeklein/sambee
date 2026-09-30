@@ -75,10 +75,16 @@ def hash_flow_secret(value: str) -> str:
 
 
 def safe_return_path(value: str | None) -> str:
-    if not value:
+    if not value or "\\" in value:
         return "/browse"
     parsed = urlsplit(value)
-    if parsed.scheme or parsed.netloc or not parsed.path.startswith("/") or parsed.path.startswith("//"):
+    if (
+        parsed.scheme
+        or parsed.netloc
+        or not parsed.path.startswith("/")
+        or parsed.path.startswith("//")
+        or parsed.path == "/login/oidc/callback"
+    ):
         return "/browse"
     return parsed.path + (f"?{parsed.query}" if parsed.query else "")
 

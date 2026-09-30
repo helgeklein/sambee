@@ -75,6 +75,7 @@ import { COMPANION_BASE_URL } from "./companion";
 import { companionSession } from "./companionSession";
 import { snapshotRegisteredDrafts } from "./draftRecovery";
 import { logger } from "./logger";
+import { sanitizeReturnPath } from "./oidcAuth";
 import type { ContentTransferResult, TargetResolutionPolicy } from "./storageContracts";
 
 export interface DirectorySearchOptions {
@@ -280,6 +281,15 @@ function getDevicePixelDimension(value: number | undefined): number | undefined 
 }
 
 let controlledReauthenticationInProgress = false;
+let oidcExchangePending = window.location.pathname === "/login/oidc/callback";
+
+export function setOidcExchangePending(pending: boolean): void {
+  oidcExchangePending = pending;
+}
+
+export function isOidcExchangePending(): boolean {
+  return oidcExchangePending;
+}
 
 export function isControlledReauthenticationInProgress(): boolean {
   return controlledReauthenticationInProgress;
@@ -295,11 +305,14 @@ function isPublicAuthRequest(url: string): boolean {
 }
 
 export function startControlledReauthentication(): void {
+  if (oidcExchangePending) return;
   controlledReauthenticationInProgress = true;
   clearBrowserRecoverySnapshot();
   snapshotRegisteredDrafts();
   if (window.location.pathname !== "/login") {
-    window.location.assign(`/login?return_path=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+    window.location.assign(
+      `/login?return_path=${encodeURIComponent(sanitizeReturnPath(window.location.pathname + window.location.search))}`
+    );
   }
 }
 
@@ -372,12 +385,15 @@ class ApiService {
       async (config) => {
         const url = config.url ?? "";
         const publicAuthRequest = isPublicAuthRequest(url);
-        if (!publicAuthRequest) {
+        if (!publicAuthRequest && !oidcExchangePending) {
+          const tokenBeforeRefresh = authSession.getAccessToken();
           try {
             await authSession.refreshIfNeeded();
           } catch (error) {
             if (error instanceof AuthSessionError && error.code === "reauthentication-required") {
-              startControlledReauthentication();
+              if (!oidcExchangePending && (!authSession.getAccessToken() || authSession.getAccessToken() === tokenBeforeRefresh)) {
+                startControlledReauthentication();
+              }
               return Promise.reject(error);
             }
             if (!(error instanceof AuthSessionError)) {
@@ -386,6 +402,7 @@ class ApiService {
           }
         }
         const token = authSession.getAccessToken();
+        (config as typeof config & { _oidcExchangePending?: boolean })._oidcExchangePending = oidcExchangePending;
         if (token) {
           config.headers["Authorization"] = `Bearer ${token}`;
         }
@@ -422,6 +439,20 @@ class ApiService {
         return response;
       },
       (error: AxiosError) => {
+        const config = error.config as (AxiosRequestConfig & { _oidcRetried?: boolean; _oidcExchangePending?: boolean }) | undefined;
+        const sentAuthorization = error.config?.headers?.get?.("Authorization") ?? error.config?.headers?.Authorization;
+        const obsoleteSession = () => {
+          const currentToken = authSession.getAccessToken();
+          return (
+            currentToken &&
+            typeof sentAuthorization === "string" &&
+            sentAuthorization.startsWith("Bearer ") &&
+            sentAuthorization !== `Bearer ${currentToken}`
+          );
+        };
+        if (error.response?.status === 401 && (oidcExchangePending || config?._oidcExchangePending || obsoleteSession())) {
+          return Promise.reject(error);
+        }
         const backendSnapshot = getBackendAvailabilitySnapshot();
         const viewerBlobRequest = isViewerBlobRequest(error.config);
         const suppressViewerBlobErrorLog = viewerBlobRequest && isBackendConnectivityError(error);
@@ -474,7 +505,6 @@ class ApiService {
             return Promise.reject(error);
           }
 
-          const config = error.config as (AxiosRequestConfig & { _oidcRetried?: boolean }) | undefined;
           const method = config?.method?.toLowerCase();
           const safeMethod = method === "get" || method === "head" || method === "options";
           const url = config?.url ?? "";
@@ -487,10 +517,12 @@ class ApiService {
             const retryConfig = config;
             return authSession.requestRefresh().then(
               () => {
+                if (obsoleteSession() || oidcExchangePending) return Promise.reject(error);
                 retryConfig._oidcRetried = true;
                 return this.api.request(retryConfig);
               },
               (refreshError: unknown) => {
+                if (obsoleteSession() || oidcExchangePending) return Promise.reject(error);
                 if (
                   refreshError instanceof AuthSessionError &&
                   (refreshError.code === "transient" || (refreshError.code === "refresh-uncertain" && authSession.hasUsableAccessToken()))
@@ -593,7 +625,6 @@ class ApiService {
 
   async exchangeOidcGrant(grant: string): Promise<AuthToken> {
     const response = await this.api.post<AuthToken>("/auth/oidc/exchange", { grant });
-    authSession.setAuthenticated(response.data, true);
     return response.data;
   }
 

@@ -45,7 +45,9 @@ export class AuthSessionManager {
   private readonly refreshClient = axios.create({ baseURL: API_BASE_URL, withCredentials: true });
   private readonly clearListeners = new Set<() => void>();
   private readonly identityListeners = new Set<(identity: AuthIdentity) => void>();
+  private readonly bootstrapListeners = new Set<() => void>();
   private identityEpoch = 0;
+  private loginGeneration = 0;
 
   constructor() {
     this.refreshChannel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("sambee-oidc-refresh");
@@ -81,10 +83,8 @@ export class AuthSessionManager {
 
   setAuthenticated(response: AuthToken, renewable: boolean): void {
     const nextUserId = response.user_id ?? null;
-    if (this.userId !== nextUserId) {
-      this.userId = nextUserId;
-      this.publishIdentityChange();
-    }
+    const identityChanged = this.userId !== nextUserId;
+    this.userId = nextUserId;
     this.accessToken = response.access_token;
     this.renewable = renewable;
     this.expiresAt = response.access_token_expires_at ? Date.parse(response.access_token_expires_at) : null;
@@ -92,6 +92,26 @@ export class AuthSessionManager {
     this.refreshAt = this.expiresAt === null ? null : Date.now() + Math.max(0, (this.expiresAt - Date.now()) / 2);
     this.state = "active";
     this.scheduleRefresh();
+    if (identityChanged) this.publishIdentityChange();
+  }
+
+  beginNewLogin(): void {
+    this.loginGeneration += 1;
+    this.refreshPromise = null;
+  }
+
+  completeLoginBootstrap(): void {
+    this.bootstrapComplete = true;
+    for (const listener of this.bootstrapListeners) listener();
+  }
+
+  subscribeToBootstrap(listener: () => void): () => void {
+    this.bootstrapListeners.add(listener);
+    return () => this.bootstrapListeners.delete(listener);
+  }
+
+  notifyNewLogin(): void {
+    this.publishIdentityChange();
   }
 
   subscribeToClear(listener: () => void): () => void {
@@ -143,7 +163,7 @@ export class AuthSessionManager {
           // A bootstrap attempt must settle before protected routes make decisions.
         }
       }
-      this.bootstrapComplete = true;
+      this.completeLoginBootstrap();
       return this.state;
     })();
     return this.bootstrapPromise;
@@ -153,10 +173,12 @@ export class AuthSessionManager {
     if (this.refreshPromise) {
       return this.refreshPromise;
     }
-    this.refreshPromise = this.performRefresh().finally(() => {
-      this.refreshPromise = null;
+    const generation = this.loginGeneration;
+    const refresh = this.performRefresh(generation).finally(() => {
+      if (this.refreshPromise === refresh) this.refreshPromise = null;
     });
-    return this.refreshPromise;
+    this.refreshPromise = refresh;
+    return refresh;
   }
 
   async refreshIfNeeded(): Promise<void> {
@@ -178,23 +200,29 @@ export class AuthSessionManager {
     }
   }
 
-  private async performRefresh(): Promise<AuthToken> {
+  private async performRefresh(generation: number): Promise<AuthToken> {
     if (typeof navigator !== "undefined" && "locks" in navigator) {
-      return navigator.locks.request("sambee-oidc-refresh", { mode: "exclusive" }, () => this.performRefreshRequest());
+      return navigator.locks.request("sambee-oidc-refresh", { mode: "exclusive" }, () => this.performRefreshRequest(generation));
     }
-    return this.performRefreshRequest();
+    return this.performRefreshRequest(generation);
   }
 
-  private async performRefreshRequest(): Promise<AuthToken> {
+  private async performRefreshRequest(generation: number): Promise<AuthToken> {
+    if (generation !== this.loginGeneration)
+      throw new AuthSessionError("unauthenticated", "An earlier refresh was superseded by a new sign-in.");
+    const tokenBeforeRefresh = this.accessToken;
     this.state = "refreshing";
     try {
       const response = await this.refreshClient.post<AuthToken>("/auth/oidc/refresh", undefined, {
         headers: this.refreshGeneration === null ? undefined : { "X-Sambee-OIDC-Refresh-Generation": this.refreshGeneration.toString() },
       });
-      this.setAuthenticated(response.data, true);
+      if (generation !== this.loginGeneration)
+        throw new AuthSessionError("unauthenticated", "An earlier refresh was superseded by a new sign-in.");
+      if (this.accessToken === tokenBeforeRefresh) this.setAuthenticated(response.data, true);
       this.refreshChannel?.postMessage({ type: "completed", generation: this.refreshGeneration });
       return response.data;
     } catch (error) {
+      if (generation !== this.loginGeneration || this.accessToken !== tokenBeforeRefresh) throw error;
       const response = (error as AxiosError<{ detail?: { code?: string } }>).response;
       const code = response?.data?.detail?.code;
       if (response?.status === 401 && code === "oidc_refresh_uncertain") {

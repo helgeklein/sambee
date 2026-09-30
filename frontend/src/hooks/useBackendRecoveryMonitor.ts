@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { isOidcExchangePending } from "../services/api";
 import { AuthSessionError, authSession } from "../services/authSession";
 import {
   type BackendAvailabilityStatus,
@@ -118,6 +119,13 @@ export function useBackendRecoveryMonitor({
         abortController.abort();
       }, HEALTH_CHECK_TIMEOUT_MS);
       const probeRequest = buildRecoveryProbeRequest();
+      const exchangePendingAtDispatch = isOidcExchangePending();
+      const isSuperseded = () => {
+        const currentToken = authSession.getAccessToken();
+        return Boolean(
+          probeRequest.headers.Authorization && currentToken && probeRequest.headers.Authorization !== `Bearer ${currentToken}`
+        );
+      };
 
       try {
         const response = await fetch(probeRequest.url, {
@@ -126,10 +134,13 @@ export function useBackendRecoveryMonitor({
           signal: abortController.signal,
           headers: probeRequest.headers,
         });
+        if (isSuperseded()) return;
+        if (response.status === 401 && (exchangePendingAtDispatch || isOidcExchangePending())) return;
 
         if (response.status === 401 && probeRequest.headers.Authorization) {
           markBackendAvailable();
           await authSession.requestRefresh();
+          if (isSuperseded()) return;
           logger.info("Backend recovery token refresh succeeded", { reason, url: probeRequest.url }, "backend-recovery");
           scheduleProbe(0, TOKEN_REFRESH_SUCCESS_REASON);
           return;
@@ -153,6 +164,7 @@ export function useBackendRecoveryMonitor({
           onRecoveredRef.current?.("health-probe-success", wasRecovering);
         }
       } catch (error) {
+        if (isSuperseded() || exchangePendingAtDispatch || isOidcExchangePending()) return;
         const shouldKeepRecovering =
           error instanceof AuthSessionError &&
           (error.code === "transient" || (error.code === "refresh-uncertain" && authSession.hasUsableAccessToken()));

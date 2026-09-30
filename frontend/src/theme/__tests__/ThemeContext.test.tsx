@@ -3,17 +3,25 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { useCurrentUserSettingMock, getThemesMock } = vi.hoisted(() => ({ useCurrentUserSettingMock: vi.fn(), getThemesMock: vi.fn() }));
+const { useCurrentUserSettingMock, getThemesMock, getCurrentUserMock, refreshSettingsMock } = vi.hoisted(() => ({
+  useCurrentUserSettingMock: vi.fn(),
+  getThemesMock: vi.fn(),
+  getCurrentUserMock: vi.fn(),
+  refreshSettingsMock: vi.fn(),
+}));
 
 vi.mock("../../services/api", () => ({
-  default: { getThemes: getThemesMock, getCurrentUser: () => Promise.resolve({ role: "editor" }) },
+  default: { getThemes: getThemesMock, getCurrentUser: getCurrentUserMock },
 }));
 
 vi.mock("../../services/userSettingsStore", () => ({
   useCurrentUserSetting: useCurrentUserSettingMock,
-  refreshCurrentUserSettings: () => Promise.resolve(),
+  refreshCurrentUserSettings: refreshSettingsMock,
 }));
 
+import { authSession } from "../../services/authSession";
+import { logger } from "../../services/logger";
+import { completeAuthentication } from "../../services/oidcAuth";
 import { SambeeThemeProvider, useSambeeTheme } from "../ThemeContext";
 
 function createWrapper() {
@@ -23,6 +31,8 @@ function createWrapper() {
 describe("ThemeContext", () => {
   beforeEach(() => {
     getThemesMock.mockResolvedValue({ themes: [], site_default_id: "sambee-light" });
+    getCurrentUserMock.mockResolvedValue({ role: "editor" });
+    refreshSettingsMock.mockResolvedValue(undefined);
     document.head.innerHTML = '<meta name="theme-color" content="#F4C430" />';
     useCurrentUserSettingMock.mockImplementation(() => ({
       confirmedValue: undefined,
@@ -101,6 +111,62 @@ describe("ThemeContext", () => {
     getThemesMock.mockResolvedValue({ themes: [], site_default_id: "sambee-light" });
     await act(async () => result.current.refreshThemes());
     expect(result.current.currentTheme.id).toBe("sambee-light");
+  });
+
+  it("reloads themes and user settings once for a same-user login, not for a token refresh", async () => {
+    const { unmount } = renderHook(() => useSambeeTheme(), { wrapper: createWrapper() });
+    await waitFor(() => expect(getThemesMock).toHaveBeenCalledTimes(1));
+    authSession.setAuthenticated({ access_token: "a", token_type: "bearer", user_id: "same-user" }, true);
+    await waitFor(() => expect(getThemesMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(refreshSettingsMock).toHaveBeenCalledTimes(2));
+    authSession.setAuthenticated({ access_token: "refreshed", token_type: "bearer", user_id: "same-user" }, true);
+    expect(getThemesMock).toHaveBeenCalledTimes(2);
+    expect(refreshSettingsMock).toHaveBeenCalledTimes(2);
+    authSession.setAuthenticated({ access_token: "b", token_type: "bearer", user_id: "same-user" }, true);
+    authSession.notifyNewLogin();
+    await waitFor(() => expect(getThemesMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(refreshSettingsMock).toHaveBeenCalledTimes(3));
+    expect(getCurrentUserMock).toHaveBeenCalledTimes(3);
+    unmount();
+    authSession.clear();
+  });
+
+  it("keeps B's data when A's initial theme and user requests fail after same-user login", async () => {
+    let rejectThemes!: (reason: Error) => void;
+    let rejectUser!: (reason: Error) => void;
+    getThemesMock.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectThemes = reject;
+        })
+    );
+    getCurrentUserMock.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectUser = reject;
+        })
+    );
+    authSession.setAuthenticated({ access_token: "a", token_type: "bearer", user_id: "same-user" }, true);
+    const tracing = vi.spyOn(logger, "initializeBackendTracing").mockResolvedValue(undefined);
+    const { result, unmount } = renderHook(() => useSambeeTheme(), { wrapper: createWrapper() });
+    await waitFor(() => expect(getThemesMock).toHaveBeenCalledTimes(1));
+    getThemesMock.mockResolvedValue({ themes: [], site_default_id: "sambee-dark" });
+    getCurrentUserMock.mockResolvedValue({ role: "admin" });
+    await act(async () => {
+      await completeAuthentication({ access_token: "b", token_type: "bearer", user_id: "same-user", return_path: "/browse" });
+    });
+    await waitFor(() => expect(result.current.currentTheme.id).toBe("sambee-dark"));
+    await act(async () => {
+      rejectThemes(new Error("A was revoked"));
+      rejectUser(new Error("A was revoked"));
+    });
+    expect(result.current.isAdmin).toBe(true);
+    expect(getThemesMock).toHaveBeenCalledTimes(2);
+    expect(refreshSettingsMock).toHaveBeenCalledTimes(1);
+    expect(authSession.getAccessToken()).toBe("b");
+    tracing.mockRestore();
+    unmount();
+    authSession.clear();
   });
 
   it("applies a saved selected theme when another tab regains focus", async () => {

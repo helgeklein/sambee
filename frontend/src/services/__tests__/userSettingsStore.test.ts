@@ -78,6 +78,7 @@ describe("userSettingsStore", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     authSession.clear();
+    userSettingsStore.resetForTests();
   });
 
   afterEach(() => {
@@ -244,6 +245,7 @@ describe("userSettingsStore", () => {
 
   it("does not let a stale refresh overwrite a successful field update", async () => {
     await authenticateAndLoad();
+    getCurrentUserSettingsMock.mockClear();
     let resolveStaleRefresh: ((value: typeof settings) => void) | undefined;
     getCurrentUserSettingsMock.mockImplementationOnce(
       () =>
