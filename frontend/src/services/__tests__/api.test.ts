@@ -50,6 +50,7 @@ import axios from "axios";
 import apiService, { ExpiredEditLockError, OIDC_FINALIZATION_REQUEST_TIMEOUT_MS } from "../api";
 import { authSession } from "../authSession";
 import { getBackendAvailabilitySnapshot, markBackendUnavailable, resetBackendAvailabilityForTests } from "../backendAvailability";
+import * as backendRouter from "../backendRouter";
 import { companionSession } from "../companionSession";
 import * as draftRecovery from "../draftRecovery";
 import { logger } from "../logger";
@@ -76,6 +77,34 @@ const responseErrorHandler = responseInterceptorHandlers?.[1];
 
 describe("API Service", () => {
   const fetchMock = vi.fn();
+  const uploadRequests: MockUploadRequest[] = [];
+
+  class MockUploadRequest {
+    upload = { onprogress: null as ((event: ProgressEvent) => void) | null, onload: null as (() => void) | null };
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    ontimeout: (() => void) | null = null;
+    onabort: (() => void) | null = null;
+    status = 200;
+    statusText = "OK";
+    responseText = JSON.stringify({ status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } });
+    url = "";
+    headers: Record<string, string> = {};
+    body: File | null = null;
+    open(_method: string, url: string) {
+      this.url = url;
+    }
+    setRequestHeader(name: string, value: string) {
+      this.headers[name] = value;
+    }
+    send(file: File) {
+      this.body = file;
+      uploadRequests.push(this);
+    }
+    abort() {
+      this.onabort?.();
+    }
+  }
 
   beforeEach(() => {
     // Clear localStorage
@@ -84,6 +113,8 @@ describe("API Service", () => {
     resetBackendAvailabilityForTests();
 
     vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("XMLHttpRequest", MockUploadRequest);
+    uploadRequests.length = 0;
 
     // Reset all mock function calls
     vi.clearAllMocks();
@@ -159,6 +190,7 @@ describe("API Service", () => {
         role_assignment_mode: "uniform",
         uniform_role: "editor",
         role_mappings: { admin: ["admins"], editor: [], viewer: [] },
+        auto_link_by_username: true,
       },
       [],
       1,
@@ -177,6 +209,7 @@ describe("API Service", () => {
           role_assignment_mode: "uniform",
           uniform_role: "editor",
           role_mappings: { admin: ["admins"], editor: [], viewer: [] },
+          auto_link_by_username: true,
         },
         replacement_mappings: [],
         expected_identity_mapping_revision: 1,
@@ -388,57 +421,135 @@ describe("API Service", () => {
   });
 
   it("publishes a browser file through the staged destination endpoint", async () => {
-    fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } }))
-    );
     const file = new File(["hello"], "report.txt", { lastModified: Date.UTC(2026, 8, 7, 12) });
-    file.stream = () =>
-      new ReadableStream({
-        start: (controller) => {
-          controller.enqueue(new TextEncoder().encode("hello"));
-          controller.close();
-        },
-      });
+    file.stream = vi.fn(() => {
+      throw new Error("File stream must not be read");
+    });
 
-    await expect(apiService.publishBrowserFile(file, "destination", "folder/report.txt", "ask")).resolves.toMatchObject({
+    const result = apiService.publishBrowserFile(file, "destination", "folder/report.txt", "ask");
+    await vi.waitFor(() => expect(uploadRequests).toHaveLength(1));
+    const request = uploadRequests[0]!;
+    request.onload?.();
+    await expect(result).resolves.toMatchObject({
       status: "completed",
     });
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:3000/api/browse/destination/transfer-stream?path=folder%2Freport.txt&target_resolution_policy=ask&expected_size=5&source_modified_at=2026-09-07T12%3A00%3A00.000Z",
-      expect.objectContaining({ method: "POST", duplex: "half", body: expect.anything() })
+    expect(request.url).toBe(
+      "http://localhost:3000/api/browse/destination/transfer-stream?path=folder%2Freport.txt&target_resolution_policy=ask&expected_size=5&source_modified_at=2026-09-07T12%3A00%3A00.000Z"
     );
+    expect(request.body).toBe(file);
+    expect(file.stream).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends the same File with XHR for HTTP and HTTPS destinations", async () => {
+    const file = new File(["hello"], "report.txt");
+    file.stream = vi.fn(() => {
+      throw new Error("File stream must not be read");
+    });
+    const baseUrl = vi.spyOn(backendRouter, "getBaseUrl");
+    try {
+      for (const scheme of ["http", "https"]) {
+        baseUrl.mockReturnValue(`${scheme}://example.test/api`);
+        const result = apiService.publishBrowserFile(file, "destination", "report.txt");
+        await vi.waitFor(() => expect(uploadRequests).toHaveLength(scheme === "http" ? 1 : 2));
+        const request = uploadRequests[uploadRequests.length - 1]!;
+        expect(request.url).toMatch(new RegExp(`^${scheme}://example\\.test/api/`));
+        expect(request.body).toBe(file);
+        request.onload?.();
+        await expect(result).resolves.toMatchObject({ status: "completed" });
+      }
+      expect(file.stream).not.toHaveBeenCalled();
+    } finally {
+      baseUrl.mockRestore();
+    }
+  });
+
+  it("reports bytes sent and waits for publication confirmation", async () => {
+    const file = new File(["hello"], "report.txt");
+    const onProgress = vi.fn();
+    const onUploadSent = vi.fn();
+    const result = apiService.publishBrowserFile(file, "destination", "report.txt", "ask", { onProgress, onUploadSent });
+    let settled = false;
+    void result.then(() => {
+      settled = true;
+    });
+    await vi.waitFor(() => expect(uploadRequests).toHaveLength(1));
+    const request = uploadRequests[0]!;
+    expect(request.headers["Content-Type"]).toBe("application/octet-stream");
+    request.upload.onprogress?.({ lengthComputable: false, loaded: 2 } as ProgressEvent);
+    request.upload.onprogress?.({ lengthComputable: true, loaded: 2 } as ProgressEvent);
+    request.upload.onprogress?.({ lengthComputable: true, loaded: 5 } as ProgressEvent);
+    expect(onProgress.mock.calls).toEqual([
+      [2, 5],
+      [5, 5],
+    ]);
+    request.upload.onload?.();
+    expect(onUploadSent).toHaveBeenCalledOnce();
+    expect(settled).toBe(false);
+    request.onload?.();
+    await expect(result).resolves.toMatchObject({ status: "completed" });
+    expect(request.upload.onprogress).toBeNull();
+    expect(request.onload).toBeNull();
+  });
+
+  it("cancels before sending and treats a network error after sending as uncertain", async () => {
+    const file = new File(["hello"], "report.txt");
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      apiService.publishBrowserFile(file, "destination", "report.txt", "ask", { signal: controller.signal })
+    ).resolves.toMatchObject({ status: "cancelled" });
+    expect(uploadRequests).toHaveLength(0);
+
+    const result = apiService.publishBrowserFile(file, "destination", "report.txt");
+    await vi.waitFor(() => expect(uploadRequests).toHaveLength(1));
+    uploadRequests[0]!.onerror?.();
+    await expect(result).resolves.toMatchObject({ status: "outcome_unknown", effects: { destination: "unknown" } });
+  });
+
+  it("treats a timed-out or zero-status upload as uncertain", async () => {
+    for (const fail of ["timeout", "zero-status"]) {
+      const result = apiService.publishBrowserFile(new File(["hello"], "report.txt"), "destination", "report.txt");
+      await vi.waitFor(() => expect(uploadRequests).toHaveLength(fail === "timeout" ? 1 : 2));
+      const request = uploadRequests[uploadRequests.length - 1]!;
+      if (fail === "timeout") request.ontimeout?.();
+      else {
+        request.status = 0;
+        request.onload?.();
+      }
+      await expect(result).resolves.toMatchObject({ status: "outcome_unknown", effects: { destination: "unknown" } });
+    }
   });
 
   it("returns conflict metadata for a browser file without implicit replacement", async () => {
     const file = new File([], "report.txt");
-    file.stream = () => new ReadableStream({ start: (controller) => controller.close() });
     const existing = { name: "report.txt", path: "folder/report.txt", type: FileType.FILE, size: 4, is_readable: true, is_hidden: false };
     mockAxiosInstance.get.mockResolvedValueOnce({ data: existing } as AxiosResponse);
-    fetchMock.mockResolvedValueOnce(new Response("Destination already exists", { status: 409 }));
+    const result = apiService.publishBrowserFile(file, "destination", "folder/report.txt");
+    await vi.waitFor(() => expect(uploadRequests).toHaveLength(1));
+    const request = uploadRequests[0]!;
+    request.status = 409;
+    request.responseText = "Destination already exists";
+    request.onload?.();
 
-    await expect(apiService.publishBrowserFile(file, "destination", "folder/report.txt")).rejects.toMatchObject({
+    await expect(result).rejects.toMatchObject({
       response: { status: 409, data: { detail: { existing_file: existing, incoming_file: { name: "report.txt", size: 0 } } } },
     });
-    expect(fetchMock.mock.calls[0]?.[0]).toContain("target_resolution_policy=ask");
+    expect(request.url).toContain("target_resolution_policy=ask");
   });
 
   it("reports an interrupted browser-file destination request as outcome unknown", async () => {
     const file = new File([], "report.txt");
-    file.stream = () => new ReadableStream({ start: (controller) => controller.close() });
     const controller = new AbortController();
-    fetchMock.mockImplementationOnce(async () => {
-      controller.abort();
-      throw new DOMException("The operation was aborted", "AbortError");
-    });
-
-    await expect(
-      apiService.publishBrowserFile(file, "destination", "report.txt", "ask", { signal: controller.signal })
-    ).resolves.toMatchObject({
+    const result = apiService.publishBrowserFile(file, "destination", "report.txt", "ask", { signal: controller.signal });
+    await vi.waitFor(() => expect(uploadRequests).toHaveLength(1));
+    controller.abort();
+    await expect(result).resolves.toMatchObject({
       status: "outcome_unknown",
       effects: { destination: "unknown" },
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("requests a selected-root ZIP without putting authentication in the URL", async () => {
@@ -980,6 +1091,7 @@ describe("API Service", () => {
         },
         text_editor: {
           max_file_size_bytes: 1048576,
+          word_wrap_enabled: null,
         },
       };
 
@@ -1261,7 +1373,6 @@ describe("API Service", () => {
           encryption_mode: "signing_only",
           connection_timeout_seconds: 30,
         },
-        policy_source: "default",
         require_signing: true,
         require_encryption: false,
       };
@@ -1495,7 +1606,7 @@ describe("API Service", () => {
 
     it("authenticates SMB-to-local archive extraction with the browser token", async () => {
       localStorage.setItem("companion_secret", "test-companion-secret");
-      authSession.setAuthenticated({ access_token: "browser-token", token_type: "bearer" }, false);
+      authSession.setAuthenticated({ access_token: "browser-token", token_type: "bearer", username: "testuser" }, false);
       mockAxiosInstance.post.mockResolvedValueOnce({ data: { members_completed: 1 } } as AxiosResponse);
 
       await apiService.extractSmbArchiveToLocal("local-drive:c", "output", "operation-id");

@@ -878,6 +878,9 @@ export const EN_TRANSLATIONS = {
       uploadFolderFailed_other: "{{count}} folders failed",
       uploadProgress:
         "Uploading {{name}} ({{current}}/{{total}}) · {{bytes}} / {{size}} · {{completed}} done, {{skipped}} skipped, {{failed}} failed",
+      uploadSending: "Uploading {{name}} ({{current}}/{{total}}) · Sending · {{completed}} done, {{skipped}} skipped, {{failed}} failed",
+      uploadPublishing:
+        "Uploading {{name}} ({{current}}/{{total}}) · Publishing · {{completed}} done, {{skipped}} skipped, {{failed}} failed",
       uploadRemaining_one: "{{count}} file not started",
       uploadRemaining_other: "{{count}} files not started",
     },

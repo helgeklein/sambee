@@ -259,7 +259,7 @@ export function targetResolutionPolicyForConflictResolution(resolution: Conflict
 
 type RealtimeMessage =
   | { type: "directory_changed"; change: DirectoryChange }
-  | { type: "transfer_progress"; bytesTransferred: number; totalBytes: number | null; itemName: string }
+  | { type: "transfer_progress"; transferAttemptId: string; bytesTransferred: number; totalBytes: number | null; itemName: string }
   | { type: "ignored" };
 
 function parseRealtimeMessage(rawMessage: unknown): RealtimeMessage | null {
@@ -284,9 +284,14 @@ function parseRealtimeMessage(rawMessage: unknown): RealtimeMessage | null {
     ) {
       return { type: "directory_changed", change: { connectionId: message["connection_id"], path: message["path"] } };
     }
-    if (message["type"] === "transfer_progress" && typeof message["bytes_transferred"] === "number") {
+    if (
+      message["type"] === "transfer_progress" &&
+      typeof message["bytes_transferred"] === "number" &&
+      typeof message["transfer_attempt_id"] === "string"
+    ) {
       return {
         type: "transfer_progress",
+        transferAttemptId: message["transfer_attempt_id"],
         bytesTransferred: message["bytes_transferred"],
         totalBytes: typeof message["total_bytes"] === "number" ? message["total_bytes"] : null,
         itemName: typeof message["item_name"] === "string" ? message["item_name"] : "",
@@ -579,6 +584,7 @@ const Browser: React.FC = () => {
   const [copyMoveError, setCopyMoveError] = useState<string | null>(null);
   const [copyMoveWarning, setCopyMoveWarning] = useState<string | null>(null);
   const copyMoveAbortControllerRef = React.useRef<AbortController | null>(null);
+  const activeTransferAttemptRef = React.useRef<string | null>(null);
 
   const [archiveCreateContext, setArchiveCreateContext] = useState<{
     sources: ContentItemHandle[];
@@ -1908,11 +1914,7 @@ const Browser: React.FC = () => {
         if (message.type === "directory_changed") {
           handleRealtimeDirectoryChange(message.change);
         } else if (message.type === "transfer_progress") {
-          // Byte-level progress for cross-connection copy/move
-          if (message.bytesTransferred === -1) {
-            // Sentinel: transfer complete — clear byte progress
-            setCopyMoveTransferProgress(null);
-          } else {
+          if (message.transferAttemptId === activeTransferAttemptRef.current && message.bytesTransferred >= 0) {
             setCopyMoveTransferProgress({
               bytesTransferred: message.bytesTransferred,
               totalBytes: message.totalBytes,
@@ -2396,6 +2398,16 @@ const Browser: React.FC = () => {
           signal: abortController.signal,
           onProgress: (bytesTransferred: number, totalBytes: number | null) =>
             setCopyMoveTransferProgress({ bytesTransferred, totalBytes, itemName: item.entry.name }),
+          onAttemptStart: (transferAttemptId: string) => {
+            activeTransferAttemptRef.current = transferAttemptId;
+            setCopyMoveTransferProgress(null);
+          },
+          onAttemptSettled: (transferAttemptId: string) => {
+            if (activeTransferAttemptRef.current === transferAttemptId) {
+              activeTransferAttemptRef.current = null;
+              setCopyMoveTransferProgress(null);
+            }
+          },
         } as const;
         let targetName = destFileName;
         const requestConflictDecision = async (
@@ -2536,6 +2548,7 @@ const Browser: React.FC = () => {
       }
 
       setCopyMoveProcessing(false);
+      activeTransferAttemptRef.current = null;
       setCopyMoveTransferProgress(null);
       if (copyMoveAbortControllerRef.current === abortController) {
         copyMoveAbortControllerRef.current = null;
@@ -4655,11 +4668,18 @@ const Browser: React.FC = () => {
         autoHideDuration={uploadProgress || uploadPreparing || showDownloadNotice ? null : TRANSFER_NOTICE_AUTOHIDE_MS}
         message={
           uploadProgress
-            ? t("fileBrowser.transfers.uploadProgress", {
-                ...uploadProgress,
-                bytes: formatFileSize(uploadProgress.bytes),
-                size: formatFileSize(uploadProgress.size),
-              })
+            ? t(
+                uploadProgress.phase === "publishing"
+                  ? "fileBrowser.transfers.uploadPublishing"
+                  : uploadProgress.bytes === null
+                    ? "fileBrowser.transfers.uploadSending"
+                    : "fileBrowser.transfers.uploadProgress",
+                {
+                  ...uploadProgress,
+                  bytes: formatFileSize(uploadProgress.bytes ?? 0),
+                  size: formatFileSize(uploadProgress.size),
+                }
+              )
             : uploadPreparing
               ? t("fileBrowser.transfers.preparingUpload")
               : showDownloadNotice

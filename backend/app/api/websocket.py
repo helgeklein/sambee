@@ -1,5 +1,6 @@
 """WebSocket endpoints for real-time directory updates"""
 
+import asyncio
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
@@ -18,6 +19,7 @@ from app.storage.smb import SMBBackend
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+TRANSFER_PROGRESS_SEND_TIMEOUT_SECONDS = 2.0
 
 
 class ConnectionManager:
@@ -240,6 +242,7 @@ class ConnectionManager:
         bytes_transferred: int,
         total_bytes: int | None,
         item_name: str,
+        transfer_attempt_id: str | None = None,
     ) -> None:
         """Broadcast byte-level transfer progress to all WebSocket clients
         subscribed to the parent directory of *path*.
@@ -267,17 +270,26 @@ class ConnectionManager:
             "bytes_transferred": bytes_transferred,
             "total_bytes": total_bytes,
             "item_name": item_name,
+            "transfer_attempt_id": transfer_attempt_id,
         }
 
-        disconnected: list[WebSocket] = []
-        for websocket in self.active_connections[key]:
+        async def send(websocket: WebSocket) -> WebSocket | None:
             try:
-                await websocket.send_json(payload)
-            except Exception:
-                disconnected.append(websocket)
+                await asyncio.wait_for(websocket.send_json(payload), timeout=TRANSFER_PROGRESS_SEND_TIMEOUT_SECONDS)
+            except Exception as error:
+                logger.warning(
+                    "Transfer progress WebSocket send failed: connection_id=%s, path=%s, error=%s",
+                    connection_id,
+                    path,
+                    type(error).__name__,
+                )
+                return websocket
+            return None
 
-        for ws in disconnected:
-            self.disconnect(ws)
+        disconnected = await asyncio.gather(*(send(websocket) for websocket in tuple(self.active_connections[key])))
+        for websocket in disconnected:
+            if websocket is not None:
+                self.disconnect(websocket)
 
 
 # Global connection manager instance
@@ -358,6 +370,7 @@ async def notify_transfer_progress(
     bytes_transferred: int,
     total_bytes: int | None,
     item_name: str,
+    transfer_attempt_id: str | None = None,
 ) -> None:
     """Broadcast byte-level transfer progress to subscribed clients."""
     await manager.broadcast_transfer_progress(
@@ -366,4 +379,5 @@ async def notify_transfer_progress(
         bytes_transferred,
         total_bytes,
         item_name,
+        transfer_attempt_id,
     )

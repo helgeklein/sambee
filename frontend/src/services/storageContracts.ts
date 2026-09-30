@@ -132,6 +132,7 @@ export interface SameBackendTransferRequest {
   targetName?: string;
   targetResolutionPolicy: TargetResolutionPolicy;
   idempotencyKey: string;
+  transferAttemptId?: string;
   signal?: AbortSignal;
 }
 

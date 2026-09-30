@@ -1,5 +1,24 @@
 # TODO
 
+## Issues
+
+### OIDC login failure after password reset
+
+Repro:
+
+- I had the auth method "oidc + password" configured and was logged in via oidc.
+- I wanted to try password auth, so I navigated to settings > user management and reset my account's password.
+- after that, I could log on with the password, but oidc login was broken in the following way:
+   - On the login screen, I select "oidc"
+   - This takes me to Authelia, my IdP. on the authelia page, I approve and grant access.
+   - I'm redirected back to Sambee's login screen (back to where I started).
+   - Any attempt to access a Sambee URL (trying to bypass the login screen) fails - I am actually not logged in.
+
+### File renaming that changes only case
+
+- On an SMB backend, I can rename a file from `A.PDF` to `A.pdf`.
+- On a local drive connection, that fails with "file already exists".
+
 ## Misc. commands
 
 - Add a command to open the current file list location in a new browser tab (which keyboard shortcut to assign? Ctrl+(Shift)+Tab is needed by the browser)

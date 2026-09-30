@@ -106,6 +106,7 @@ export interface CrossBackendTransferOptions {
   signal?: AbortSignal;
   transferAttemptId?: string;
   onProgress?: (bytesTransferred: number, totalBytes: number | null) => void;
+  onUploadSent?: () => void;
 }
 
 type ClientConfig = Pick<AxiosRequestConfig, "headers">;
@@ -1717,22 +1718,61 @@ class ApiService {
     const startedAt = performance.now();
     let sourceConsumedAt: number | null = null;
     try {
-      return await this.publishTransferStream(
-        file.stream(),
-        file.size,
-        sourceInfo.modified_at,
-        sourceInfo,
-        destinationConnectionId,
-        destinationPath,
-        targetResolutionPolicy,
-        {
-          ...options,
-          onProgress: (bytes, total) => {
-            if (bytes === total) sourceConsumedAt = performance.now();
-            options.onProgress?.(bytes, total);
-          },
+      const destinationUrl = `${getBaseUrl(destinationConnectionId)}/browse/${getBrowseSegment(destinationConnectionId)}/transfer-stream?path=${encodeURIComponent(destinationPath)}&target_resolution_policy=${encodeURIComponent(targetResolutionPolicy)}&expected_size=${file.size}&source_modified_at=${encodeURIComponent(sourceInfo.modified_at)}`;
+      const headers = await this.getTransferFetchHeaders(destinationConnectionId, "POST", destinationUrl);
+      if (options.signal?.aborted) {
+        return { status: "cancelled", replaced: false, effects: { source: "unchanged", destination: "unchanged" } };
+      }
+      let sent = false;
+      const response = await new Promise<Response | null>((resolve) => {
+        const xhr = new XMLHttpRequest();
+        const cleanup = () => {
+          options.signal?.removeEventListener("abort", abort);
+          xhr.upload.onprogress = null;
+          xhr.upload.onload = null;
+          xhr.onload = null;
+          xhr.onerror = null;
+          xhr.ontimeout = null;
+          xhr.onabort = null;
+        };
+        const settle = (result: Response | null) => {
+          cleanup();
+          resolve(result);
+        };
+        const abort = () => xhr.abort();
+        xhr.open("POST", destinationUrl);
+        for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, String(value));
+        xhr.setRequestHeader("Content-Type", "application/octet-stream");
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) options.onProgress?.(event.loaded, file.size);
+        };
+        xhr.upload.onload = () => {
+          sourceConsumedAt = performance.now();
+          options.onUploadSent?.();
+        };
+        xhr.onload = () => settle(xhr.status ? new Response(xhr.responseText, { status: xhr.status, statusText: xhr.statusText }) : null);
+        xhr.onerror = () => settle(null);
+        xhr.ontimeout = () => settle(null);
+        xhr.onabort = () => settle(null);
+        options.signal?.addEventListener("abort", abort, { once: true });
+        if (options.signal?.aborted) {
+          cleanup();
+          resolve(null);
+          return;
         }
-      );
+        sent = true;
+        try {
+          xhr.send(file);
+        } catch {
+          settle(null);
+        }
+      });
+      if (!response) {
+        return sent
+          ? { status: "outcome_unknown", replaced: false, effects: { source: "unchanged", destination: "unknown" } }
+          : { status: "cancelled", replaced: false, effects: { source: "unchanged", destination: "unchanged" } };
+      }
+      return await this.resolveTransferResponse(response, destinationConnectionId, destinationPath, sourceInfo);
     } finally {
       const finishedAt = performance.now();
       logger.debug(
@@ -1823,6 +1863,15 @@ class ApiService {
       }
       return { status: "outcome_unknown", replaced: false, effects: { source: "unknown", destination: "unknown" } };
     }
+    return this.resolveTransferResponse(destinationResponse, destinationConnectionId, destinationPath, sourceInfo);
+  }
+
+  private async resolveTransferResponse(
+    destinationResponse: Response,
+    destinationConnectionId: string,
+    destinationPath: string,
+    sourceInfo: FileInfo
+  ): Promise<ContentTransferResult> {
     if (!destinationResponse.ok) {
       if (destinationResponse.status === 409) {
         const existingFile = await this.getFileInfo(destinationConnectionId, destinationPath).catch(() => null);

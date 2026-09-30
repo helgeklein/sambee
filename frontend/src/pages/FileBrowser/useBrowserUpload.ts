@@ -27,8 +27,9 @@ interface UploadProgress {
   total: number;
   name: string;
   connectionId: string;
-  bytes: number;
+  bytes: number | null;
   size: number;
+  phase: "sending" | "publishing";
   completed: number;
   skipped: number;
   failed: number;
@@ -158,8 +159,9 @@ export function useBrowserUpload({
           const failedDirectories = new Set<string>();
           let fileIndex = 0;
           for (const entry of manifest) {
-            if (controller.signal.aborted || halted) break;
+            if (controller.signal.aborted) break;
             if (entry.kind === "file") fileIndex++;
+            if (halted && (entry.kind === "directory" || entry.segments.length > 1)) continue;
             const relativeParent = entry.segments.slice(0, -1).join("/");
             if (skippedDirectories.has(relativeParent) || failedDirectories.has(relativeParent)) {
               const failed = failedDirectories.has(relativeParent);
@@ -232,10 +234,12 @@ export function useBrowserUpload({
             }
             const file = entry.file;
             let lastProgressUpdate = 0;
-            const updateProgress = (bytes: number) => {
+            let lastReportedBytes: number | null = null;
+            const updateProgress = (bytes: number | null, phase: UploadProgress["phase"] = "sending") => {
               const now = performance.now();
-              if (bytes > 0 && bytes < file.size && now - lastProgressUpdate < 100) return;
+              if (bytes !== null && lastReportedBytes !== null && bytes > 0 && bytes < file.size && now - lastProgressUpdate < 100) return;
               lastProgressUpdate = now;
+              lastReportedBytes = bytes;
               setUploadProgress({
                 current: fileIndex,
                 total: totalFiles,
@@ -243,19 +247,21 @@ export function useBrowserUpload({
                 connectionId: destination.connectionId,
                 bytes,
                 size: file.size,
+                phase,
                 ...counts,
               });
             };
-            updateProgress(0);
             setUploadPreparing(false);
             let name = originalName;
             let policy: TargetResolutionPolicy = "ask";
             while (!controller.signal.aborted) {
               try {
+                updateProgress(null);
                 directoryChanges.writingPaths.add(parent);
                 const result = await publishBrowserFile(file, destination.connectionId, joinPath(parent, name), policy, {
                   signal: controller.signal,
                   onProgress: updateProgress,
+                  onUploadSent: () => updateProgress(file.size, "publishing"),
                 });
                 if (result.status === "completed") {
                   counts.completed++;
@@ -264,7 +270,7 @@ export function useBrowserUpload({
                 else if (result.status === "outcome_unknown") {
                   counts.unknown++;
                   changedPaths.add(parent);
-                  halted = hasDirectories;
+                  halted = entry.segments.length > 1;
                 } else if (result.status === "failed") {
                   counts.failed++;
                   logger.error("File upload failed", { name: entry.segments.join("/"), error: result.error }, "file-browser");
