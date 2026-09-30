@@ -263,13 +263,21 @@ describe("content operations", () => {
       getCapabilities: vi.fn(() => ({ writable: true })),
       getBackend: vi.fn(() => ({ copyWithinBackend })),
     };
+    const onAttemptStart = vi.fn();
+    const onAttemptSettled = vi.fn();
 
-    await executeTransfer({ kind: "copy", source: physicalSource, destination: physicalLocation("source", "output") }, {
-      ...environment,
-      storageRegistry,
-    } as never);
+    await executeTransfer(
+      { kind: "copy", source: physicalSource, destination: physicalLocation("source", "output"), onAttemptStart, onAttemptSettled },
+      {
+        ...environment,
+        storageRegistry,
+      } as never
+    );
 
-    expect(copyWithinBackend).toHaveBeenCalledWith(expect.objectContaining({ targetName: undefined, targetResolutionPolicy: "ask" }));
+    expect(copyWithinBackend).toHaveBeenCalledWith(
+      expect.objectContaining({ targetName: undefined, targetResolutionPolicy: "ask", transferAttemptId: onAttemptStart.mock.calls[0][0] })
+    );
+    expect(onAttemptSettled).toHaveBeenCalledWith(onAttemptStart.mock.calls[0][0]);
     expect(api.copyItem).not.toHaveBeenCalled();
   });
 
@@ -791,7 +799,12 @@ describe("content operations", () => {
     const root = { name: "root", path: "root", type: "directory" };
     const sourceBackend = {
       getInfo: vi.fn(async () => root),
-      list: vi.fn().mockResolvedValue({ items: [{ name: "source-only.txt", path: "root/source-only.txt", type: "file" }] }),
+      list: vi.fn().mockResolvedValue({
+        items: [
+          { name: "source-only.txt", path: "root/source-only.txt", type: "file" },
+          { name: "another.txt", path: "root/another.txt", type: "file" },
+        ],
+      }),
       copyWithinBackend: vi.fn().mockResolvedValue({
         status: "completed",
         replaced: false,
@@ -822,7 +835,10 @@ describe("content operations", () => {
       { ...environment, storageRegistry } as never
     );
 
-    expect(sourceBackend.copyWithinBackend).toHaveBeenCalledOnce();
+    expect(sourceBackend.copyWithinBackend).toHaveBeenCalledTimes(2);
+    expect(sourceBackend.copyWithinBackend.mock.calls[0][0].transferAttemptId).not.toBe(
+      sourceBackend.copyWithinBackend.mock.calls[1][0].transferAttemptId
+    );
     expect(destinationBackend.remove).not.toHaveBeenCalled();
   });
 
@@ -953,6 +969,7 @@ describe("content operations", () => {
 
     expect(sourceBackend.list).toHaveBeenCalledTimes(1);
     expect(sourceBackend.copyWithinBackend).toHaveBeenCalledTimes(3);
+    expect(new Set(sourceBackend.copyWithinBackend.mock.calls.map(([transfer]) => transfer.transferAttemptId)).size).toBe(3);
     expect(onConflict).toHaveBeenCalledTimes(2);
     expect(onPolicyChange).toHaveBeenCalledWith("replace");
   });

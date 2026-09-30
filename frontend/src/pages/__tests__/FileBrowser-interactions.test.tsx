@@ -544,6 +544,77 @@ describe("Browser Component - Interactions", () => {
     }
   });
 
+  it("continues independent files and folder entries after an uncertain root file in a mixed drop", async () => {
+    const droppedFile = (name: string) => ({
+      name,
+      isFile: true,
+      file: (resolve: (file: File) => void) => resolve(new File([name], name)),
+    });
+    const readEntries = vi
+      .fn()
+      .mockImplementationOnce((resolve: (entries: unknown[]) => void) => resolve([droppedFile("child.txt")]))
+      .mockImplementation((resolve: (entries: unknown[]) => void) => resolve([]));
+    const folder = { name: "Folder", isDirectory: true, createReader: () => ({ readEntries }) };
+    vi.mocked(api.getFileInfo).mockResolvedValue({
+      name: "Folder",
+      path: "Folder",
+      type: FileType.DIRECTORY,
+      is_readable: true,
+      is_hidden: false,
+    });
+    vi.mocked(api.publishBrowserFile).mockImplementation(async (file) =>
+      file.name === "a.txt"
+        ? { status: "outcome_unknown", replaced: false, effects: { source: "unchanged", destination: "unknown" } }
+        : completedTransferResult
+    );
+
+    renderBrowser("/browse/smb/test-server-1");
+    await screen.findByTestId("file-list-container");
+    fireEvent.drop(screen.getByTestId("file-list-container"), {
+      dataTransfer: {
+        types: ["Files"],
+        items: [droppedFile("a.txt"), droppedFile("b.txt"), folder].map((entry) => ({ kind: "file", webkitGetAsEntry: () => entry })),
+      },
+    });
+
+    await waitFor(() => expect(api.publishBrowserFile).toHaveBeenCalledTimes(3));
+    expect(vi.mocked(api.publishBrowserFile).mock.calls.map(([, , path]) => path)).toEqual(["a.txt", "b.txt", "Folder/child.txt"]);
+    expect(await screen.findByText(/Uploaded 2 files.*1 outcome uncertain/)).toBeInTheDocument();
+  });
+
+  it("shows sent bytes and publishing separately from confirmed upload completion", async () => {
+    const pickerClick = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(function (this: HTMLInputElement) {
+      if (this.type !== "file") return;
+      Object.defineProperty(this, "files", { value: [new File(["hello"], "new.txt")] });
+      this.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    let completeUpload: ((value: typeof completedTransferResult) => void) | undefined;
+    vi.mocked(api.publishBrowserFile).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          completeUpload = resolve;
+        })
+    );
+    try {
+      renderBrowser("/browse/smb/test-server-1");
+      fireEvent.click(await screen.findByRole("button", { name: "Upload", exact: true }));
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Files" }));
+      await waitFor(() => expect(api.publishBrowserFile).toHaveBeenCalledOnce());
+      expect(screen.getByText(/Sending/)).toBeInTheDocument();
+      const options = vi.mocked(api.publishBrowserFile).mock.calls[0][4];
+      act(() => options?.onProgress?.(3, 5));
+      expect(screen.getByText(/3 B \/ 5 B/)).toBeInTheDocument();
+      act(() => options?.onProgress?.(5, 5));
+      expect(screen.queryByText(/Uploaded 1 file/)).not.toBeInTheDocument();
+      act(() => options?.onUploadSent?.());
+      expect(screen.getByText(/Publishing/)).toBeInTheDocument();
+      act(() => completeUpload?.(completedTransferResult));
+      expect(await screen.findByText(/Uploaded 1 file/)).toBeInTheDocument();
+    } finally {
+      pickerClick.mockRestore();
+    }
+  });
+
   it("invalidates the original listing without refreshing a pane that navigated away", async () => {
     const pickerClick = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(function (this: HTMLInputElement) {
       if (this.type !== "file") return;
@@ -1084,6 +1155,67 @@ describe("Browser Component - Interactions", () => {
         ).length;
         expect(destinationLoads).toBeGreaterThan(initialDestinationLoads);
       });
+    });
+
+    it("shows SMB byte progress only for the active copy attempt until the request settles", async () => {
+      const sockets: WebSocket[] = [];
+      class CaptureWebSocket extends WebSocket {
+        constructor(url: string | URL) {
+          super(url);
+          sockets.push(this);
+        }
+      }
+      vi.stubGlobal("WebSocket", CaptureWebSocket);
+      let finishCopy: ((result: typeof completedTransferResult) => void) | undefined;
+      vi.mocked(api.copyItem).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finishCopy = resolve;
+          })
+      );
+      try {
+        setupRegularFileTransferListing();
+        const user = userEvent.setup();
+        renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
+        const listContainer = (await screen.findAllByTestId("virtual-list"))[0];
+        await user.click(listContainer);
+        await user.keyboard(" ");
+        await user.keyboard("{F5}");
+        const dialog = await screen.findByRole("dialog");
+        await user.click(within(dialog).getByRole("button", { name: "Copy" }));
+        await waitFor(() => expect(api.copyItem).toHaveBeenCalledOnce());
+        const attemptId = vi.mocked(api.copyItem).mock.calls[0][6]?.transferAttemptId;
+        expect(attemptId).toMatch(/^[\da-f-]{36}$/);
+        const socket = sockets.find((entry) => entry.url.includes("/api/ws"));
+        expect(socket).toBeDefined();
+        const progress = (transferAttemptId: string, bytesTransferred: number) => {
+          act(() => {
+            socket?.onmessage?.(
+              new MessageEvent("message", {
+                data: JSON.stringify({
+                  type: "transfer_progress",
+                  transfer_attempt_id: transferAttemptId,
+                  bytes_transferred: bytesTransferred,
+                  total_bytes: 2048,
+                  item_name: "Documents",
+                }),
+              })
+            );
+          });
+        };
+        progress("00000000-0000-4000-8000-000000000000", 1024);
+        expect(within(dialog).queryByText("1.0 KB / 2.0 KB")).not.toBeInTheDocument();
+        progress(attemptId!, 1024);
+        expect(within(dialog).getByText("1.0 KB / 2.0 KB")).toBeInTheDocument();
+        progress(attemptId!, -1);
+        expect(within(dialog).getByText("1.0 KB / 2.0 KB")).toBeInTheDocument();
+        act(() => finishCopy?.(completedTransferResult));
+        await waitFor(() => expect(within(dialog).queryByText("1.0 KB / 2.0 KB")).not.toBeInTheDocument());
+        progress(attemptId!, 1024);
+        expect(within(dialog).queryByText("1.0 KB / 2.0 KB")).not.toBeInTheDocument();
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
 
     it("does not show unavailable feedback while a copy dialog owns keyboard interaction", async () => {

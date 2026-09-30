@@ -35,6 +35,41 @@ PUBLISH_CONTRACT = json.loads(
 )["staged_publish"]
 
 
+@pytest.mark.asyncio
+async def test_cross_connection_progress_bounds_pending_sends_and_preserves_completion() -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    completed = asyncio.Event()
+    received: list[int] = []
+
+    async def notify(_connection_id, _path, bytes_transferred, _total_bytes, _item_name, _attempt_id):
+        if bytes_transferred >= 0:
+            started.set()
+            await release.wait()
+        received.append(bytes_transferred)
+        if bytes_transferred == -1:
+            completed.set()
+
+    pending: set[asyncio.Task[None]] = set()
+    with patch("app.api.websocket.notify_transfer_progress", side_effect=notify):
+        on_progress = browser_api._cross_connection_progress("destination", "file.txt", "attempt", pending)
+        on_progress(1, 100)
+        await asyncio.wait_for(started.wait(), timeout=1)
+        for bytes_transferred in range(2, 100):
+            on_progress(bytes_transferred, 100)
+        assert len(pending) == 1
+
+        browser_api._notify_cross_connection_complete("destination", "file.txt", "attempt", pending)
+        assert not completed.is_set()
+        release.set()
+        await asyncio.wait_for(completed.wait(), timeout=1)
+        await asyncio.wait_for(asyncio.gather(*tuple(pending)), timeout=1)
+        await asyncio.sleep(0)
+
+    assert received == [1, -1]
+    assert not pending
+
+
 class _MemoryRandomAccessReader:
     def __init__(self, data: bytes) -> None:
         self._data = data
@@ -3739,6 +3774,7 @@ class TestCopyItem:
     ):
         """Test that cross-connection copy returns 204."""
         dest_conn = multiple_connections[0]
+        attempt_id = str(uuid.uuid4())
 
         with patch("app.api.browser.SMBBackend") as MockBackend:
             src_instance = AsyncMock()
@@ -3758,13 +3794,18 @@ class TestCopyItem:
                 yield b"file content"
 
             src_instance.read_file = fake_read_file
-            dst_instance.stage_and_commit_new_file_from_stream = AsyncMock(return_value=12)
+
+            async def stage_with_progress(_path, _stream, **kwargs):
+                kwargs["on_progress"](6, 100)
+                return 12
+
+            dst_instance.stage_and_commit_new_file_from_stream = AsyncMock(side_effect=stage_with_progress)
             dst_instance.get_file_info.side_effect = FileNotFoundError("target does not exist")
 
             # Return different instances for source and dest backends
             MockBackend.side_effect = [src_instance, dst_instance]
 
-            with patch("app.api.websocket.manager.broadcast_transfer_progress", new_callable=AsyncMock):
+            with patch("app.api.websocket.manager.broadcast_transfer_progress", new_callable=AsyncMock) as progress:
                 response = client.post(
                     f"/api/browse/{test_connection.id}/copy",
                     headers=auth_headers_user,
@@ -3773,11 +3814,15 @@ class TestCopyItem:
                         "source_path": "a.txt",
                         "dest_path": "b.txt",
                         "dest_connection_id": str(dest_conn.id),
+                        "transfer_attempt_id": attempt_id,
                     },
                 )
 
             assert response.status_code == 200
             assert response.json()["status"] == "completed"
+            assert any(call.args[2:4] == (6, 100) for call in progress.await_args_list)
+            assert progress.await_args_list[-1].args == (str(dest_conn.id), "", -1, -1, "b.txt", attempt_id)
+            assert all(call.args[-1] == attempt_id for call in progress.await_args_list)
 
     def test_copy_cross_connection_dest_not_found(
         self,
@@ -4136,6 +4181,7 @@ class TestMoveItem:
     ):
         """A cross-connection regular-file move deletes through its retained source handle."""
         dest_conn = multiple_connections[0]
+        attempt_id = str(uuid.uuid4())
 
         with patch("app.api.browser.SMBBackend") as MockBackend:
             src_instance = AsyncMock()
@@ -4157,12 +4203,17 @@ class TestMoveItem:
                 yield b"file content"
 
             src_instance.read_file = fake_read_file
-            dst_instance.stage_and_commit_new_file_from_stream = AsyncMock(return_value=12)
+
+            async def stage_with_progress(_path, _stream, **kwargs):
+                kwargs["on_progress"](6, 100)
+                return 12
+
+            dst_instance.stage_and_commit_new_file_from_stream = AsyncMock(side_effect=stage_with_progress)
             dst_instance.get_file_info.side_effect = FileNotFoundError("target does not exist")
 
             MockBackend.side_effect = [src_instance, dst_instance]
 
-            with patch("app.api.websocket.manager.broadcast_transfer_progress", new_callable=AsyncMock):
+            with patch("app.api.websocket.manager.broadcast_transfer_progress", new_callable=AsyncMock) as progress:
                 response = client.post(
                     f"/api/browse/{test_connection.id}/move",
                     headers=auth_headers_user,
@@ -4171,11 +4222,15 @@ class TestMoveItem:
                         "source_path": "a.txt",
                         "dest_path": "b.txt",
                         "dest_connection_id": str(dest_conn.id),
+                        "transfer_attempt_id": attempt_id,
                     },
                 )
 
             assert response.status_code == 200
             assert response.json()["status"] == "completed"
+            assert any(call.args[2:4] == (6, 100) for call in progress.await_args_list)
+            assert progress.await_args_list[-1].args == (str(dest_conn.id), "", -1, -1, "b.txt", attempt_id)
+            assert all(call.args[-1] == attempt_id for call in progress.await_args_list)
             assert response.json()["effects"] == {"source": "mutated", "destination": "mutated"}
             move_reader.commit_delete.assert_awaited_once()
             src_instance.delete_item.assert_not_called()

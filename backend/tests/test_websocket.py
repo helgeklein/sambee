@@ -1,5 +1,6 @@
 """Tests for authenticated WebSocket subscriptions and connection authorization."""
 
+import asyncio
 from collections.abc import Generator
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -8,7 +9,7 @@ import pytest
 from starlette.websockets import WebSocketDisconnect
 
 import app.api.websocket as websocket_module
-from app.api.websocket import manager
+from app.api.websocket import ConnectionManager, manager
 from app.models.connection import Connection
 
 
@@ -70,6 +71,39 @@ def websocket_state_fixture(session) -> Generator[None, None, None]:
 
 def _ws_path(token: str | None) -> str:
     return f"/api/ws?token={token}" if token else "/api/ws"
+
+
+@pytest.mark.asyncio
+async def test_transfer_progress_drops_stalled_subscriber_without_blocking_others() -> None:
+    local_manager = ConnectionManager()
+    stalled = MagicMock()
+    ready = MagicMock()
+    stalled_started = asyncio.Event()
+    ready_sent = asyncio.Event()
+
+    async def never_send(_payload: object) -> None:
+        stalled_started.set()
+        await asyncio.Event().wait()
+
+    async def send_ready(_payload: object) -> None:
+        await stalled_started.wait()
+        ready_sent.set()
+
+    stalled.send_json = AsyncMock(side_effect=never_send)
+    ready.send_json = AsyncMock(side_effect=send_ready)
+    key = "connection:"
+    local_manager.active_connections[key] = {stalled, ready}
+    local_manager.subscriptions[stalled] = {key}
+    local_manager.subscriptions[ready] = {key}
+
+    with patch.object(websocket_module, "TRANSFER_PROGRESS_SEND_TIMEOUT_SECONDS", 0.2):
+        broadcast = asyncio.create_task(local_manager.broadcast_transfer_progress("connection", "", 1, 2, "file.txt", "attempt"))
+        await asyncio.wait_for(ready_sent.wait(), timeout=0.1)
+        assert not broadcast.done()
+        await broadcast
+
+    ready.send_json.assert_awaited_once()
+    assert stalled not in local_manager.active_connections[key]
 
 
 @pytest.mark.integration

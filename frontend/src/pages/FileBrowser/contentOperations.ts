@@ -140,6 +140,8 @@ export interface TransferRequest {
   targetResolutionPolicy?: TargetResolutionPolicy;
   signal?: AbortSignal;
   onProgress?: (bytesTransferred: number, totalBytes: number | null) => void;
+  onAttemptStart?: (transferAttemptId: string) => void;
+  onAttemptSettled?: (transferAttemptId: string) => void;
 }
 
 export interface TransferTreeRequest extends TransferRequest {
@@ -393,15 +395,22 @@ export async function executeTransfer(request: TransferRequest, environment: Con
     );
   }
   const backend = environment.storageRegistry.getBackend(source.target);
+  const transferAttemptId = randomUuid();
   const transfer = {
     source,
     destination,
     targetName: request.targetName,
     targetResolutionPolicy,
     idempotencyKey,
+    transferAttemptId,
     signal: request.signal,
   };
-  return request.kind === "move" ? backend.moveWithinBackend(transfer) : backend.copyWithinBackend(transfer);
+  request.onAttemptStart?.(transferAttemptId);
+  try {
+    return await (request.kind === "move" ? backend.moveWithinBackend(transfer) : backend.copyWithinBackend(transfer));
+  } finally {
+    request.onAttemptSettled?.(transferAttemptId);
+  }
 }
 
 export async function executeTransferTree(

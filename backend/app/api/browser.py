@@ -2580,6 +2580,7 @@ async def copy_item(
                 overwrite=False,
                 target_resolution_policy=policy,
                 cancellation=cancellation.is_set if cancellation is not None else None,
+                transfer_attempt_id=str(body.transfer_attempt_id) if body.transfer_attempt_id else None,
             )
         else:
             require_connection_write_access(current_user, connection, action="copy_destination", path=dest)
@@ -2755,6 +2756,7 @@ async def move_item(
                 str(body.dest_connection_id),
                 target_resolution_policy=TargetResolutionPolicy(body.normalized_target_resolution_policy),
                 cancellation=cancellation.is_set if cancellation is not None else None,
+                transfer_attempt_id=str(body.transfer_attempt_id) if body.transfer_attempt_id else None,
             )
             return await _record_transfer_receipt(current_user, body, copied)
 
@@ -2870,6 +2872,63 @@ async def move_item(
 # Cross-connection copy/move helpers
 # ============================================================================
 
+CROSS_CONNECTION_PROGRESS_INTERVAL_SECONDS = 0.25
+
+
+def _cross_connection_progress(
+    dst_conn_id: str, dest_path: str, transfer_attempt_id: str | None, pending: set[asyncio.Task[None]]
+) -> Callable[[int, int | None], None]:
+    from app.api.websocket import notify_transfer_progress
+
+    dest_parent = str(PurePosixPath(dest_path).parent)
+    if dest_parent == ".":
+        dest_parent = ""
+    item_name = PurePosixPath(dest_path).name
+    last_broadcast = 0.0
+
+    def on_progress(bytes_transferred: int, total_bytes: int | None) -> None:
+        nonlocal last_broadcast
+        now = monotonic()
+        if pending or now - last_broadcast < CROSS_CONNECTION_PROGRESS_INTERVAL_SECONDS:
+            return
+        last_broadcast = now
+        task = asyncio.get_running_loop().create_task(
+            notify_transfer_progress(dst_conn_id, dest_parent, bytes_transferred, total_bytes, item_name, transfer_attempt_id)
+        )
+        pending.add(task)
+
+        def on_done(completed: asyncio.Task[None]) -> None:
+            pending.discard(completed)
+            if not completed.cancelled() and (error := completed.exception()) is not None:
+                logger.warning("Transfer byte progress notification failed for destination %s: %s", dest_path, error)
+
+        task.add_done_callback(on_done)
+
+    return on_progress
+
+
+def _notify_cross_connection_complete(
+    dst_conn_id: str, dest_path: str, transfer_attempt_id: str | None, pending: set[asyncio.Task[None]]
+) -> None:
+    from app.api.websocket import notify_transfer_progress
+
+    dest_parent = str(PurePosixPath(dest_path).parent)
+    in_flight = tuple(pending)
+
+    async def send_completion() -> None:
+        if in_flight:
+            await asyncio.gather(*in_flight, return_exceptions=True)
+        try:
+            await notify_transfer_progress(
+                dst_conn_id, "" if dest_parent == "." else dest_parent, -1, -1, PurePosixPath(dest_path).name, transfer_attempt_id
+            )
+        except Exception as error:
+            logger.warning("Transfer completion notification failed for destination %s: %s", dest_path, error)
+
+    task = asyncio.get_running_loop().create_task(send_completion())
+    pending.add(task)
+    task.add_done_callback(pending.discard)
+
 
 async def _cross_connection_copy(
     src_conn: Connection,
@@ -2881,6 +2940,7 @@ async def _cross_connection_copy(
     overwrite: bool = False,
     target_resolution_policy: TargetResolutionPolicy | None = None,
     cancellation: Callable[[], bool] | None = None,
+    transfer_attempt_id: str | None = None,
 ) -> ContentTransferResult:
     """Perform a cross-connection copy with WebSocket progress reporting.
 
@@ -2888,48 +2948,12 @@ async def _cross_connection_copy(
     destination, and broadcasts byte-level progress via WebSocket.
     """
 
-    from app.api.websocket import notify_transfer_progress
-
     source_backend = build_smb_backend(src_conn, backend_factory=SMBBackend)
     dest_backend = build_smb_backend(dst_conn, backend_factory=SMBBackend)
+    pending: set[asyncio.Task[None]] = set()
 
     await source_backend.connect()
     await dest_backend.connect()
-
-    # Determine the destination parent directory for progress events.
-    dest_parent = str(PurePosixPath(dest_path).parent)
-    if dest_parent == ".":
-        dest_parent = ""
-    # Item name for progress display
-    item_name = PurePosixPath(dest_path).name
-
-    # Throttle progress broadcasts to avoid flooding the WebSocket
-    # (~4 updates/s is plenty for a smooth progress bar).
-    _last_broadcast: list[float] = [0.0]
-    _min_broadcast_interval_s: float = 0.25
-
-    def on_progress(bytes_transferred: int, total_bytes: int | None) -> None:
-        """Schedule a WS broadcast (non-blocking from sync context)."""
-        import time
-
-        now = time.monotonic()
-        if now - _last_broadcast[0] < _min_broadcast_interval_s:
-            return
-        _last_broadcast[0] = now
-
-        try:
-            loop = asyncio.get_event_loop()
-            loop.create_task(
-                notify_transfer_progress(
-                    dst_conn_id,
-                    dest_parent,
-                    bytes_transferred,
-                    total_bytes,
-                    item_name,
-                )
-            )
-        except RuntimeError:
-            pass  # No running event loop — skip this broadcast
 
     try:
         transfer_result = await cross_connection_copy(
@@ -2937,7 +2961,7 @@ async def _cross_connection_copy(
             dest_backend,
             source_path,
             dest_path,
-            on_progress=on_progress,
+            on_progress=_cross_connection_progress(dst_conn_id, dest_path, transfer_attempt_id, pending),
             overwrite=overwrite,
             target_resolution_policy=target_resolution_policy,
             cancellation=cancellation,
@@ -2949,16 +2973,7 @@ async def _cross_connection_copy(
             )
 
         # Send a final 100 % broadcast
-        try:
-            await notify_transfer_progress(
-                dst_conn_id,
-                dest_parent,
-                -1,
-                -1,
-                item_name,
-            )
-        except Exception:
-            pass
+        _notify_cross_connection_complete(dst_conn_id, dest_path, transfer_attempt_id, pending)
 
         # Update directory cache for the destination connection
         _add_to_directory_cache(dst_conn_id, dest_path)
@@ -2990,11 +3005,13 @@ async def _cross_connection_move(
     *,
     target_resolution_policy: TargetResolutionPolicy | None = None,
     cancellation: Callable[[], bool] | None = None,
+    transfer_attempt_id: str | None = None,
 ) -> ContentTransferResult:
     """Move across SMB connections using a retained source handle when available."""
 
     source_backend = build_smb_backend(src_conn, backend_factory=SMBBackend)
     dest_backend = build_smb_backend(dst_conn, backend_factory=SMBBackend)
+    pending: set[asyncio.Task[None]] = set()
     await source_backend.connect()
     await dest_backend.connect()
     try:
@@ -3004,6 +3021,7 @@ async def _cross_connection_move(
                 dest_backend,
                 source_path,
                 dest_path,
+                on_progress=_cross_connection_progress(dst_conn_id, dest_path, transfer_attempt_id, pending),
                 target_resolution_policy=target_resolution_policy,
                 cancellation=cancellation,
             )
@@ -3011,6 +3029,7 @@ async def _cross_connection_move(
             if not error.destination_mutated:
                 raise
             _add_to_directory_cache(dst_conn_id, dest_path)
+            _notify_cross_connection_complete(dst_conn_id, dest_path, transfer_attempt_id, pending)
             return ContentTransferResult(
                 status="completed_with_source_retained",
                 effects=ContentTransferEffects(source="unchanged", destination="mutated"),
@@ -3027,6 +3046,7 @@ async def _cross_connection_move(
                 status="skipped",
                 effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
             )
+        _notify_cross_connection_complete(dst_conn_id, dest_path, transfer_attempt_id, pending)
         _remove_from_directory_cache(str(src_conn.id), source_path)
         _add_to_directory_cache(dst_conn_id, dest_path)
         return ContentTransferResult(

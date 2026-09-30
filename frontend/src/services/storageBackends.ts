@@ -204,7 +204,7 @@ abstract class ApiStorageBackend implements StorageBackend {
         request.idempotencyKey,
         destinationConnectionId,
         request.targetResolutionPolicy,
-        { signal: request.signal }
+        { signal: request.signal, transferAttemptId: request.transferAttemptId }
       );
     } else {
       return api.copyItem(
@@ -214,7 +214,7 @@ abstract class ApiStorageBackend implements StorageBackend {
         request.idempotencyKey,
         destinationConnectionId,
         request.targetResolutionPolicy,
-        { signal: request.signal }
+        { signal: request.signal, transferAttemptId: request.transferAttemptId }
       );
     }
   }

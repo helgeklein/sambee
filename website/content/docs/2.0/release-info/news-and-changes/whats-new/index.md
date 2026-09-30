@@ -38,6 +38,7 @@ Sambee now deals with unencrypted HTTP explicitly:
 
 - Companion pairing and operations are unavailable.
 - File copying caused a `crypto.randomUUID` error. This has been fixed by implementing a fallback.
+- File uploading would show `outcome uncertain` and not upload files on HTTP/1.1 connections (even over HTTPS). This has been fixed by sending files directly instead of using a streamed request body, so uploads work on HTTP/1.1 while still showing progress.
 - Copying to the clipboard (used in Settings) is now disabled.
 
 HTTP for development on `localhost` is treated as secure by browsers and continues to be supported by Sambee.
