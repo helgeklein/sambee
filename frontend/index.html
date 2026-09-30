@@ -13,10 +13,32 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
     <title>Sambee</title>
+    <style>
+      .browser-compatibility {
+        max-width: 36rem;
+        margin: 15vh auto 0;
+        padding: 1.5rem;
+        font: 1rem/1.5 sans-serif;
+        color: #242424;
+        visibility: hidden;
+        animation: show-browser-compatibility 0s 0.5s forwards;
+      }
+      .browser-compatibility-unsupported .browser-compatibility { visibility: visible; animation: none; }
+      @keyframes show-browser-compatibility { to { visibility: visible; } }
+      .browser-compatibility h1 { font-size: 1.5rem; }
+      .browser-compatibility a { color: #005b8a; }
+    </style>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
-    <script type="module" src="/src/index.tsx"></script>
+    <div id="root">
+      <main class="browser-compatibility" role="alert">
+        <h1>Browser not supported</h1>
+        <p>Sambee needs a current browser with JavaScript modules enabled. Update your browser or try a current version of Chrome, Firefox, or Safari.</p>
+        <p id="browser-compatibility-reason"></p>
+        <a href="https://sambee.net/docs/2.0/release-info/system-requirements/requirements/">Browser requirements</a>
+      </main>
+    </div>
+    <script type="module" src="/src/browserBootstrap.ts"></script>
   </body>
 </html>
