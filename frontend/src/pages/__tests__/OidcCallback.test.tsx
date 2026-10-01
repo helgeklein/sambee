@@ -38,41 +38,48 @@ describe("OIDC callback", () => {
     setOidcExchangePending(false);
   });
 
-  it("clears the fragment before exchanging the one-time grant", async () => {
-    expect(window.location.hash).toContain("grant=one-time-grant");
-    const replaceState = vi.spyOn(window.history, "replaceState");
-    let fragmentScrubbedBeforeExchange = false;
-    vi.mocked(exchangeOidcGrant).mockImplementation(async () => {
-      fragmentScrubbedBeforeExchange = replaceState.mock.calls.some(
-        ([state, , url]) => state === null && typeof url === "string" && !url.includes("grant")
+  it.each(["renewable", "reauthorization_only"] as const)(
+    "clears the fragment before exchanging a %s session grant",
+    async (capability) => {
+      expect(window.location.hash).toContain("grant=one-time-grant");
+      const replaceState = vi.spyOn(window.history, "replaceState");
+      let fragmentScrubbedBeforeExchange = false;
+      vi.mocked(exchangeOidcGrant).mockImplementation(async () => {
+        fragmentScrubbedBeforeExchange = replaceState.mock.calls.some(
+          ([state, , url]) => state === null && typeof url === "string" && !url.includes("grant")
+        );
+        return {
+          access_token: "sambee-token",
+          token_type: "bearer",
+          user_id: "alice",
+          username: "alice",
+          oidc_session_capability: capability,
+          oidc_session_expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+          access_token_expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+          return_path: "/browse",
+        };
+      });
+
+      render(
+        <StrictMode>
+          <MemoryRouter initialEntries={["/login/oidc/callback"]}>
+            <Routes>
+              <Route path="/login/oidc/callback" element={<OidcCallback />} />
+              <Route path="/browse" element={<div>File browser</div>} />
+            </Routes>
+          </MemoryRouter>
+        </StrictMode>
       );
-      return {
-        access_token: "sambee-token",
-        token_type: "bearer",
-        username: "alice",
-        return_path: "/browse",
-      };
-    });
 
-    render(
-      <StrictMode>
-        <MemoryRouter initialEntries={["/login/oidc/callback"]}>
-          <Routes>
-            <Route path="/login/oidc/callback" element={<OidcCallback />} />
-            <Route path="/browse" element={<div>File browser</div>} />
-          </Routes>
-        </MemoryRouter>
-      </StrictMode>
-    );
-
-    await waitFor(() => expect(exchangeOidcGrant).toHaveBeenCalledWith("one-time-grant"));
-    expect(fragmentScrubbedBeforeExchange).toBe(true);
-    expect(await screen.findByText("File browser")).toBeInTheDocument();
-    expect(authSession.getAccessToken()).toBe("sambee-token");
-    expect(authSession.isBootstrapComplete()).toBe(true);
-    expect(exchangeOidcGrant).toHaveBeenCalledTimes(1);
-    expect(screen.queryByLabelText("Completing sign in")).not.toBeInTheDocument();
-  });
+      await waitFor(() => expect(exchangeOidcGrant).toHaveBeenCalledWith("one-time-grant"));
+      expect(fragmentScrubbedBeforeExchange).toBe(true);
+      expect(await screen.findByText("File browser")).toBeInTheDocument();
+      expect(authSession.getAccessToken()).toBe("sambee-token");
+      expect(authSession.isBootstrapComplete()).toBe(true);
+      expect(exchangeOidcGrant).toHaveBeenCalledTimes(1);
+      expect(screen.queryByLabelText("Completing sign in")).not.toBeInTheDocument();
+    }
+  );
 
   it("shows a generic retry action when the grant is missing", async () => {
     window.history.replaceState(null, "", "/login/oidc/callback");
@@ -109,7 +116,15 @@ describe("OIDC callback", () => {
 
   it("finishes the same-user callback despite late 401s from A and loads protected data with B", async () => {
     const sessionA = { access_token: "session-a", token_type: "bearer", user_id: "same-user" };
-    const sessionB = { access_token: "session-b", token_type: "bearer", user_id: "same-user", return_path: "/login/oidc/callback" };
+    const sessionB = {
+      access_token: "session-b",
+      token_type: "bearer",
+      user_id: "same-user",
+      oidc_session_capability: "reauthorization_only",
+      oidc_session_expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+      access_token_expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+      return_path: "/login/oidc/callback",
+    };
     const refresh = vi.spyOn(authSession, "requestRefresh").mockImplementation(async () => {
       authSession.setAuthenticated(sessionA, true);
       return sessionA;

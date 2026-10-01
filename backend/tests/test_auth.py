@@ -22,10 +22,22 @@ from app.core.security import (
     verify_password,
 )
 from app.middleware.authentication import PASSWORD_FORM_BODY_LIMIT_BYTES
-from app.models.oidc import OidcBrowserSession, OidcBrowserSessionStatus, OidcProviderConfiguration
+from app.models.oidc import (
+    OidcBrowserSession,
+    OidcBrowserSessionStatus,
+    OidcFlow,
+    OidcFlowStatus,
+    OidcProviderConfiguration,
+    OidcSessionCapability,
+    OidcSessionCipherKey,
+    SignInMode,
+)
+from app.models.oidc_api import OidcConfigurationCandidate
 from app.models.user import User, UserRole
 from app.services.oidc_browser_session import OIDC_BROWSER_SESSION_COOKIE_NAME, build_cookie_value
-from app.services.oidc_client import OidcClientError, OidcClientErrorCode
+from app.services.oidc_client import NormalizedOidcClaims, OidcClientError, OidcClientErrorCode, ValidatedOidcTokenSet
+from app.services.oidc_configuration import encrypt_candidate_snapshot, get_oidc_secret_cipher, normalize_candidate
+from app.services.oidc_flow import start_login_flow, start_test_flow
 
 
 def test_pending_oidc_login_cookies_keep_parallel_flows_separate() -> None:
@@ -54,13 +66,128 @@ def test_oidc_failure_category_uses_safe_userinfo_reason(error_code: OidcClientE
     assert auth_module._oidc_failure_category(error) == expected_category
 
 
-def test_authorization_scopes_adds_offline_access_for_legacy_configuration() -> None:
+def test_authorization_scopes_preserves_stored_configuration() -> None:
     assert auth_module._authorization_scopes('["openid", "profile", "email"]') == (
         "openid",
         "profile",
         "email",
-        "offline_access",
     )
+
+
+@pytest.mark.parametrize("has_refresh_token", [False, True])
+@pytest.mark.parametrize(("age_days", "succeeds"), [(0, True), (3, False), (None, False)])
+def test_oidc_test_callback_requires_recent_auth_time_with_or_without_refresh_token(
+    client: TestClient,
+    session: Session,
+    admin_user: User,
+    monkeypatch: pytest.MonkeyPatch,
+    has_refresh_token: bool,
+    age_days: int | None,
+    succeeds: bool,
+) -> None:
+    cipher = get_oidc_secret_cipher()
+    candidate = normalize_candidate(
+        OidcConfigurationCandidate(
+            issuer_url="https://idp.example.test",
+            client_id="sambee",
+            client_secret="secret",
+            sign_in_mode="oidc_only",
+            interactive_reauthentication_max_age_days=2,
+        ),
+        None,
+        cipher,
+    )
+    started = start_test_flow(
+        session,
+        initiating_admin_id=admin_user.id,
+        encrypted_candidate_configuration=encrypt_candidate_snapshot(candidate, cipher),
+        active_configuration_revision=None,
+        cipher=cipher,
+    )
+    session.commit()
+
+    async def metadata(*_args: object, **_kwargs: object) -> tuple[object, dict[str, object]]:
+        return object(), {}
+
+    async def token_set(*_args: object, **_kwargs: object) -> ValidatedOidcTokenSet:
+        return ValidatedOidcTokenSet(
+            claims=NormalizedOidcClaims(
+                issuer=candidate.issuer_url,
+                subject="subject",
+                username="admin",
+                groups=(),
+                name=None,
+                email=None,
+            ),
+            authenticated_at=int((datetime.now(timezone.utc) - timedelta(days=age_days)).timestamp()) if age_days is not None else None,
+            provider_access_token=None,
+            refresh_token="provider-refresh-token" if has_refresh_token else None,
+        )
+
+    monkeypatch.setattr(auth_module, "load_provider_metadata", metadata)
+    monkeypatch.setattr(auth_module, "exchange_and_validate_callback", token_set)
+    monkeypatch.setattr(auth_module, "derive_oidc_redirect_uri", lambda _url: "http://testserver/api/auth/oidc/callback")
+    response = client.get("/api/auth/oidc/callback", params={"state": started.state, "code": "code"}, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/browse?settings=admin-authentication") is succeeds
+    flow = session.get(OidcFlow, started.flow_id)
+    if succeeds:
+        assert flow is not None and flow.status == OidcFlowStatus.CALLBACK_VALIDATED
+        assert flow.test_refresh_token_returned is has_refresh_token
+
+
+def test_oidc_login_callback_without_refresh_token_creates_fixed_session(
+    client: TestClient,
+    session: Session,
+    admin_user: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cipher = get_oidc_secret_cipher()
+    configuration = OidcProviderConfiguration(
+        display_name="IdP",
+        issuer_url="https://idp.example.test",
+        client_id="sambee",
+        encrypted_client_secret=cipher.encrypt("secret"),
+        sign_in_mode=SignInMode.OIDC_ONLY,
+    )
+    session.add(configuration)
+    session.commit()
+    started = start_login_flow(session, configuration_revision=configuration.configuration_revision, cipher=cipher, return_path="/browse")
+    session.commit()
+
+    async def metadata(*_args: object, **_kwargs: object) -> tuple[object, dict[str, object]]:
+        return object(), {}
+
+    async def token_set(*_args: object, **_kwargs: object) -> ValidatedOidcTokenSet:
+        return ValidatedOidcTokenSet(
+            claims=NormalizedOidcClaims(
+                issuer=configuration.issuer_url,
+                subject="subject",
+                username=admin_user.username,
+                groups=(),
+                name=None,
+                email=None,
+            ),
+            authenticated_at=int(datetime.now(timezone.utc).timestamp()),
+            provider_access_token=None,
+            refresh_token=None,
+        )
+
+    monkeypatch.setattr(auth_module, "load_provider_metadata", metadata)
+    monkeypatch.setattr(auth_module, "exchange_and_validate_callback", token_set)
+    monkeypatch.setattr(auth_module, "derive_oidc_redirect_uri", lambda _url: "http://testserver/api/auth/oidc/callback")
+    monkeypatch.setattr(auth_module, "get_effective_authentication_mode", lambda _session: SignInMode.OIDC_ONLY)
+    monkeypatch.setattr(auth_module, "resolve_or_provision_oidc_user", lambda *_args, **_kwargs: admin_user)
+    client.cookies.set(auth_module._oidc_login_flow_cookie_name(started.state), started.state)
+    response = client.get("/api/auth/oidc/callback", params={"state": started.state, "code": "code"}, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/login/oidc/callback#grant=")
+    browser_session = session.exec(select(OidcBrowserSession)).one()
+    assert browser_session.capability == OidcSessionCapability.REAUTHORIZATION_ONLY
+    assert browser_session.encrypted_refresh_token is None
+    assert session.exec(select(OidcSessionCipherKey)).all() == []
 
 
 @pytest.mark.parametrize("scopes_json", ('{"openid": true}', '["openid", 1]', "not-json"))

@@ -27,7 +27,14 @@ from app.core.security import (
     verify_password,
 )
 from app.db.database import get_immediate_session, get_session
-from app.models.oidc import OidcBrowserSession, OidcBrowserSessionStatus, OidcFlowPurpose, OidcIdentity, OidcProviderConfiguration
+from app.models.oidc import (
+    OidcBrowserSession,
+    OidcBrowserSessionStatus,
+    OidcFlowPurpose,
+    OidcIdentity,
+    OidcProviderConfiguration,
+    OidcSessionCapability,
+)
 from app.models.oidc_api import OidcBrowserSessionListRead, OidcBrowserSessionRead, OidcBrowserSessionRevokeRead, OidcGrantExchangeRequest
 from app.models.user import (
     AccountIdentitySource,
@@ -116,7 +123,6 @@ OIDC_REFRESH_WAIT_INTERVAL_SECONDS = 0.1
 OIDC_REFRESH_RECENT_COMPLETION_SECONDS = 5
 OIDC_REFRESH_GENERATION_HEADER = "x-sambee-oidc-refresh-generation"
 OIDC_RATE_LIMIT_REDIRECT = "/login#error=oidc_rate_limited"
-OIDC_RENEWABLE_SESSION_SCOPE = "offline_access"
 OIDC_LOGIN_FLOW_COOKIE_NAME = "sambee_oidc_login_flow"
 MAX_PENDING_OIDC_LOGIN_FLOWS = 32
 _OIDC_BROWSER_SESSION_TABLE = SQLModel.metadata.tables["oidcbrowsersession"]
@@ -156,10 +162,16 @@ def _build_login_response(
     return_path: str | None = None,
     oidc_browser_session_id: uuid.UUID | None = None,
     oidc_refresh_generation: int | None = None,
+    browser_session: OidcBrowserSession | None = None,
 ) -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    deadline = normalize_utc_datetime(browser_session.absolute_expires_at) if browser_session is not None else None
+    token_expiry = (
+        min(now + timedelta(minutes=expires_minutes), deadline) if deadline is not None else now + timedelta(minutes=expires_minutes)
+    )
     access_token = build_user_access_token(
         user,
-        expires_delta=timedelta(minutes=expires_minutes),
+        expires_delta=token_expiry - now,
         oidc_browser_session_id=oidc_browser_session_id,
     )
     response: dict[str, Any] = {
@@ -172,12 +184,15 @@ def _build_login_response(
         "role": user.role,
         "expires_at": normalize_utc_datetime(user.expires_at),
         "must_change_password": user.must_change_password,
-        "access_token_expires_at": (datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)).isoformat(),
+        "access_token_expires_at": token_expiry.isoformat(),
     }
     if return_path is not None:
         response["return_path"] = return_path
     if oidc_refresh_generation is not None:
         response["oidc_refresh_generation"] = oidc_refresh_generation
+    if browser_session is not None:
+        response["oidc_session_capability"] = browser_session.capability.value
+        response["oidc_session_expires_at"] = deadline.isoformat() if deadline is not None else None
     return response
 
 
@@ -380,8 +395,7 @@ def _authorization_scopes(scopes_json: str) -> tuple[str, ...]:
         raise ValueError("OIDC configuration contains invalid scopes") from error
     if not isinstance(stored_scopes, list) or any(not isinstance(scope, str) or not scope for scope in stored_scopes):
         raise ValueError("OIDC configuration contains invalid scopes")
-    scopes = tuple(stored_scopes)
-    return scopes if OIDC_RENEWABLE_SESSION_SCOPE in scopes else (*scopes, OIDC_RENEWABLE_SESSION_SCOPE)
+    return tuple(stored_scopes)
 
 
 #
@@ -604,13 +618,18 @@ async def oidc_callback(
                 refresh_jwks=refresh_jwks,
             )
         claims = token_set.claims
+        if token_set.authenticated_at is None:
+            raise ValueError("OIDC provider did not return required auth_time")
         if claimed.purpose == OidcFlowPurpose.TEST:
-            if token_set.refresh_token is None or token_set.authenticated_at is None:
-                raise ValueError("OIDC provider did not return renewable-session claims")
+            maximum_age_seconds = candidate.interactive_reauthentication_max_age_days * 24 * 60 * 60
+            oldest_allowed_authentication = int(datetime.now(timezone.utc).timestamp()) - maximum_age_seconds - ID_TOKEN_CLOCK_SKEW_SECONDS
+            if token_set.authenticated_at < oldest_allowed_authentication:
+                raise ValueError("OIDC provider returned an authentication older than the requested maximum age")
             complete_test_callback(
                 session,
                 flow_id=claimed.flow_id,
                 encrypted_tested_identity=cipher.encrypt(json.dumps(asdict(claims), separators=(",", ":"), sort_keys=True)),
+                refresh_token_returned=token_set.refresh_token is not None,
             )
             response = RedirectResponse(
                 f"/browse?settings=admin-authentication#flow={claimed.flow_id}",
@@ -621,8 +640,6 @@ async def oidc_callback(
             return response
         if active_configuration is None:
             raise ValueError("OIDC configuration is unavailable")
-        if token_set.authenticated_at is None:
-            raise ValueError("OIDC login did not return renewable-session claims")
         if claimed.interactive_reauthentication_required:
             if token_set.authenticated_at < int(claimed.created_at.timestamp()) - ID_TOKEN_CLOCK_SKEW_SECONDS:
                 raise ValueError("OIDC provider did not complete the required interactive reauthentication")
@@ -638,9 +655,7 @@ async def oidc_callback(
             claims=claims,
             correlation_id=correlation_id,
         )
-        if token_set.refresh_token is None:
-            raise ValueError("OIDC login did not return renewable-session claims")
-        session_cipher = get_active_oidc_session_cipher(session)
+        session_cipher = get_active_oidc_session_cipher(session) if token_set.refresh_token is not None else None
         pending_browser_session = create_pending_browser_session(
             session,
             user=user,
@@ -649,8 +664,8 @@ async def oidc_callback(
             subject=claims.subject,
             authenticated_at=datetime.fromtimestamp(token_set.authenticated_at, timezone.utc),
             refresh_token=token_set.refresh_token,
-            session_cipher=session_cipher.cipher,
-            session_cipher_key_id=session_cipher.key_id,
+            session_cipher=session_cipher.cipher if session_cipher is not None else None,
+            session_cipher_key_id=session_cipher.key_id if session_cipher is not None else "v1",
             flow_cipher=cipher,
             user_agent=request.headers.get("user-agent"),
         )
@@ -727,6 +742,7 @@ async def oidc_exchange(
             encrypted_cookie_secret=consumed.encrypted_browser_session_secret,
             flow_cipher=get_oidc_secret_cipher(),
         )
+        validate_browser_session(session, browser_session=browser_session)
         if previous_browser_session is not None and previous_browser_session.id != browser_session.id:
             revoke_browser_session(previous_browser_session, reason="replaced_by_new_login")
             write_audit_event(
@@ -749,6 +765,7 @@ async def oidc_exchange(
             return_path=consumed.return_path,
             oidc_browser_session_id=browser_session.id,
             oidc_refresh_generation=browser_session.refresh_generation,
+            browser_session=browser_session,
         )
     )
     _set_oidc_browser_session_cookie(
@@ -784,6 +801,20 @@ async def oidc_refresh(request: Request, session: Session = Depends(get_session)
         revoke_browser_session(browser_session, reason="configuration_unavailable")
         session.commit()
         raise _oidc_refresh_exception("oidc_reauthentication_required")
+    if browser_session.capability == OidcSessionCapability.REAUTHORIZATION_ONLY:
+        user = validate_browser_session(session, browser_session=browser_session)
+        session.commit()
+        response = _token_response(
+            _build_login_response(
+                user,
+                expires_minutes=OIDC_ACCESS_TOKEN_EXPIRE_MINUTES,
+                oidc_browser_session_id=browser_session.id,
+                oidc_refresh_generation=browser_session.refresh_generation,
+                browser_session=browser_session,
+            )
+        )
+        _renew_oidc_browser_session_cookie(response, request, expires_at=browser_session_cookie_expiry(browser_session))
+        return response
     browser_session_id = browser_session.id
     observed_generation = browser_session.refresh_generation
     known_generation = _known_refresh_generation(request)
@@ -801,6 +832,7 @@ async def oidc_refresh(request: Request, session: Session = Depends(get_session)
                 expires_minutes=OIDC_ACCESS_TOKEN_EXPIRE_MINUTES,
                 oidc_browser_session_id=browser_session.id,
                 oidc_refresh_generation=observed_generation,
+                browser_session=browser_session,
             )
         )
         _renew_oidc_browser_session_cookie(response, request, expires_at=browser_session_cookie_expiry(browser_session))
@@ -820,15 +852,16 @@ async def oidc_refresh(request: Request, session: Session = Depends(get_session)
             if refresh_status == OidcBrowserSessionStatus.ACTIVE:
                 raise _oidc_refresh_exception("oidc_refresh_in_progress", status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
             raise _oidc_refresh_exception("oidc_reauthentication_required")
+        completed_session = session.get(OidcBrowserSession, completed_session_id)
         response = _token_response(
             _build_login_response(
                 completed_user,
                 expires_minutes=OIDC_ACCESS_TOKEN_EXPIRE_MINUTES,
                 oidc_browser_session_id=completed_session_id,
                 oidc_refresh_generation=observed_generation + 1,
+                browser_session=completed_session,
             )
         )
-        completed_session = session.get(OidcBrowserSession, completed_session_id)
         if completed_session is not None:
             _renew_oidc_browser_session_cookie(response, request, expires_at=browser_session_cookie_expiry(completed_session))
         return response
@@ -837,6 +870,8 @@ async def oidc_refresh(request: Request, session: Session = Depends(get_session)
         cipher = get_oidc_secret_cipher()
         session_cipher = get_oidc_session_cipher_for_key(session, browser_session.cipher_key_id)
         active_session_cipher = get_active_oidc_session_cipher(session)
+        if browser_session.encrypted_refresh_token is None:
+            raise OidcBrowserSessionError(OidcBrowserSessionErrorCode.REAUTHENTICATION_REQUIRED, "OIDC session is missing a refresh token")
         refresh_token = session_cipher.decrypt(browser_session.encrypted_refresh_token)
         provider_issuer_url = configuration.issuer_url
         provider_client_id = configuration.client_id
@@ -919,6 +954,7 @@ async def oidc_refresh(request: Request, session: Session = Depends(get_session)
                 expires_minutes=OIDC_ACCESS_TOKEN_EXPIRE_MINUTES,
                 oidc_browser_session_id=refreshed_browser_session.id,
                 oidc_refresh_generation=refreshed_browser_session.refresh_generation,
+                browser_session=refreshed_browser_session,
             )
         )
         _renew_oidc_browser_session_cookie(

@@ -219,6 +219,7 @@ def complete_test_callback(
     *,
     flow_id: uuid.UUID,
     encrypted_tested_identity: str,
+    refresh_token_returned: bool = True,
     now: datetime | None = None,
 ) -> None:
     current_time = now or _now_utc()
@@ -232,6 +233,7 @@ def complete_test_callback(
         .values(
             status=OidcFlowStatus.CALLBACK_VALIDATED,
             encrypted_tested_identity=encrypted_tested_identity,
+            test_refresh_token_returned=refresh_token_returned,
             encrypted_nonce=None,
             encrypted_verifier=None,
             expires_at=current_time + timedelta(seconds=VALIDATED_TEST_FLOW_LIFETIME_SECONDS),

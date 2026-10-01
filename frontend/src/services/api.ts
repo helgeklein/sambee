@@ -316,6 +316,8 @@ export function startControlledReauthentication(): void {
   }
 }
 
+authSession.setReauthenticationHandler(startControlledReauthentication);
+
 function isConfirmedOidcReauthentication(error: AxiosError): boolean {
   const data = error.response?.data as { detail?: { code?: string } } | undefined;
   return data?.detail?.code === "oidc_reauthentication_required";

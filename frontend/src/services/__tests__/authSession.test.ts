@@ -39,6 +39,61 @@ describe("AuthSessionManager", () => {
     expect(session.hasUsableAccessToken()).toBe(true);
   });
 
+  it("requires controlled reauthorization at a no-refresh absolute deadline", async () => {
+    const deadline = Date.now() + 10_000;
+    session = new AuthSessionManager();
+    const redirect = vi.fn();
+    session.setReauthenticationHandler(redirect);
+    session.setAuthenticated(
+      {
+        access_token: "no-refresh-token",
+        token_type: "bearer",
+        user_id: "user-1",
+        oidc_session_capability: "reauthorization_only",
+        oidc_session_expires_at: new Date(deadline).toISOString(),
+        access_token_expires_at: new Date(deadline).toISOString(),
+      },
+      true
+    );
+    expect(session.hasUsableAccessToken()).toBe(true);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(deadline);
+    try {
+      await expect(session.refreshIfNeeded()).rejects.toMatchObject<AuthSessionError>({ code: "reauthentication-required" });
+      expect(session.hasUsableAccessToken()).toBe(false);
+      expect(redirect).toHaveBeenCalledOnce();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("restores a no-refresh session from its cookie after a page reload", async () => {
+    const deadline = new Date(Date.now() + 60_000).toISOString();
+    let refreshRequests = 0;
+    server.use(
+      http.post(OIDC_REFRESH_URL, () => {
+        refreshRequests += 1;
+        return HttpResponse.json({
+          access_token: "restored-token",
+          token_type: "bearer",
+          user_id: "user-1",
+          oidc_session_capability: "reauthorization_only",
+          oidc_session_expires_at: deadline,
+          access_token_expires_at: deadline,
+        });
+      })
+    );
+    session = new AuthSessionManager();
+    const redirect = vi.fn();
+    session.setReauthenticationHandler(redirect);
+
+    await expect(session.bootstrap()).resolves.toBe("active");
+
+    expect(session.getAccessToken()).toBe("restored-token");
+    expect(session.isBootstrapComplete()).toBe(true);
+    expect(refreshRequests).toBe(1);
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
   it("publishes identity epochs for login and clear, but not same-user token refresh", () => {
     session = new AuthSessionManager();
     const identities: Array<{ epoch: number; userId: string | null }> = [];

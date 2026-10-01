@@ -33,6 +33,9 @@ export class AuthSessionManager {
   private accessToken: string | null = null;
   private expiresAt: number | null = null;
   private renewable = false;
+  private sessionDeadline: number | null = null;
+  private sessionCapability: AuthToken["oidc_session_capability"] = undefined;
+  private reauthenticationHandler: (() => void) | null = null;
   private userId: string | null = null;
   private refreshPromise: Promise<AuthToken> | null = null;
   private refreshTimer: number | null = null;
@@ -78,7 +81,15 @@ export class AuthSessionManager {
   }
 
   hasUsableAccessToken(): boolean {
-    return this.accessToken !== null && (this.expiresAt === null || this.expiresAt > Date.now());
+    return (
+      this.accessToken !== null &&
+      (this.expiresAt === null || this.expiresAt > Date.now()) &&
+      (this.sessionDeadline === null || this.sessionDeadline > Date.now())
+    );
+  }
+
+  setReauthenticationHandler(handler: () => void): void {
+    this.reauthenticationHandler = handler;
   }
 
   setAuthenticated(response: AuthToken, renewable: boolean): void {
@@ -88,6 +99,8 @@ export class AuthSessionManager {
     this.accessToken = response.access_token;
     this.renewable = renewable;
     this.expiresAt = response.access_token_expires_at ? Date.parse(response.access_token_expires_at) : null;
+    this.sessionDeadline = response.oidc_session_expires_at ? Date.parse(response.oidc_session_expires_at) : null;
+    this.sessionCapability = response.oidc_session_capability;
     this.refreshGeneration = response.oidc_refresh_generation ?? this.refreshGeneration;
     this.refreshAt = this.expiresAt === null ? null : Date.now() + Math.max(0, (this.expiresAt - Date.now()) / 2);
     this.state = "active";
@@ -131,6 +144,8 @@ export class AuthSessionManager {
   clear(): void {
     this.accessToken = null;
     this.expiresAt = null;
+    this.sessionDeadline = null;
+    this.sessionCapability = undefined;
     this.renewable = false;
     this.userId = null;
     this.publishIdentityChange();
@@ -182,6 +197,9 @@ export class AuthSessionManager {
   }
 
   async refreshIfNeeded(): Promise<void> {
+    if (this.sessionDeadline !== null && this.sessionDeadline <= Date.now()) {
+      this.requireReauthentication();
+    }
     if (!this.renewable || this.expiresAt === null || this.state === "refresh-uncertain") {
       return;
     }
@@ -210,6 +228,7 @@ export class AuthSessionManager {
   private async performRefreshRequest(generation: number): Promise<AuthToken> {
     if (generation !== this.loginGeneration)
       throw new AuthSessionError("unauthenticated", "An earlier refresh was superseded by a new sign-in.");
+    if (this.sessionDeadline !== null && this.sessionDeadline <= Date.now()) this.requireReauthentication();
     const tokenBeforeRefresh = this.accessToken;
     this.state = "refreshing";
     try {
@@ -230,8 +249,10 @@ export class AuthSessionManager {
         throw new AuthSessionError("refresh-uncertain", "The OIDC refresh result is uncertain.");
       }
       if (response?.status === 401) {
+        const wasAuthenticated = this.userId !== null;
         this.clear();
         this.state = "reauthentication-required";
+        if (wasAuthenticated) this.reauthenticationHandler?.();
         throw new AuthSessionError("reauthentication-required", "OIDC sign-in is required.");
       }
       if (!response || response.status === 429 || response.status >= 500) {
@@ -249,6 +270,22 @@ export class AuthSessionManager {
     if (!this.renewable || this.expiresAt === null || this.state === "refresh-uncertain" || document.visibilityState !== "visible") {
       return;
     }
+    if (this.sessionDeadline !== null && this.sessionDeadline <= Date.now()) {
+      this.requireReauthentication();
+    }
+    if (
+      this.sessionCapability === "reauthorization_only" &&
+      this.sessionDeadline !== null &&
+      this.sessionDeadline - Date.now() <= REFRESH_SAFETY_MARGIN_MS
+    ) {
+      this.refreshTimer = window.setTimeout(
+        () => {
+          void this.requestRefresh().catch(() => undefined);
+        },
+        Math.min(MAX_REFRESH_DELAY_MS, Math.max(0, this.sessionDeadline - Date.now()))
+      );
+      return;
+    }
     const remaining = this.expiresAt - Date.now();
     const jitter = Math.floor(remaining * REFRESH_JITTER_RATIO * (Math.random() - 0.5) * 2);
     const nextRefreshAt = this.refreshAt ?? Date.now() + remaining / 2;
@@ -263,6 +300,14 @@ export class AuthSessionManager {
       window.clearTimeout(this.refreshTimer);
       this.refreshTimer = null;
     }
+  }
+
+  private requireReauthentication(): never {
+    const wasAuthenticated = this.userId !== null;
+    this.clear();
+    this.state = "reauthentication-required";
+    if (wasAuthenticated) this.reauthenticationHandler?.();
+    throw new AuthSessionError("reauthentication-required", "OIDC sign-in is required.");
   }
 
   private refreshAfterReturn = (): void => {

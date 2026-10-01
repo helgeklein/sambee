@@ -7,12 +7,12 @@ from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from typing import Any, cast
 
-from sqlalchemy import update
+from sqlalchemy import func, update
 from sqlalchemy.engine import CursorResult
 from sqlmodel import Session, SQLModel
 
 from app.core.environment import IS_PRODUCTION
-from app.models.oidc import OidcBrowserSession, OidcBrowserSessionStatus, OidcProviderConfiguration
+from app.models.oidc import OidcBrowserSession, OidcBrowserSessionStatus, OidcProviderConfiguration, OidcSessionCapability
 from app.models.user import User
 from app.services.oidc_configuration import OidcSecretCipher
 from app.services.oidc_http import LOGIN_GRANT_LIFETIME_SECONDS
@@ -23,6 +23,9 @@ OIDC_SESSION_CIPHER_KEY_ID = "v1"
 OIDC_INTERACTIVE_REAUTHENTICATION_DEFAULT_DAYS = 30
 OIDC_INTERACTIVE_REAUTHENTICATION_MIN_DAYS = 1
 OIDC_INTERACTIVE_REAUTHENTICATION_MAX_DAYS = 365
+OIDC_NO_REFRESH_DEFAULT_HOURS = 8
+OIDC_NO_REFRESH_MIN_HOURS = 1
+OIDC_NO_REFRESH_MAX_HOURS = 24
 OIDC_REFRESH_LEASE_SECONDS = 45
 USER_AGENT_CLASSIFICATION_MAX_LENGTH = 512
 _OIDC_BROWSER_SESSION_TABLE = SQLModel.metadata.tables["oidcbrowsersession"]
@@ -91,7 +94,37 @@ def _maximum_age_days(configuration: OidcProviderConfiguration) -> int:
 def browser_session_policy_expiry(browser_session: OidcBrowserSession, configuration: OidcProviderConfiguration) -> datetime:
     """Return the current policy deadline measured from verified IdP auth_time."""
 
-    return _as_utc(browser_session.authenticated_at) + timedelta(days=_maximum_age_days(configuration))
+    idp_deadline = _as_utc(browser_session.authenticated_at) + timedelta(days=_maximum_age_days(configuration))
+    if browser_session.capability == OidcSessionCapability.REAUTHORIZATION_ONLY:
+        return min(idp_deadline, _as_utc(browser_session.created_at) + timedelta(hours=_no_refresh_limit_hours(configuration)))
+    return idp_deadline
+
+
+def _no_refresh_limit_hours(configuration: OidcProviderConfiguration) -> int:
+    hours = configuration.no_refresh_session_limit_hours
+    if not OIDC_NO_REFRESH_MIN_HOURS <= hours <= OIDC_NO_REFRESH_MAX_HOURS:
+        raise OidcBrowserSessionError(OidcBrowserSessionErrorCode.REAUTHENTICATION_REQUIRED, "OIDC session policy is invalid")
+    return hours
+
+
+def shorten_no_refresh_sessions(session: Session, *, configuration_id: int, hours: int) -> None:
+    """Persist policy reductions within the configuration transaction."""
+
+    session.execute(
+        update(OidcBrowserSession)
+        .where(
+            _OIDC_BROWSER_SESSION_TABLE.c.provider_configuration_id == configuration_id,
+            _OIDC_BROWSER_SESSION_TABLE.c.capability == OidcSessionCapability.REAUTHORIZATION_ONLY,
+            _OIDC_BROWSER_SESSION_TABLE.c.status.in_((OidcBrowserSessionStatus.PENDING, OidcBrowserSessionStatus.ACTIVE)),
+        )
+        .values(
+            absolute_expires_at=func.min(
+                _OIDC_BROWSER_SESSION_TABLE.c.absolute_expires_at,
+                func.datetime(_OIDC_BROWSER_SESSION_TABLE.c.created_at, f"+{hours} hours"),
+            )
+        )
+        .execution_options(synchronize_session=False)
+    )
 
 
 def browser_session_cookie_expiry(browser_session: OidcBrowserSession) -> datetime:
@@ -154,8 +187,8 @@ def create_pending_browser_session(
     issuer: str,
     subject: str,
     authenticated_at: datetime,
-    refresh_token: str,
-    session_cipher: OidcSecretCipher,
+    refresh_token: str | None,
+    session_cipher: OidcSecretCipher | None,
     session_cipher_key_id: str,
     flow_cipher: OidcSecretCipher,
     user_agent: str | None,
@@ -169,6 +202,9 @@ def create_pending_browser_session(
         raise OidcBrowserSessionError(OidcBrowserSessionErrorCode.REAUTHENTICATION_REQUIRED, "OIDC authentication time is invalid")
     secret = secrets.token_urlsafe(OIDC_BROWSER_SESSION_SECRET_BYTES)
     browser_name, operating_system = describe_browser_session_client(user_agent)
+    if bool(refresh_token) != bool(session_cipher):
+        raise ValueError("OIDC session capability and refresh token must agree")
+    capability = OidcSessionCapability.RENEWABLE if refresh_token else OidcSessionCapability.REAUTHORIZATION_ONLY
     browser_session = OidcBrowserSession(
         user_id=user.id,
         user_token_version=user.token_version,
@@ -178,12 +214,18 @@ def create_pending_browser_session(
         issuer=issuer,
         subject=subject,
         secret_hash=_hash_secret(secret),
-        encrypted_refresh_token=session_cipher.encrypt(refresh_token),
+        encrypted_refresh_token=session_cipher.encrypt(refresh_token) if session_cipher is not None and refresh_token is not None else None,
+        capability=capability,
         cipher_key_id=session_cipher_key_id,
         browser_name=browser_name,
         operating_system=operating_system,
         authenticated_at=authenticated_time,
-        absolute_expires_at=authenticated_time + timedelta(days=_maximum_age_days(configuration)),
+        absolute_expires_at=min(
+            authenticated_time + timedelta(days=_maximum_age_days(configuration)),
+            current_time + timedelta(hours=_no_refresh_limit_hours(configuration)),
+        )
+        if capability == OidcSessionCapability.REAUTHORIZATION_ONLY
+        else authenticated_time + timedelta(days=_maximum_age_days(configuration)),
         pending_expires_at=current_time + timedelta(seconds=LOGIN_GRANT_LIFETIME_SECONDS),
     )
     session.add(browser_session)
@@ -253,6 +295,8 @@ def validate_browser_session(
     now: datetime | None = None,
 ) -> User:
     current_time = now or _utc_now()
+    if (browser_session.capability == OidcSessionCapability.RENEWABLE) != bool(browser_session.encrypted_refresh_token):
+        raise OidcBrowserSessionError(OidcBrowserSessionErrorCode.REAUTHENTICATION_REQUIRED, "OIDC session capability is invalid")
     if browser_session.status == OidcBrowserSessionStatus.REFRESH_UNCERTAIN and not allow_refresh_uncertain:
         raise OidcBrowserSessionError(OidcBrowserSessionErrorCode.REFRESH_UNCERTAIN, "OIDC refresh outcome is uncertain")
     if browser_session.status not in {OidcBrowserSessionStatus.ACTIVE, OidcBrowserSessionStatus.REFRESH_UNCERTAIN}:

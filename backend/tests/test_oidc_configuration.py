@@ -151,6 +151,19 @@ def test_candidate_defaults_uniform_role_to_editor() -> None:
     assert candidate.uniform_role == UserRole.EDITOR
 
 
+def test_oidc_candidate_accepts_scopes_without_offline_access() -> None:
+    cipher = OidcSecretCipher(Fernet.generate_key().decode("ascii"))
+    candidate = OidcConfigurationCandidate(
+        issuer_url="https://idp.example.test",
+        client_id="sambee",
+        client_secret="secret",
+        scopes=["openid", "profile", "email"],
+        sign_in_mode=SignInMode.OIDC_ONLY,
+    )
+
+    assert normalize_candidate(candidate, None, cipher, development=False).scopes == ("openid", "profile", "email")
+
+
 def test_candidate_replacement_secret_is_tracked_and_snapshot_is_encrypted() -> None:
     cipher = OidcSecretCipher(Fernet.generate_key().decode("ascii"))
     active = _active_configuration(cipher)

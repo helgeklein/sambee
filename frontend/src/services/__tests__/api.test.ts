@@ -284,6 +284,40 @@ describe("API Service", () => {
       expect(window.location.assign).toHaveBeenCalledWith("/login?return_path=%2F");
       expect(authSession.requestRefresh).not.toHaveBeenCalled();
     });
+
+    it("preserves drafts and the browse return path at a no-refresh deadline", async () => {
+      vi.spyOn(authSession, "refreshIfNeeded").mockRestore();
+      const originalPathname = window.location.pathname;
+      const originalSearch = window.location.search;
+      const deadline = Date.now() + 30_000;
+      authSession.setAuthenticated(
+        {
+          access_token: "expiring-token",
+          token_type: "bearer",
+          user_id: "user-1",
+          oidc_session_capability: "reauthorization_only",
+          oidc_session_expires_at: new Date(deadline).toISOString(),
+          access_token_expires_at: new Date(deadline).toISOString(),
+        },
+        true
+      );
+      const snapshotDrafts = vi.spyOn(draftRecovery, "snapshotRegisteredDrafts");
+      window.location.pathname = "/browse/smb/demo";
+      window.location.search = "?path=notes";
+      const clock = vi.spyOn(Date, "now").mockReturnValue(deadline);
+      try {
+        await expect(requestHandler?.({ url: "/settings", method: "post", headers: {} })).rejects.toMatchObject({
+          code: "reauthentication-required",
+        });
+        expect(snapshotDrafts).toHaveBeenCalled();
+        expect(window.location.assign).toHaveBeenCalledWith("/login?return_path=%2Fbrowse%2Fsmb%2Fdemo%3Fpath%3Dnotes");
+        expect(mockAxiosInstance.request).not.toHaveBeenCalled();
+      } finally {
+        clock.mockRestore();
+        window.location.pathname = originalPathname;
+        window.location.search = originalSearch;
+      }
+    });
   });
 
   it("uses a bounded timeout for OIDC finalization", async () => {

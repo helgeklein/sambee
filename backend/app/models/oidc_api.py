@@ -54,13 +54,14 @@ class OidcConfigurationCandidate(BaseModel):
     issuer_url: str = Field(min_length=1, max_length=2048)
     client_id: str = Field(min_length=1, max_length=500)
     client_secret: SecretStr | None = Field(default=None, exclude=True, repr=False)
-    scopes: list[str] = Field(default_factory=lambda: ["openid", "profile", "email", "offline_access"], max_length=100)
+    scopes: list[str] = Field(default_factory=lambda: ["openid", "profile", "email"], max_length=100)
     username_claim: str = Field(default="preferred_username", min_length=1, max_length=200)
     name_claim: str | None = Field(default="name", max_length=200)
     email_claim: str | None = Field(default="email", max_length=200)
     groups_claim: str | None = Field(default="groups", max_length=200)
     sign_in_mode: SignInMode = SignInMode.PASSWORD_ONLY
     interactive_reauthentication_max_age_days: int = Field(default=30, ge=1, le=365)
+    no_refresh_session_limit_hours: int = Field(default=8, ge=1, le=24)
     admission_mode: OidcAdmissionMode = OidcAdmissionMode.ALL_IDP_USERS
     admission_groups: list[str] = Field(default_factory=list, max_length=500)
     role_assignment_mode: OidcRoleAssignmentMode = OidcRoleAssignmentMode.UNIFORM
@@ -81,6 +82,7 @@ class RedactedOidcConfiguration(SQLModel):
     groups_claim: str | None
     sign_in_mode: SignInMode
     interactive_reauthentication_max_age_days: int
+    no_refresh_session_limit_hours: int
     admission_mode: OidcAdmissionMode
     admission_groups: list[str]
     role_assignment_mode: OidcRoleAssignmentMode
@@ -164,6 +166,7 @@ class OidcReplacementMappingInput(SQLModel):
 class OidcReviewedPolicy(SQLModel):
     sign_in_mode: SignInMode
     interactive_reauthentication_max_age_days: int = Field(default=30, ge=1, le=365)
+    no_refresh_session_limit_hours: int = Field(default=8, ge=1, le=24)
     admission_mode: OidcAdmissionMode
     admission_groups: list[str] = Field(default_factory=list, max_length=500)
     role_assignment_mode: OidcRoleAssignmentMode = OidcRoleAssignmentMode.UNIFORM
@@ -177,6 +180,7 @@ class OidcTestPreviewRequest(SQLModel):
 
 class OidcTestedIdentityRead(SQLModel):
     flow_id: uuid.UUID
+    refresh_token_returned: bool
     candidate: RedactedOidcConfiguration
     replacement_mappings: list[OidcReplacementMappingRead]
     expected_identity_mapping_revision: int | None
