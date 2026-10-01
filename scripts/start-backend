@@ -45,7 +45,7 @@ if [ -f "/.dockerenv" ] || [ -n "$REMOTE_CONTAINERS" ] || [ -n "$CODESPACES" ]; 
         echo "✅ Backend dependencies installed"
     fi
 
-    # Export PYTHONPATH for uvicorn's reload subprocess (Python 3.13 multiprocessing fix)
+    # Export PYTHONPATH for uvicorn's reload subprocess.
     export PYTHONPATH="${PYTHONPATH:+${PYTHONPATH}:}/workspace/backend"
 
     "$BACKEND_PYTHON" -m uvicorn app.main:app --reload --reload-dir /workspace --reload-include "*.py" --reload-include "config.toml" --host 0.0.0.0 --port 8000 --no-proxy-headers

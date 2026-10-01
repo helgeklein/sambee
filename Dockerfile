@@ -3,7 +3,7 @@
 # Shared runtime for production, development, and container validation. Normal
 # builds retain the stable default; scheduled image workflows may opt in to a
 # refresh until immutable system package inputs are introduced.
-ARG PYTHON_BASE_IMAGE=python:3.13.12-slim@sha256:f1927c75e81efd1e091dbd64b6c0ecaa5630b38635a3d1c04034ac636e1f94c8
+ARG PYTHON_BASE_IMAGE=python:3.14.7-slim@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d
 FROM ${PYTHON_BASE_IMAGE} AS runtime-base
 ENV DEBIAN_FRONTEND=noninteractive
 ARG APT_REFRESH_KEY=static

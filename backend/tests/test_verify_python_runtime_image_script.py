@@ -11,8 +11,8 @@ MODULE = module_from_spec(SPEC)
 sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
-PYTHON_IMAGE = "python:3.13.12-slim@sha256:" + "a" * 64
-PYTHON_VERSION = "3.13.12"
+PYTHON_IMAGE = "python:3.14.7-slim@sha256:" + "a" * 64
+PYTHON_VERSION = "3.14.7"
 
 
 def dockerfile_contents(base_image: str = PYTHON_IMAGE, stage_references: int = 2) -> str:
@@ -33,7 +33,7 @@ def test_reads_canonical_runtime_image(tmp_path: Path) -> None:
 
 def test_rejects_unpinned_runtime_image(tmp_path: Path) -> None:
     dockerfile_path = tmp_path / "Dockerfile"
-    dockerfile_path.write_text(dockerfile_contents(base_image="python:3.13-slim"), encoding="utf-8")
+    dockerfile_path.write_text(dockerfile_contents(base_image="python:3.14-slim"), encoding="utf-8")
 
     with pytest.raises(ValueError, match="pinned"):
         MODULE.read_python_runtime_image(dockerfile_path)
