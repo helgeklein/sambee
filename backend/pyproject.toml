@@ -76,7 +76,7 @@ ignore = [
 ]
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.14"
 # Sambee uses stricter typing than HA project
 strict = true
 warn_return_any = true

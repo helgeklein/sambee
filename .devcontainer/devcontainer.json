@@ -35,9 +35,6 @@
         "python.testing.cwd": "${workspaceFolder}/backend",
         // Python Configuration
         "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/bin/python",
-        "python-envs.workspaceSearchPaths": [
-          "backend/.venv"
-        ],
         "python-envs.alwaysUseUv": false,
         "python.analysis.typeCheckingMode": "basic",
         // File Handling
