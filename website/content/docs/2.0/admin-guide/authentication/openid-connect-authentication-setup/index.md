@@ -32,7 +32,7 @@ In your identity provider, create a new OpenID Connect IdP with the following pr
    - `email`: optional
    - `groups`: required when using group admission or group-based role mappings
    - `offline_access`: may be required for refresh tokens, depending on the provider
-- Authorization-code grant
+- Authorization code grant
 - Refresh token grant: optional
 
 #### Token Lifetimes

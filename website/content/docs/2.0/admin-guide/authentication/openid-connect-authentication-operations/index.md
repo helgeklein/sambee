@@ -64,4 +64,3 @@ Sambee enforces authentication limits in the application. A reverse proxy can ad
 | Password sign-in | 10 attempts per source IP per 5 minutes and 10 attempts per submitted username per 15 minutes |
 
 Limits refill continuously. A rejected API request returns `Retry-After`; browser-based OIDC requests return to the sign-in page with a generic retry message. Password forms larger than 64 KiB are rejected before parsing. These responses do not expose account existence, the active sign-in mode, provider payloads, or submitted credentials.
-
