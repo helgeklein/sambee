@@ -30,3 +30,5 @@ Things to avoid:
 - Ignoring the broader context of the code changes
 - Overengineering
 - Scope creep
+
+Use a second agent that challenges any findings and ensures findings match the criteria outlined above.

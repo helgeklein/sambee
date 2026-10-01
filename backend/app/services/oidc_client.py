@@ -256,8 +256,6 @@ async def load_provider_metadata(
     grant_types = _string_tuple(data, "grant_types_supported")
     if grant_types and "authorization_code" not in grant_types:
         raise OidcClientError(OidcClientErrorCode.INVALID_METADATA, "OIDC provider does not advertise authorization code support")
-    if grant_types and "refresh_token" not in grant_types:
-        raise OidcClientError(OidcClientErrorCode.INVALID_METADATA, "OIDC provider does not advertise refresh token support")
     auth_methods = _string_tuple(data, "token_endpoint_auth_methods_supported")
     if auth_methods and "client_secret_basic" not in auth_methods:
         raise OidcClientError(OidcClientErrorCode.INVALID_METADATA, "OIDC provider does not support client_secret_basic")

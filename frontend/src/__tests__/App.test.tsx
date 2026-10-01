@@ -50,6 +50,7 @@ vi.mock("../services/authSession", async (importOriginal) => {
       requestRefresh: vi.fn().mockRejectedValue(new Error("No renewable session")),
       refreshIfNeeded: vi.fn().mockResolvedValue(undefined),
       setAuthenticated: vi.fn(),
+      setReauthenticationHandler: vi.fn(),
       clear: vi.fn(),
       logout: vi.fn().mockResolvedValue(undefined),
     },

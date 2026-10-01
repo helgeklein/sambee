@@ -71,6 +71,7 @@ class NormalizedOidcCandidate:
     role_assignment_mode: OidcRoleAssignmentMode = OidcRoleAssignmentMode.UNIFORM
     uniform_role: UserRole = UserRole.EDITOR
     interactive_reauthentication_max_age_days: int = 30
+    no_refresh_session_limit_hours: int = 8
     auto_link_by_username: bool = True
 
 
@@ -204,6 +205,7 @@ def apply_reviewed_policy(
         groups_claim=tested.groups_claim,
         sign_in_mode=reviewed.sign_in_mode,
         interactive_reauthentication_max_age_days=reviewed.interactive_reauthentication_max_age_days,
+        no_refresh_session_limit_hours=reviewed.no_refresh_session_limit_hours,
         admission_mode=reviewed.admission_mode,
         admission_groups=reviewed.admission_groups,
         role_assignment_mode=reviewed.role_assignment_mode,
@@ -260,6 +262,7 @@ def _active_values(active: OidcProviderConfiguration | None) -> dict[str, Any]:
         "groups_claim": active.groups_claim,
         "sign_in_mode": active.sign_in_mode,
         "interactive_reauthentication_max_age_days": active.interactive_reauthentication_max_age_days,
+        "no_refresh_session_limit_hours": active.no_refresh_session_limit_hours,
         "admission_mode": active.admission_mode,
         "admission_groups": tuple(cast(list[str], json.loads(active.admission_groups_json))),
         "role_assignment_mode": active.role_assignment_mode,
@@ -289,8 +292,6 @@ def normalize_candidate(
         raise OidcConfigurationError("OIDC client ID and username claim are required")
     display_name = candidate.display_name.strip() or cast(str, urlsplit(issuer_url).hostname)
     scopes = _normalize_scopes(candidate.scopes)
-    if candidate.sign_in_mode != SignInMode.PASSWORD_ONLY and "offline_access" not in scopes:
-        raise OidcConfigurationError("OIDC renewable sessions require the offline_access scope")
     admission_groups = _normalize_unique_strings(candidate.admission_groups, field_name="admission groups")
     admin_groups = _normalize_unique_strings(candidate.role_mappings.admin, field_name="administrator role groups")
     editor_groups = _normalize_unique_strings(candidate.role_mappings.editor, field_name="editor role groups")
@@ -332,6 +333,7 @@ def normalize_candidate(
         "groups_claim": groups_claim,
         "sign_in_mode": candidate.sign_in_mode,
         "interactive_reauthentication_max_age_days": candidate.interactive_reauthentication_max_age_days,
+        "no_refresh_session_limit_hours": candidate.no_refresh_session_limit_hours,
         "admission_mode": candidate.admission_mode,
         "admission_groups": admission_groups,
         "role_assignment_mode": candidate.role_assignment_mode,
@@ -355,6 +357,7 @@ def normalize_candidate(
         groups_claim=groups_claim,
         sign_in_mode=candidate.sign_in_mode,
         interactive_reauthentication_max_age_days=candidate.interactive_reauthentication_max_age_days,
+        no_refresh_session_limit_hours=candidate.no_refresh_session_limit_hours,
         admission_mode=candidate.admission_mode,
         admission_groups=admission_groups,
         role_assignment_mode=candidate.role_assignment_mode,
@@ -405,6 +408,7 @@ def redacted_configuration(configuration: OidcProviderConfiguration) -> Redacted
         groups_claim=configuration.groups_claim,
         sign_in_mode=configuration.sign_in_mode,
         interactive_reauthentication_max_age_days=configuration.interactive_reauthentication_max_age_days,
+        no_refresh_session_limit_hours=configuration.no_refresh_session_limit_hours,
         admission_mode=configuration.admission_mode,
         admission_groups=cast(list[str], json.loads(configuration.admission_groups_json)),
         role_assignment_mode=configuration.role_assignment_mode,
@@ -429,6 +433,7 @@ def redacted_candidate(candidate: NormalizedOidcCandidate) -> RedactedOidcConfig
         groups_claim=candidate.groups_claim,
         sign_in_mode=candidate.sign_in_mode,
         interactive_reauthentication_max_age_days=candidate.interactive_reauthentication_max_age_days,
+        no_refresh_session_limit_hours=candidate.no_refresh_session_limit_hours,
         admission_mode=candidate.admission_mode,
         admission_groups=list(candidate.admission_groups),
         role_assignment_mode=candidate.role_assignment_mode,

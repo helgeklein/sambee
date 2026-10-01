@@ -35,6 +35,7 @@ const configuration = (displayName: string): RedactedOidcConfiguration => ({
   groups_claim: "groups",
   sign_in_mode: "oidc_or_password",
   interactive_reauthentication_max_age_days: 30,
+  no_refresh_session_limit_hours: 8,
   admission_mode: "selected_groups",
   admission_groups: ["sambee-users"],
   role_assignment_mode: "group_based",
@@ -62,6 +63,7 @@ const response = (value: RedactedOidcConfiguration): OidcAdminConfigurationRead 
 const reviewedPolicy = (value: RedactedOidcConfiguration): OidcReviewedPolicy => ({
   sign_in_mode: value.sign_in_mode,
   interactive_reauthentication_max_age_days: value.interactive_reauthentication_max_age_days,
+  no_refresh_session_limit_hours: value.no_refresh_session_limit_hours,
   admission_mode: value.admission_mode,
   admission_groups: value.admission_groups,
   role_assignment_mode: value.role_assignment_mode,
@@ -72,6 +74,7 @@ const reviewedPolicy = (value: RedactedOidcConfiguration): OidcReviewedPolicy =>
 
 const testedIdentity = (overrides: Partial<OidcTestedIdentity> = {}): OidcTestedIdentity => ({
   flow_id: "test-flow",
+  refresh_token_returned: true,
   candidate: configuration("Tested Provider"),
   replacement_mappings: [],
   expected_identity_mapping_revision: 1,
@@ -535,6 +538,30 @@ describe("Authentication settings", () => {
     expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("test-flow");
     await user.click(screen.getByRole("button", { name: "Review test" }));
     expect(await screen.findByRole("button", { name: "Activate configuration" })).toBeEnabled();
+  });
+
+  it.each([
+    [true, "Session renewal: Refresh token returned in this test"],
+    [
+      false,
+      "Session renewal: No refresh token returned in this test; users will need to sign in again after the configured session limit.",
+    ],
+  ])("reports observed session renewal when refresh token returned is %s", async (refreshTokenReturned, result) => {
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity({ refresh_token_returned: refreshTokenReturned }));
+    window.location.hash = "flow=test-flow";
+    renderSettings();
+
+    expect(await screen.findByText(result)).toBeInTheDocument();
+  });
+
+  it("explains the no-refresh session limit in the provider form", async () => {
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    window.location.hash = "";
+    renderSettings();
+    await openOidcConfiguration();
+
+    expect(screen.getByText("Applies only when sign-in does not return a refresh token")).toBeInTheDocument();
   });
 
   it("blocks activation when the tested identity does not pass admission", async () => {

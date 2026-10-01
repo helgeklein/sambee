@@ -51,6 +51,8 @@ export interface AuthToken extends User {
   access_token: string;
   token_type: string;
   oidc_refresh_generation?: number;
+  oidc_session_capability?: "renewable" | "reauthorization_only";
+  oidc_session_expires_at?: string;
   return_path?: string;
 }
 
@@ -616,6 +618,7 @@ export interface OidcRoleMappings {
 export interface OidcReviewedPolicy {
   sign_in_mode: SignInMode;
   interactive_reauthentication_max_age_days: number;
+  no_refresh_session_limit_hours: number;
   admission_mode: OidcAdmissionMode;
   admission_groups: string[];
   role_assignment_mode: OidcRoleAssignmentMode;
@@ -636,6 +639,7 @@ export interface OidcConfigurationCandidate {
   groups_claim: string | null;
   sign_in_mode: SignInMode;
   interactive_reauthentication_max_age_days: number;
+  no_refresh_session_limit_hours: number;
   admission_mode: OidcAdmissionMode;
   admission_groups: string[];
   role_assignment_mode: OidcRoleAssignmentMode;
@@ -692,6 +696,7 @@ export interface OidcReplacementMapping {
 
 export interface OidcTestedIdentity {
   flow_id: string;
+  refresh_token_returned: boolean;
   candidate: RedactedOidcConfiguration;
   replacement_mappings: OidcReplacementMapping[];
   expected_identity_mapping_revision: number | null;

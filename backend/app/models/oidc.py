@@ -50,6 +50,11 @@ class OidcBrowserSessionStatus(StrEnum):
     REVOKED = "revoked"
 
 
+class OidcSessionCapability(StrEnum):
+    RENEWABLE = "renewable"
+    REAUTHORIZATION_ONLY = "reauthorization_only"
+
+
 def _enum_column(enum_type: type[StrEnum], default: StrEnum | None = None) -> Column:  # type: ignore[type-arg]
     return Column(
         SqlEnum(
@@ -105,6 +110,7 @@ class OidcProviderConfiguration(SQLModel, table=True):
     role_mappings_json: str = Field(default='{"admin":[],"editor":[],"viewer":[]}')
     auto_link_by_username: bool = Field(default=True)
     interactive_reauthentication_max_age_days: int = Field(default=30)
+    no_refresh_session_limit_hours: int = Field(default=8)
     configuration_revision: int = Field(default=0)
     session_validation_revision: int = Field(default=0)
     identity_mapping_revision: int = Field(default=0)
@@ -130,7 +136,15 @@ class OidcIdentity(SQLModel, table=True):
 
 
 class OidcBrowserSession(SQLModel, table=True):
-    """A renewable IdP session bound to one browser through an opaque cookie."""
+    """An IdP session bound to one browser through an opaque cookie."""
+
+    __table_args__ = (
+        CheckConstraint(
+            "(capability = 'renewable' AND encrypted_refresh_token IS NOT NULL AND length(encrypted_refresh_token) > 0) "
+            "OR (capability = 'reauthorization_only' AND encrypted_refresh_token IS NULL)",
+            name="ck_oidc_browser_session_capability",
+        ),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: uuid.UUID = Field(foreign_key="user.id", index=True)
@@ -141,7 +155,11 @@ class OidcBrowserSession(SQLModel, table=True):
     issuer: str
     subject: str
     secret_hash: str = Field(index=True)
-    encrypted_refresh_token: str
+    encrypted_refresh_token: str | None = Field(default=None)
+    capability: OidcSessionCapability = Field(
+        default=OidcSessionCapability.RENEWABLE,
+        sa_column=_enum_column(OidcSessionCapability, OidcSessionCapability.RENEWABLE),
+    )
     cipher_key_id: str = Field(default="v1")
     status: OidcBrowserSessionStatus = Field(
         default=OidcBrowserSessionStatus.PENDING,
@@ -213,6 +231,7 @@ class OidcFlow(SQLModel, table=True):
     encrypted_browser_session_secret: str | None = Field(default=None)
     encrypted_candidate_configuration: str | None = Field(default=None)
     encrypted_tested_identity: str | None = Field(default=None)
+    test_refresh_token_returned: bool | None = Field(default=None)
     interactive_reauthentication_required: bool = Field(default=False)
     configuration_revision: int | None = Field(default=None)
     return_path: str = Field(default="/browse")

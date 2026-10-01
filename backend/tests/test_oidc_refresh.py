@@ -6,8 +6,8 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 import app.api.auth as auth_module
-from app.core.security import build_user_access_token
-from app.models.oidc import OidcBrowserSession, OidcBrowserSessionStatus, OidcProviderConfiguration
+from app.core.security import build_user_access_token, decode_access_token
+from app.models.oidc import OidcBrowserSession, OidcBrowserSessionStatus, OidcProviderConfiguration, OidcSessionCapability
 from app.models.user import User, UserRole
 from app.services.oidc_browser_session import OIDC_BROWSER_SESSION_COOKIE_NAME, build_cookie_value
 from app.services.oidc_client import NormalizedOidcClaims, ValidatedOidcTokenSet
@@ -47,6 +47,39 @@ def _create_browser_session(session: Session) -> tuple[User, OidcBrowserSession,
     session.add(browser_session)
     session.commit()
     return user, browser_session, build_cookie_value(browser_session.id, secret)
+
+
+def test_no_refresh_session_issues_capped_token_without_provider_call(
+    client: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, browser_session, cookie_value = _create_browser_session(session)
+    browser_session.capability = OidcSessionCapability.REAUTHORIZATION_ONLY
+    browser_session.encrypted_refresh_token = None
+    browser_session.absolute_expires_at = datetime.now(timezone.utc) + timedelta(minutes=20)
+    session.add(browser_session)
+    session.commit()
+
+    async def unexpected_provider(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("No provider call is allowed for reauthorization-only sessions")
+
+    monkeypatch.setattr(auth_module, "load_provider_metadata", unexpected_provider)
+    client.cookies.set(OIDC_BROWSER_SESSION_COOKIE_NAME, cookie_value)
+    response = client.post("/api/auth/oidc/refresh", headers={"Origin": "http://testserver"})
+
+    assert response.status_code == 200
+    assert response.json()["oidc_session_capability"] == "reauthorization_only"
+    assert datetime.fromisoformat(response.json()["access_token_expires_at"]) <= browser_session.absolute_expires_at.replace(
+        tzinfo=timezone.utc
+    )
+    assert decode_access_token(response.json()["access_token"])["sid"] == str(browser_session.id)
+    assert browser_session.refresh_generation == 0
+
+    browser_session.absolute_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    session.add(browser_session)
+    session.commit()
+    expired = client.post("/api/auth/oidc/refresh", headers={"Origin": "http://testserver"})
+    assert expired.status_code == 401
+    assert expired.json()["detail"] == {"code": "oidc_reauthentication_required"}
 
 
 def test_refresh_releases_lease_when_provider_discovery_is_temporarily_unavailable(

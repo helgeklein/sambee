@@ -60,13 +60,14 @@ const DEFAULT_CANDIDATE: OidcConfigurationCandidate = {
   display_name: "",
   issuer_url: "",
   client_id: "",
-  scopes: ["openid", "profile", "email", "offline_access"],
+  scopes: ["openid", "profile", "email"],
   username_claim: "preferred_username",
   name_claim: "name",
   email_claim: "email",
   groups_claim: "groups",
   sign_in_mode: "oidc_or_password",
   interactive_reauthentication_max_age_days: 30,
+  no_refresh_session_limit_hours: 8,
   admission_mode: "all_idp_users",
   admission_groups: [],
   role_assignment_mode: "uniform",
@@ -126,6 +127,7 @@ const PROVIDER_INTERVAL_DESKTOP_FIELD_WIDTH_PX = 112;
 const REVIEWABLE_POLICY_KEYS = new Set<keyof OidcConfigurationCandidate>([
   "sign_in_mode",
   "interactive_reauthentication_max_age_days",
+  "no_refresh_session_limit_hours",
   "admission_mode",
   "admission_groups",
   "role_assignment_mode",
@@ -157,6 +159,7 @@ const editableCandidate = ({
 const reviewedPolicyFor = (candidate: OidcConfigurationCandidate): OidcReviewedPolicy => ({
   sign_in_mode: candidate.sign_in_mode,
   interactive_reauthentication_max_age_days: candidate.interactive_reauthentication_max_age_days,
+  no_refresh_session_limit_hours: candidate.no_refresh_session_limit_hours,
   admission_mode: candidate.admission_mode,
   admission_groups: candidate.admission_groups,
   role_assignment_mode: candidate.role_assignment_mode,
@@ -172,6 +175,7 @@ const isReviewedPolicy = (value: unknown): value is OidcReviewedPolicy => {
   return (
     (policy["sign_in_mode"] === "oidc_or_password" || policy["sign_in_mode"] === "oidc_only") &&
     typeof policy["interactive_reauthentication_max_age_days"] === "number" &&
+    typeof policy["no_refresh_session_limit_hours"] === "number" &&
     (policy["admission_mode"] === "all_idp_users" || policy["admission_mode"] === "selected_groups") &&
     isStringArray(policy["admission_groups"]) &&
     (policy["role_assignment_mode"] === "uniform" || policy["role_assignment_mode"] === "group_based") &&
@@ -1252,7 +1256,7 @@ export function AuthenticationSettings() {
                       )}
                       {renderFormRow(
                         "Scopes",
-                        scopesError || "Separate with commas; openid and offline_access are required",
+                        scopesError || "Separate with commas; openid is required. Add offline_access only if your provider supports it.",
                         "scopes-description",
                         "scopes",
                         <TextField
@@ -1268,7 +1272,8 @@ export function AuthenticationSettings() {
                           helperText={
                             usesDesktopFormLayout
                               ? undefined
-                              : scopesError || "Separate with commas; openid and offline_access are required"
+                              : scopesError ||
+                                "Separate with commas; openid is required. Add offline_access only if your provider supports it."
                           }
                           sx={providerFieldSx}
                           slotProps={{ htmlInput: { "aria-describedby": usesDesktopFormLayout ? "scopes-description" : undefined } }}
@@ -1298,6 +1303,31 @@ export function AuthenticationSettings() {
                             },
                           }}
                           helperText={usesDesktopFormLayout ? undefined : "Background renewal stops when this interval expires"}
+                          sx={providerIntervalFieldSx}
+                        />
+                      )}
+                      {renderFormRow(
+                        "Session limit without refresh token (hours)",
+                        "Applies only when sign-in does not return a refresh token",
+                        "no-refresh-session-limit-description",
+                        "no-refresh-session-limit",
+                        <TextField
+                          id="no-refresh-session-limit"
+                          fullWidth={!usesDesktopFormLayout}
+                          size={formFieldSize}
+                          label={usesDesktopFormLayout ? undefined : "Session limit without refresh token (hours)"}
+                          type="number"
+                          value={candidate.no_refresh_session_limit_hours}
+                          onChange={(event) => update("no_refresh_session_limit_hours", Number(event.target.value))}
+                          disabled={finalizationUnresolved}
+                          slotProps={{
+                            htmlInput: {
+                              min: 1,
+                              max: 24,
+                              "aria-describedby": usesDesktopFormLayout ? "no-refresh-session-limit-description" : undefined,
+                            },
+                          }}
+                          helperText={usesDesktopFormLayout ? undefined : "Applies only when sign-in does not return a refresh token"}
                           sx={providerIntervalFieldSx}
                         />
                       )}
@@ -1705,6 +1735,12 @@ export function AuthenticationSettings() {
                         {testedIdentity.email && <Typography>Email: {testedIdentity.email}</Typography>}
                         <Typography>Groups: {testedIdentity.groups.join(", ") || "None"}</Typography>
                         <Typography>Admission: {testedIdentity.admitted ? "Allowed" : "Denied"}</Typography>
+                        <Typography>
+                          Session renewal:{" "}
+                          {testedIdentity.refresh_token_returned
+                            ? "Refresh token returned in this test"
+                            : "No refresh token returned in this test; users will need to sign in again after the configured session limit."}
+                        </Typography>
                         {testedIdentity.matching_admission_group && (
                           <Typography>Matching admission group: {testedIdentity.matching_admission_group}</Typography>
                         )}

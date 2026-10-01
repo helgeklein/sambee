@@ -51,6 +51,7 @@ from app.services.authentication_config import (
     is_authentication_enforcement_disabled,
     set_ui_authentication_mode,
 )
+from app.services.oidc_browser_session import shorten_no_refresh_sessions
 from app.services.oidc_client import (
     NormalizedOidcClaims,
     OidcClientError,
@@ -200,6 +201,7 @@ def _proposed_configuration(
         groups_claim=candidate.groups_claim,
         sign_in_mode=candidate.sign_in_mode,
         interactive_reauthentication_max_age_days=candidate.interactive_reauthentication_max_age_days,
+        no_refresh_session_limit_hours=candidate.no_refresh_session_limit_hours,
         admission_mode=candidate.admission_mode,
         admission_groups_json=json.dumps(candidate.admission_groups),
         role_assignment_mode=candidate.role_assignment_mode,
@@ -327,6 +329,7 @@ async def start_oidc_test(
             state=started.state,
             nonce=started.nonce,
             code_verifier=started.code_verifier,
+            max_age=normalized.interactive_reauthentication_max_age_days * 24 * 60 * 60,
         )
         write_audit_event(
             session,
@@ -404,6 +407,7 @@ async def get_oidc_test_result(
     )
     return OidcTestedIdentityRead(
         flow_id=flow.id,
+        refresh_token_returned=bool(flow.test_refresh_token_returned),
         candidate=redacted_candidate(candidate),
         replacement_mappings=[],
         expected_identity_mapping_revision=active.identity_mapping_revision if active is not None else None,
@@ -625,6 +629,8 @@ async def finalize_oidc_configuration(
         active = proposed
         session.add(active)
     else:
+        if candidate.no_refresh_session_limit_hours < active.no_refresh_session_limit_hours:
+            shorten_no_refresh_sessions(session, configuration_id=active.id, hours=candidate.no_refresh_session_limit_hours)
         for key, value in proposed.model_dump(exclude={"id", "created_at"}).items():
             setattr(active, key, value)
         session.add(active)

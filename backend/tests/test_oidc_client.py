@@ -469,7 +469,6 @@ async def test_callback_rejects_invalid_id_token_signature() -> None:
     "overrides",
     [
         {"grant_types_supported": ["implicit"]},
-        {"grant_types_supported": ["authorization_code"]},
         {"token_endpoint_auth_methods_supported": ["none"]},
         {"id_token_signing_alg_values_supported": ["ES256"]},
         {"grant_types_supported": "authorization_code"},
@@ -508,6 +507,24 @@ async def test_metadata_rejects_invalid_jwks() -> None:
             await load_provider_metadata(client, ISSUER, development=False)
 
     assert error.value.code == OidcClientErrorCode.INVALID_JWKS
+
+
+@pytest.mark.asyncio
+async def test_metadata_accepts_authorization_code_without_refresh_grant() -> None:
+    clear_oidc_provider_cache()
+    _, jwks = _key_material("code-only-key")
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            json=jwks if request.url.path.endswith("/jwks") else _metadata_document(grant_types_supported=["authorization_code"]),
+        )
+    )
+
+    async with ValidatedOidcHttpClient(transport=transport, development=False) as client:
+        metadata, _ = await load_provider_metadata(client, ISSUER, development=False)
+
+    assert metadata.grant_types_supported == ("authorization_code",)
 
 
 @pytest.mark.asyncio

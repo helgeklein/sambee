@@ -28,12 +28,71 @@ from app.db.migrations import (
     run_migrations,
 )
 from app.models.connection import Connection
+from app.models.oidc import OidcBrowserSession, OidcBrowserSessionStatus, OidcProviderConfiguration
 from app.models.user import User, UserRole
 
 
 @pytest.mark.unit
 class TestDatabaseInitialization:
     """Test database initialization."""
+
+    def test_no_refresh_migration_preserves_existing_session(self, tmp_path: Path):
+        from datetime import datetime, timedelta, timezone
+
+        engine = create_engine(f"sqlite:///{tmp_path / 'oidc-upgrade.db'}")
+        try:
+            SQLModel.metadata.create_all(engine)
+            with Session(engine) as session:
+                user = User(username="upgrade-user", role=UserRole.VIEWER, password_hash=None)
+                configuration = OidcProviderConfiguration(display_name="IdP", issuer_url="https://issuer.example", client_id="client")
+                session.add_all([user, configuration])
+                session.commit()
+                now = datetime.now(timezone.utc)
+                existing = OidcBrowserSession(
+                    user_id=user.id,
+                    user_token_version=user.token_version,
+                    provider_configuration_id=configuration.id,
+                    configuration_revision=0,
+                    identity_mapping_revision=0,
+                    issuer=configuration.issuer_url,
+                    subject="subject",
+                    secret_hash="secret",
+                    encrypted_refresh_token="encrypted",
+                    status=OidcBrowserSessionStatus.ACTIVE,
+                    authenticated_at=now,
+                    absolute_expires_at=now + timedelta(days=1),
+                )
+                session.add(existing)
+                session.commit()
+                session_id = existing.id
+            with engine.begin() as connection:
+                old_columns = [
+                    column["name"] for column in inspect(connection).get_columns("oidcbrowsersession") if column["name"] != "capability"
+                ]
+                names = ", ".join(f'"{name}"' for name in old_columns)
+                connection.execute(text(f'CREATE TABLE "oidcbrowsersession__old" AS SELECT {names} FROM "oidcbrowsersession"'))
+                connection.execute(text('DROP TABLE "oidcbrowsersession"'))
+                connection.execute(text('ALTER TABLE "oidcbrowsersession__old" RENAME TO "oidcbrowsersession"'))
+                connection.execute(
+                    text(
+                        f"CREATE TABLE {MIGRATION_TABLE_NAME} (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT DEFAULT CURRENT_TIMESTAMP)"
+                    )
+                )
+                connection.execute(
+                    text(f"INSERT INTO {MIGRATION_TABLE_NAME} (version, name) VALUES (:version, :name)"),
+                    [{"version": migration.version, "name": migration.name} for migration in MIGRATIONS if migration.version < 37],
+                )
+            run_migrations(engine)
+            run_migrations(engine)
+            with Session(engine) as session:
+                upgraded = session.get(OidcBrowserSession, session_id)
+                assert upgraded is not None
+                assert upgraded.capability == "renewable"
+                assert upgraded.encrypted_refresh_token == "encrypted"
+            with engine.connect() as connection:
+                assert connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall() == []
+        finally:
+            engine.dispose()
 
     def test_migration_upgrades_existing_download_intents(self, tmp_path: Path):
         test_engine = create_engine(f"sqlite:///{tmp_path / 'old-download-intents.db'}")

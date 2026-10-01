@@ -4,7 +4,7 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from sqlalchemy import inspect, text
+from sqlalchemy import MetaData, inspect, text
 from sqlalchemy.engine import Connection, Engine
 
 from app.core.logging import get_logger
@@ -976,6 +976,50 @@ def _apply_download_intent_token_version_migration(connection: Connection) -> No
     connection.execute(text("DELETE FROM download_intent"))
 
 
+def _apply_oidc_no_refresh_sessions_migration(connection: Connection) -> None:
+    from sqlmodel import SQLModel
+
+    from app.models.oidc import OidcBrowserSession  # noqa: F401 - Registers metadata
+
+    if not inspect(connection).has_table("oidcproviderconfiguration"):
+        return
+    configuration_columns = {column["name"] for column in inspect(connection).get_columns("oidcproviderconfiguration")}
+    if "no_refresh_session_limit_hours" not in configuration_columns:
+        connection.execute(
+            text("ALTER TABLE oidcproviderconfiguration ADD COLUMN no_refresh_session_limit_hours INTEGER NOT NULL DEFAULT 8")
+        )
+    if inspect(connection).has_table("oidcflow"):
+        flow_columns = {column["name"] for column in inspect(connection).get_columns("oidcflow")}
+        if "test_refresh_token_returned" not in flow_columns:
+            connection.execute(text("ALTER TABLE oidcflow ADD COLUMN test_refresh_token_returned BOOLEAN"))
+    if connection.dialect.name != "sqlite":
+        raise RuntimeError("OIDC browser-session migration requires SQLite")
+    if not inspect(connection).has_table("oidcbrowsersession"):
+        return
+    table = SQLModel.metadata.tables["oidcbrowsersession"]
+    previous_columns = [column["name"] for column in inspect(connection).get_columns(table.name)]
+    if "capability" in previous_columns:
+        return
+    replacement_metadata = MetaData()
+    SQLModel.metadata.tables["user"].to_metadata(replacement_metadata)
+    SQLModel.metadata.tables["oidcproviderconfiguration"].to_metadata(replacement_metadata)
+    replacement = table.to_metadata(replacement_metadata, name="oidcbrowsersession__no_refresh")
+    replacement.indexes.clear()
+    replacement.create(connection)
+    copied_columns = ", ".join(f'"{name}"' for name in previous_columns)
+    connection.execute(
+        text(
+            f'INSERT INTO "oidcbrowsersession__no_refresh" ({copied_columns}, "capability") '
+            f'SELECT {copied_columns}, :capability FROM "oidcbrowsersession"'
+        ),
+        {"capability": "renewable"},
+    )
+    connection.execute(text('DROP TABLE "oidcbrowsersession"'))
+    connection.execute(text('ALTER TABLE "oidcbrowsersession__no_refresh" RENAME TO "oidcbrowsersession"'))
+    for index in table.indexes:
+        index.create(bind=connection, checkfirst=True)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="ensure_connection_slugs", apply=_apply_connection_slug_migration),
     Migration(version=2, name="add_user_role_and_session_fields", apply=_apply_user_role_migration),
@@ -1015,6 +1059,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=34, name="add_transfer_operations", apply=_apply_transfer_operations_migration),
     Migration(version=35, name="split_system_setting_policy_blobs", apply=_apply_per_field_system_settings_migration),
     Migration(version=36, name="add_download_intent_token_version", apply=_apply_download_intent_token_version_migration),
+    Migration(version=37, name="add_oidc_no_refresh_sessions", apply=_apply_oidc_no_refresh_sessions_migration),
 )
 
 
@@ -1028,7 +1073,7 @@ def run_migrations(engine: Engine) -> None:
                 continue
 
             logger.info(f"Applying schema migration {migration.version}: {migration.name}")
-            rebuilds_referenced_table = migration.version in {12, 15, 32} and connection.dialect.name == "sqlite"
+            rebuilds_referenced_table = migration.version in {12, 15, 32, 37} and connection.dialect.name == "sqlite"
             if rebuilds_referenced_table:
                 connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
                 connection.commit()
