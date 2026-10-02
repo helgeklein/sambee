@@ -1,6 +1,6 @@
 services:
   sambee:
-    image: ghcr.io/helgeklein/sambee:stable
+    image: ghcr.io/sambee-app/sambee:stable
     restart: unless-stopped
     volumes:
       - ./data:/app/data

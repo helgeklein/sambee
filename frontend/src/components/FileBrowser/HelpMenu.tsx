@@ -10,8 +10,8 @@ import { secondaryToolbarMenuPaperSx } from "../../theme/commonStyles";
 import { openExternalUrl } from "../../utils/externalLinks";
 import { ToolbarIconButton } from "./ToolbarIconButton";
 
-const SAMBEE_ISSUES_URL = "https://github.com/helgeklein/sambee/issues";
-const SAMBEE_DISCUSSIONS_URL = "https://github.com/helgeklein/sambee/discussions";
+const SAMBEE_ISSUES_URL = "https://github.com/sambee-app/sambee/issues";
+const SAMBEE_DISCUSSIONS_URL = "https://github.com/sambee-app/sambee/discussions";
 
 interface HelpMenuProps {
   onOpenHelp: () => void;

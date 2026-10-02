@@ -41,10 +41,10 @@ describe("DesktopToolbarActions", () => {
 
     fireEvent.click(screen.getByLabelText("Help"));
     fireEvent.click(screen.getByRole("menuitem", { name: "Issues" }));
-    expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/helgeklein/sambee/issues", "_blank", "noopener,noreferrer");
+    expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/sambee-app/sambee/issues", "_blank", "noopener,noreferrer");
 
     fireEvent.click(screen.getByLabelText("Help"));
     fireEvent.click(screen.getByRole("menuitem", { name: "Discussions" }));
-    expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/helgeklein/sambee/discussions", "_blank", "noopener,noreferrer");
+    expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/sambee-app/sambee/discussions", "_blank", "noopener,noreferrer");
   });
 });
