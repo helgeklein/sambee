@@ -70,9 +70,10 @@ If your browser is too old or lacks features Sambee needs, you'll now see a clea
 - Mobile log uploads have a size limit, and stored logs are pruned when they exceed the storage budget.
 - HTML, XHTML, and SVG files, including archive members, download instead of running as active content in the viewer.
 
-### Python 3.14
+### Miscellaneous
 
 - The backend's Python environment was upgraded from 3.13 to 3.14.
+- Fixed the container startup warning: `AuthlibDeprecationWarning: The httpx module is deprecated; please use httpx2 instead.`
 
 ### Dependency Security
 
