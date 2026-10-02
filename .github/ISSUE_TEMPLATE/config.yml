@@ -4,8 +4,8 @@ contact_links:
     url: https://sambee.net/docs/
     about: Review the user, admin, and developer guides for setup and workflow questions.
   - name: Contribution guidelines
-    url: https://github.com/helgeklein/sambee/blob/main/CONTRIBUTING.md
+    url: https://github.com/sambee-app/sambee/blob/main/CONTRIBUTING.md
     about: Read the planning, development, validation, and pull-request expectations before contributing.
   - name: Code of Conduct
-    url: https://github.com/helgeklein/sambee/blob/main/CODE_OF_CONDUCT.md
+    url: https://github.com/sambee-app/sambee/blob/main/CODE_OF_CONDUCT.md
     about: Review the standards for participating in Sambee project spaces.

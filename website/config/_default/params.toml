@@ -3,7 +3,7 @@ theme_default = "system"
 theme_switcher = true
 
 [links]
-github_url = "https://github.com/helgeklein/sambee"
+github_url = "https://github.com/sambee-app/sambee"
 
 [footer]
 imprint_url = "/imprint/"

@@ -1,4 +1,4 @@
-module github.com/helgeklein/sambee/internal/tools/crane
+module github.com/sambee-app/sambee/internal/tools/crane
 
 go 1.25.0
 

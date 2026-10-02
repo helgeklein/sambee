@@ -2,6 +2,10 @@
 title = "What's New"
 +++
 
+## ⚠️ Action Required
+
+Sambee's GitHub repository was moved to an organization account. This makes it necessary that you update the Docker Compose image URL to `ghcr.io/sambee-app/sambee` in your Docker Compose file (see the [Docker deployment docs](../../../admin-guide/installation-and-deployment/deploy-sambee-with-docker/) for details).
+
 ## Theme Editor
 
 UI themes are an integral part of an app's visual presentation. As so often, flexibility is key. Some like it dark, others colorful, some require high-contrast, others prefer muted colors.
