@@ -1,7 +1,9 @@
-import { render as renderWithMemoryRouter, screen, waitFor } from "@testing-library/react";
+import { act, render as renderWithMemoryRouter, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, useLocation } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { authSession } from "../../services/authSession";
+import { OIDC_ATTEMPT_MARKER, OIDC_LOGIN_CHANNEL, OIDC_LOGOUT_MARKER } from "../../services/oidcAuth";
 import { render } from "../../test/utils/test-utils";
 import Login from "../Login";
 
@@ -26,8 +28,33 @@ function CurrentPath() {
   return <output>{location.pathname}</output>;
 }
 
+class LoginChannel {
+  static channels: LoginChannel[] = [];
+  private readonly listeners = new Set<(event: MessageEvent<{ type: string }>) => void>();
+
+  constructor(readonly name: string) {
+    LoginChannel.channels.push(this);
+  }
+
+  addEventListener(_type: string, listener: (event: MessageEvent<{ type: string }>) => void) {
+    this.listeners.add(listener);
+  }
+
+  removeEventListener(_type: string, listener: (event: MessageEvent<{ type: string }>) => void) {
+    this.listeners.delete(listener);
+  }
+
+  close() {}
+
+  emit(type: string) {
+    for (const listener of this.listeners) listener(new MessageEvent("message", { data: { type } }));
+  }
+}
+
 describe("Login Component", () => {
   beforeEach(() => {
+    authSession.clear();
+    LoginChannel.channels = [];
     // Clear localStorage before each test
     localStorage.clear();
     // Clear all mocks
@@ -38,6 +65,195 @@ describe("Login Component", () => {
     window.location.hash = "";
     vi.mocked(window.location.assign).mockClear();
     vi.mocked(mockGetAuthConfig).mockResolvedValue({ sign_in_mode: "password_only", oidc: null });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it.each(["/browse/smb/demo", "/settings/appearance"])("recovers the tab's own destination %s after another OIDC login", async (path) => {
+    vi.stubGlobal("BroadcastChannel", LoginChannel);
+    vi.spyOn(authSession, "requestRefresh").mockResolvedValue({ access_token: "restored-token", token_type: "bearer" });
+    vi.mocked(mockGetAuthConfig).mockResolvedValue({
+      sign_in_mode: "oidc_or_password",
+      oidc: { display_name: "Example Identity", authorization_path: "/api/auth/oidc/authorize" },
+    });
+    window.location.search = `?return_path=${encodeURIComponent(path)}`;
+    sessionStorage.setItem(OIDC_ATTEMPT_MARKER, "1");
+
+    renderWithMemoryRouter(
+      <MemoryRouter initialEntries={[`/login${window.location.search}`]}>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="*" element={<CurrentPath />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await screen.findByLabelText(/username/i);
+    expect(LoginChannel.channels.at(-1)?.name).toBe(OIDC_LOGIN_CHANNEL);
+    LoginChannel.channels.at(-1)?.emit("completed");
+
+    expect(await screen.findByText(path)).toBeInTheDocument();
+    expect(authSession.requestRefresh).toHaveBeenCalledOnce();
+    expect(sessionStorage.getItem(OIDC_ATTEMPT_MARKER)).toBeNull();
+  });
+
+  it("stays on login after failed verification and retries when brought into focus", async () => {
+    vi.stubGlobal("BroadcastChannel", LoginChannel);
+    const refresh = vi
+      .spyOn(authSession, "requestRefresh")
+      .mockRejectedValueOnce(new Error("No browser session"))
+      .mockResolvedValueOnce({ access_token: "restored-token", token_type: "bearer" });
+    vi.mocked(mockGetAuthConfig).mockResolvedValue({
+      sign_in_mode: "oidc_or_password",
+      oidc: { display_name: "Example Identity", authorization_path: "/api/auth/oidc/authorize" },
+    });
+
+    renderWithMemoryRouter(
+      <MemoryRouter initialEntries={["/login"]}>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/browse" element={<CurrentPath />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await screen.findByLabelText(/username/i);
+    await act(async () => LoginChannel.channels.at(-1)?.emit("completed"));
+    await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+    expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
+
+    act(() => window.dispatchEvent(new Event("focus")));
+    expect(await screen.findByText("/browse")).toBeInTheDocument();
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("recovers on focus when BroadcastChannel is unavailable", async () => {
+    vi.stubGlobal("BroadcastChannel", undefined);
+    const refresh = vi.spyOn(authSession, "requestRefresh").mockResolvedValue({ access_token: "restored-token", token_type: "bearer" });
+    vi.mocked(mockGetAuthConfig).mockResolvedValue({
+      sign_in_mode: "oidc_or_password",
+      oidc: { display_name: "Example Identity", authorization_path: "/api/auth/oidc/authorize" },
+    });
+
+    renderWithMemoryRouter(
+      <MemoryRouter initialEntries={["/login"]}>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/browse" element={<CurrentPath />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await screen.findByLabelText(/username/i);
+    act(() => window.dispatchEvent(new Event("focus")));
+
+    expect(await screen.findByText("/browse")).toBeInTheDocument();
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("ignores login hints after explicit logout", async () => {
+    vi.stubGlobal("BroadcastChannel", LoginChannel);
+    const refresh = vi.spyOn(authSession, "requestRefresh");
+    vi.mocked(mockGetAuthConfig).mockResolvedValue({
+      sign_in_mode: "oidc_or_password",
+      oidc: { display_name: "Example Identity", authorization_path: "/api/auth/oidc/authorize" },
+    });
+    sessionStorage.setItem(OIDC_LOGOUT_MARKER, "1");
+
+    render(<Login />);
+    await screen.findByLabelText(/username/i);
+    LoginChannel.channels.at(-1)?.emit("completed");
+    window.dispatchEvent(new Event("focus"));
+
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("coalesces duplicate login hints while verifying", async () => {
+    vi.stubGlobal("BroadcastChannel", LoginChannel);
+    const refresh = vi.spyOn(authSession, "requestRefresh").mockReturnValue(new Promise(() => undefined));
+    vi.mocked(mockGetAuthConfig).mockResolvedValue({
+      sign_in_mode: "oidc_or_password",
+      oidc: { display_name: "Example Identity", authorization_path: "/api/auth/oidc/authorize" },
+    });
+
+    render(<Login />);
+    await screen.findByLabelText(/username/i);
+    LoginChannel.channels.at(-1)?.emit("completed");
+    LoginChannel.channels.at(-1)?.emit("completed");
+    window.dispatchEvent(new Event("focus"));
+
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("lets a login hint supersede a pending focus refresh", async () => {
+    vi.stubGlobal("BroadcastChannel", LoginChannel);
+    let finishFocus!: (response: { access_token: string; token_type: string }) => void;
+    let finishHint!: (response: { access_token: string; token_type: string }) => void;
+    const refresh = vi
+      .spyOn(authSession, "requestRefresh")
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishFocus = resolve;
+        })
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishHint = resolve;
+        })
+      );
+    vi.mocked(mockGetAuthConfig).mockResolvedValue({
+      sign_in_mode: "oidc_or_password",
+      oidc: { display_name: "Example Identity", authorization_path: "/api/auth/oidc/authorize" },
+    });
+
+    renderWithMemoryRouter(
+      <MemoryRouter initialEntries={["/login"]}>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/browse" element={<CurrentPath />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await screen.findByLabelText(/username/i);
+    act(() => window.dispatchEvent(new Event("focus")));
+    act(() => LoginChannel.channels.at(-1)?.emit("completed"));
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(refresh).toHaveBeenNthCalledWith(2, { newLogin: true });
+
+    await act(async () => finishFocus({ access_token: "old-session", token_type: "bearer" }));
+    expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
+    await act(async () => finishHint({ access_token: "new-session", token_type: "bearer" }));
+    expect(await screen.findByText("/browse")).toBeInTheDocument();
+  });
+
+  it("waits for a login hint received during configuration loading before starting OIDC", async () => {
+    vi.stubGlobal("BroadcastChannel", LoginChannel);
+    let finishRefresh!: (response: { access_token: string; token_type: string }) => void;
+    vi.spyOn(authSession, "requestRefresh").mockReturnValue(
+      new Promise((resolve) => {
+        finishRefresh = resolve;
+      })
+    );
+    vi.mocked(mockGetAuthConfig).mockResolvedValue({
+      sign_in_mode: "oidc_only",
+      oidc: { display_name: "Example Identity", authorization_path: "/api/auth/oidc/authorize" },
+    });
+
+    renderWithMemoryRouter(
+      <MemoryRouter initialEntries={["/login"]}>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/browse" element={<CurrentPath />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    LoginChannel.channels.at(-1)?.emit("completed");
+    await waitFor(() => expect(authSession.requestRefresh).toHaveBeenCalledOnce());
+    expect(window.location.assign).not.toHaveBeenCalled();
+
+    finishRefresh({ access_token: "restored-token", token_type: "bearer" });
+    expect(await screen.findByText("/browse")).toBeInTheDocument();
+    expect(window.location.assign).not.toHaveBeenCalled();
   });
 
   it("renders login form with all elements", async () => {

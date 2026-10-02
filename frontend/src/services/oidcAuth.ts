@@ -5,7 +5,19 @@ import { logger } from "./logger";
 export const OIDC_ATTEMPT_MARKER = "sambee_oidc_attempted";
 export const OIDC_LOGOUT_MARKER = "sambee_oidc_logout";
 export const OIDC_RETURN_PATH_MARKER = "sambee_oidc_return_path";
+export const OIDC_LOGIN_CHANNEL = "sambee-oidc-login";
 const OIDC_CALLBACK_PATH = "/login/oidc/callback";
+
+export function notifyOidcLogin(): void {
+  if (typeof BroadcastChannel === "undefined") return;
+  try {
+    const channel = new BroadcastChannel(OIDC_LOGIN_CHANNEL);
+    channel.postMessage({ type: "completed" });
+    channel.close();
+  } catch (error) {
+    logger.warn("Could not notify other tabs of OIDC sign-in; they can recover when focused", { error }, "auth");
+  }
+}
 
 export function sanitizeReturnPath(returnPath: string | null | undefined): string {
   if (!returnPath?.startsWith("/") || returnPath.startsWith("//") || returnPath.includes("\\")) return "/browse";

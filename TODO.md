@@ -61,7 +61,7 @@ After encryption, Sambee uploads a file to be shared to the public container alo
 
 Sharing links include the encryption key, so users can access shared files without having to fumble with keys: decryption happens transparently upon access/download in the user's browser.
 
-#### Uplkoad links
+#### Upload links
 
 Upload links are created in Sambee. They are tied to a specific directory on SMB storage. Access to that directory from the Sambee backends happens with the credentials of the user creating the link.
 

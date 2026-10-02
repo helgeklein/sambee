@@ -1,16 +1,19 @@
 import { Alert, Box, Button, Container, Divider, Paper, TextField, Typography } from "@mui/material";
 import type React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { login } from "../services/api";
 import { type AuthConfig, getAuthConfig } from "../services/authConfig";
+import { authSession } from "../services/authSession";
 import { logger } from "../services/logger";
 import {
   completeAuthentication,
   loginReturnPath,
   OIDC_ATTEMPT_MARKER,
+  OIDC_LOGIN_CHANNEL,
   OIDC_LOGOUT_MARKER,
+  OIDC_RETURN_PATH_MARKER,
   startOidcAuthorization,
 } from "../services/oidcAuth";
 
@@ -47,6 +50,9 @@ const Login: React.FC = () => {
   const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null);
   const [oidcOnlyState, setOidcOnlyState] = useState<"redirecting" | "failed" | "signed-out" | null>(null);
   const [returnPath] = useState(() => loginReturnPath(window.location.search));
+  const signInMode = useRef<AuthConfig["sign_in_mode"] | null>(null);
+  const recoveryPromise = useRef<Promise<void> | null>(null);
+  const recoveredInAnotherTab = useRef(false);
   const [passwordChanged] = useState(() => {
     const changed = sessionStorage.getItem(PASSWORD_CHANGED_MARKER) === "1";
     sessionStorage.removeItem(PASSWORD_CHANGED_MARKER);
@@ -59,6 +65,60 @@ const Login: React.FC = () => {
     }
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    let pendingIsLoginHint = false;
+    let channel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== "undefined") {
+      try {
+        channel = new BroadcastChannel(OIDC_LOGIN_CHANNEL);
+      } catch (error) {
+        logger.warn("Could not listen for OIDC sign-in in other tabs; recovery on focus is still available", { error }, "auth");
+      }
+    }
+
+    const recoverSession = (fromLoginHint: boolean) => {
+      if (
+        recoveredInAnotherTab.current ||
+        signInMode.current === "none" ||
+        signInMode.current === "password_only" ||
+        sessionStorage.getItem(OIDC_LOGOUT_MARKER)
+      )
+        return;
+      if (recoveryPromise.current && (!fromLoginHint || pendingIsLoginHint)) return;
+      pendingIsLoginHint = fromLoginHint;
+      const pending = authSession
+        .requestRefresh({ newLogin: true })
+        .then(() => {
+          if (!active || recoveryPromise.current !== pending) return;
+          recoveredInAnotherTab.current = true;
+          authSession.completeLoginBootstrap();
+          sessionStorage.removeItem(OIDC_ATTEMPT_MARKER);
+          sessionStorage.removeItem(OIDC_RETURN_PATH_MARKER);
+          navigate(returnPath, { replace: true });
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          if (recoveryPromise.current === pending) recoveryPromise.current = null;
+        });
+      recoveryPromise.current = pending;
+    };
+    const onMessage = (event: MessageEvent<{ type?: string }>) => {
+      if (event.data?.type === "completed") recoverSession(true);
+    };
+    const onFocus = () => {
+      if (document.visibilityState === "visible") recoverSession(false);
+    };
+    channel?.addEventListener("message", onMessage);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      active = false;
+      channel?.removeEventListener("message", onMessage);
+      channel?.close();
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [navigate, returnPath]);
+
   // Check if authentication is required
   useEffect(() => {
     const checkAuthConfig = async () => {
@@ -67,6 +127,9 @@ const Login: React.FC = () => {
       setConfigurationUnavailable(false);
       try {
         const config = await getAuthConfig();
+        signInMode.current = config.sign_in_mode;
+        while (recoveryPromise.current) await recoveryPromise.current;
+        if (recoveredInAnotherTab.current) return;
         if (config.sign_in_mode === "none") {
           logger.info("Auth method is 'none' - redirecting to requested page", { returnPath }, "auth");
           await logger.initializeBackendTracing();
