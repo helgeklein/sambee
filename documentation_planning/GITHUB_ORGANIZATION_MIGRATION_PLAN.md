@@ -46,7 +46,9 @@ curl -fsSL -o /dev/null https://sambee.net/docs/
 docker buildx imagetools inspect ghcr.io/helgeklein/sambee:stable
 ```
 
-**Stop here if old Docker pulls or the website fails.** GHCR packages stay under the personal account, but GitHub may remove the link to the transferred repo and inherited access. If the old pull fails, restore public visibility in the old package's settings before proceeding.
+==========================
+Status: done until here
+==========================
 
 ## Before the next stable release
 
