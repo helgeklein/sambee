@@ -27,11 +27,15 @@ With Sambee's new theme editor, users can change all theme colors via hex values
 
 ## OpenID Connect (OIDC)
 
-### Refresh Token & Offline_Access Are Now Optional
+### Refresh Token & `offline_access` Are Now Optional
 
 Many identity providers require the `offline_access` scope to issue refresh tokens, but some (like OneLogin) rejects that scope in the authorization code flow and can issue a refresh token without it when refresh tokens are enabled for the app.
 
 Sambee uses a provider refresh token when one is returned, whether or not `offline_access` was requested. If no refresh token is returned, Sambee can continue issuing short-lived API tokens from the browser session for up to 8 hours by default (configurable from 1 to 24 hours). After Sambee's user session expires, the user must sign in through the identity provider again.
+
+### Miscellaneous
+
+- When an OIDC login is necessary, all Sambee browser tabs switch to the login page. After a successful login in one tab, that tab now broadcasts a login complete hint. When other tabs on the login page receive that hint, they return to their respectice previous URLs.
 
 ### Bugfixes
 

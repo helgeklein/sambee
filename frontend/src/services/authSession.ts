@@ -184,7 +184,11 @@ export class AuthSessionManager {
     return this.bootstrapPromise;
   }
 
-  async requestRefresh(): Promise<AuthToken> {
+  async requestRefresh(options?: { newLogin?: boolean }): Promise<AuthToken> {
+    if (options?.newLogin) {
+      this.beginNewLogin();
+      this.clear();
+    }
     if (this.refreshPromise) {
       return this.refreshPromise;
     }

@@ -66,6 +66,66 @@ describe("AuthSessionManager", () => {
     }
   });
 
+  it("verifies a new login cookie despite an expired deadline from the previous session", async () => {
+    const deadline = Date.now() + 10_000;
+    let refreshRequests = 0;
+    server.use(
+      http.post(OIDC_REFRESH_URL, () => {
+        refreshRequests += 1;
+        return HttpResponse.json({ access_token: "new-session", token_type: "bearer", user_id: "user-2" });
+      })
+    );
+    session = new AuthSessionManager();
+    session.setAuthenticated(
+      {
+        access_token: "old-session",
+        token_type: "bearer",
+        user_id: "user-1",
+        oidc_session_expires_at: new Date(deadline).toISOString(),
+        access_token_expires_at: new Date(deadline).toISOString(),
+      },
+      true
+    );
+    const clock = vi.spyOn(Date, "now").mockReturnValue(deadline);
+    try {
+      await expect(session.requestRefresh({ newLogin: true })).resolves.toMatchObject({ access_token: "new-session" });
+      expect(refreshRequests).toBe(1);
+      expect(session.getUserId()).toBe("user-2");
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("does not reuse or apply an in-flight refresh from before the new login", async () => {
+    let releaseOldRefresh!: () => void;
+    const oldRefreshWait = new Promise<void>((resolve) => {
+      releaseOldRefresh = resolve;
+    });
+    let refreshRequests = 0;
+    server.use(
+      http.post(OIDC_REFRESH_URL, async () => {
+        refreshRequests += 1;
+        if (refreshRequests === 1) {
+          await oldRefreshWait;
+          return HttpResponse.json({ access_token: "old-session", token_type: "bearer", user_id: "user-1" });
+        }
+        return HttpResponse.json({ access_token: "new-session", token_type: "bearer", user_id: "user-2" });
+      })
+    );
+    session = new AuthSessionManager();
+    session.setAuthenticated({ access_token: "expired-session", token_type: "bearer", user_id: "user-1" }, true);
+    const oldRefresh = session.requestRefresh();
+    const oldFailure = expect(oldRefresh).rejects.toThrow();
+    await vi.waitFor(() => expect(refreshRequests).toBe(1));
+
+    await expect(session.requestRefresh({ newLogin: true })).resolves.toMatchObject({ access_token: "new-session" });
+    releaseOldRefresh();
+    await oldFailure;
+    expect(refreshRequests).toBe(2);
+    expect(session.getAccessToken()).toBe("new-session");
+    expect(session.getUserId()).toBe("user-2");
+  });
+
   it("restores a no-refresh session from its cookie after a page reload", async () => {
     const deadline = new Date(Date.now() + 60_000).toISOString();
     let refreshRequests = 0;

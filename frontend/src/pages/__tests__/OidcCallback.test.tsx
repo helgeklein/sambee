@@ -15,7 +15,7 @@ vi.mock("../../services/api", async (importOriginal) => {
 import api, { exchangeOidcGrant, setOidcExchangePending } from "../../services/api";
 import { authSession } from "../../services/authSession";
 import { logger } from "../../services/logger";
-import { loginPath, loginReturnPath, sanitizeReturnPath } from "../../services/oidcAuth";
+import { loginPath, loginReturnPath, OIDC_LOGIN_CHANNEL, sanitizeReturnPath } from "../../services/oidcAuth";
 import { getConfirmedCurrentUserSetting, resetCurrentUserSettingsStoreForTests } from "../../services/userSettingsStore";
 
 describe("OIDC callback", () => {
@@ -35,12 +35,26 @@ describe("OIDC callback", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     setOidcExchangePending(false);
   });
 
   it.each(["renewable", "reauthorization_only"] as const)(
     "clears the fragment before exchanging a %s session grant",
     async (capability) => {
+      const postMessage = vi.fn();
+      const close = vi.fn();
+      const openChannel = vi.fn();
+      vi.stubGlobal(
+        "BroadcastChannel",
+        class {
+          constructor(name: string) {
+            openChannel(name);
+          }
+          postMessage = postMessage;
+          close = close;
+        }
+      );
       expect(window.location.hash).toContain("grant=one-time-grant");
       const replaceState = vi.spyOn(window.history, "replaceState");
       let fragmentScrubbedBeforeExchange = false;
@@ -77,6 +91,9 @@ describe("OIDC callback", () => {
       expect(authSession.getAccessToken()).toBe("sambee-token");
       expect(authSession.isBootstrapComplete()).toBe(true);
       expect(exchangeOidcGrant).toHaveBeenCalledTimes(1);
+      expect(openChannel).toHaveBeenCalledWith(OIDC_LOGIN_CHANNEL);
+      expect(postMessage).toHaveBeenCalledExactlyOnceWith({ type: "completed" });
+      expect(close).toHaveBeenCalledOnce();
       expect(screen.queryByLabelText("Completing sign in")).not.toBeInTheDocument();
     }
   );
@@ -96,7 +113,39 @@ describe("OIDC callback", () => {
     expect(setOidcExchangePending).toHaveBeenCalledWith(false);
   });
 
+  it("completes sign-in even when a browser cannot open the login channel", async () => {
+    vi.stubGlobal(
+      "BroadcastChannel",
+      class {
+        constructor() {
+          throw new Error("Channel unavailable");
+        }
+      }
+    );
+    vi.mocked(exchangeOidcGrant).mockResolvedValue({ access_token: "sambee-token", token_type: "bearer", return_path: "/browse" });
+
+    render(
+      <MemoryRouter initialEntries={["/login/oidc/callback"]}>
+        <Routes>
+          <Route path="/login/oidc/callback" element={<OidcCallback />} />
+          <Route path="/browse" element={<div>File browser</div>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("File browser")).toBeInTheDocument();
+    expect(authSession.getAccessToken()).toBe("sambee-token");
+  });
+
   it("keeps the callback error visible when exchange fails", async () => {
+    const postMessage = vi.fn();
+    vi.stubGlobal(
+      "BroadcastChannel",
+      class {
+        postMessage = postMessage;
+        close() {}
+      }
+    );
     let rejectExchange!: (reason: Error) => void;
     vi.mocked(exchangeOidcGrant).mockReturnValue(
       new Promise((_, reject) => {
@@ -112,6 +161,7 @@ describe("OIDC callback", () => {
     rejectExchange(new Error("Grant expired"));
     expect(await screen.findByText("Sign in could not be completed.")).toBeInTheDocument();
     expect(setOidcExchangePending).toHaveBeenLastCalledWith(false);
+    expect(postMessage).not.toHaveBeenCalled();
   });
 
   it("finishes the same-user callback despite late 401s from A and loads protected data with B", async () => {

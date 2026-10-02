@@ -2,7 +2,7 @@ import { Alert, Box, Button, CircularProgress, Container, Typography } from "@mu
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { exchangeOidcGrant, setOidcExchangePending } from "../services/api";
-import { completeAuthentication } from "../services/oidcAuth";
+import { completeAuthentication, notifyOidcLogin } from "../services/oidcAuth";
 
 function readAndClearGrant(): string | null {
   const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
@@ -29,7 +29,11 @@ export default function OidcCallback() {
       }
       setOidcExchangePending(true);
       exchangePromise.current = exchangeOidcGrant(grant)
-        .then(completeAuthentication)
+        .then(async (response) => {
+          const returnPath = await completeAuthentication(response);
+          notifyOidcLogin();
+          return returnPath;
+        })
         .finally(() => setOidcExchangePending(false));
     }
     void exchangePromise.current
