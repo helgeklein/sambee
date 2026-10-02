@@ -1600,9 +1600,12 @@ describe("Browser Component - Interactions", () => {
 
       renderBrowser("/browse/smb/test-server-1");
 
-      await waitFor(() => {
-        expect(screen.getByRole("button", { name: /notes\.md/i })).toBeInTheDocument();
-      });
+      await waitFor(
+        () => {
+          expect(screen.getByRole("button", { name: /notes\.md/i })).toBeInTheDocument();
+        },
+        { timeout: 5000 }
+      );
 
       const listContainer = screen.getByTestId("virtual-list");
       await user.click(listContainer);

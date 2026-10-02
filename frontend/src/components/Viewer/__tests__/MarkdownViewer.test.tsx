@@ -1471,12 +1471,15 @@ describe("MarkdownViewer", () => {
     renderViewer();
 
     const viewerContent = screen.getByTestId("markdown-viewer-content");
-    const link = await within(viewerContent).findByRole("link", { name: "Docs" });
+    await within(viewerContent).findByRole("link", { name: "Docs" });
     expect(viewerContent).toHaveAttribute("tabindex", "0");
 
-    act(() => {
-      link.focus();
+    await waitFor(() => {
+      expect(viewerContent).toHaveFocus();
     });
+
+    const link = within(viewerContent).getByRole("link", { name: "Docs" });
+    link.focus();
     expect(link).toHaveFocus();
 
     fireEvent.click(link);
