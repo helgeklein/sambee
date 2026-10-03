@@ -1,0 +1,85 @@
++++
+title = "Dependency Security and Dependabot"
++++
+
+Sambee treats dependency intake and dependency vulnerability audits as separate workflows.
+
+Dependabot helps bring reviewed update proposals into the repository.
+
+The dependency audit workflow checks the current manifests and lockfiles for known published vulnerabilities.
+
+In GitHub Actions, the repository-defined audit workflow appears as `Security: Dependency Audit`.
+
+Dependabot activity still appears under GitHub-managed `Dependabot updates`, which is not renamed from this repository.
+
+## Main Control Points
+
+| File or system | Role |
+|---|---|
+| `.github/dependabot.yml` | schedules and groups automated dependency update pull requests |
+| `.github/workflows/format-dependabot-pr-title.yml` | prefixes Dependabot pull request titles when configured group names omit them |
+| `.github/workflows/dependency-security.yml` | runs scheduled and manual dependency vulnerability audits |
+| local dev container setup | installs the same core audit tools used in CI for local verification |
+
+## Dependabot Setup
+
+Dependabot is configured in `.github/dependabot.yml`.
+
+Dependabot commit messages and ungrouped pull request titles use Conventional
+Commit-style prefixes. Ecosystem updates use `deps(npm)`, `deps(pip)`,
+`deps(cargo)`, or `deps(docker)`; GitHub Actions and CI-only tools use
+`deps(ci)`. Development dependencies use the matching `deps-dev(...)` prefix
+where Dependabot supports dependency groups.
+
+Dependabot generates grouped pull request titles from the group identifier,
+which bypasses its configured prefix. The `Format Dependabot PR Title` workflow
+checks open Dependabot pull requests when `CI: Test` starts and finishes for a pull request, and adds the matching prefix where needed. It runs trusted workflow code with pull-request write access, without using `pull_request_target` or checking out pull-request code. Run it manually to retry title formatting if a CI run did not trigger it. The
+multi-ecosystem Companion group uses `deps(companion)` because it combines npm
+and Cargo updates.
+
+Current coverage includes:
+
+- GitHub Actions dependencies.
+- Backend Python dependencies under `backend/`.
+- Frontend npm dependencies under `frontend/`.
+- Companion npm dependencies under `companion/`.
+- Companion Rust dependencies under `companion/src-tauri/`.
+- Docker image dependencies from the repository root.
+
+The configuration is intentionally grouped and filtered instead of allowing every update to arrive as an isolated pull request.
+
+Examples:
+
+- Backend Python updates split higher-risk areas such as `smbprotocol` and `pyvips` away from routine development-tool bumps.
+- Frontend major upgrades for React, MUI, Vite, TypeScript, routing, localization, and related runtime-critical packages stay manual.
+- Companion Tauri JavaScript and Rust updates are coordinated through a multi-ecosystem group.
+- Root Docker dependency updates include the shared Python runtime base. Dependabot proposes these updates, and Docker target validation reports the resolved Python and SQLite runtime versions before review.
+- Node base-image version changes stay manual because they affect both frontend and companion toolchains.
+
+That split keeps routine maintenance moving while preserving deliberate review for dependency changes that can affect runtime compatibility, release behavior, or user workflows. Dependabot pull requests for the Python runtime must not be auto-merged: review the Docker validation, backend validation, image scan, and release-impacting changes before merging.
+
+## Dependency Vulnerability Audits
+
+The dependency audit workflow lives in `.github/workflows/dependency-security.yml`.
+
+GitHub Actions displays that workflow as `Security: Dependency Audit`.
+
+It runs weekly and on manual dispatch.
+
+Current checks are:
+
+- backend: `pip-audit -r backend/requirements-dev.lock.txt`
+- frontend: `npm audit --package-lock-only --omit=dev --audit-level=high`
+- companion npm: `npm audit --package-lock-only --omit=dev --audit-level=high`
+- companion Rust: `cargo audit`
+
+Use this workflow to catch known issues in the dependency manifests and lockfiles that the repository owns directly.
+
+Inside the dev container, `pip-audit` and `cargo-audit` are installed during setup with the same pinned versions used in CI, so local verification can match the workflow behavior closely.
+
+## How This Fits with Release Work
+
+These checks support release safety, but they are not the same as release publication controls.
+
+Use [Container Image Security and Artifact Integrity](../container-image-security-and-artifact-integrity/) for the Trivy image scans, `.trivyignore.yaml` policy, SBOM emission, provenance, and image signing workflow.
+

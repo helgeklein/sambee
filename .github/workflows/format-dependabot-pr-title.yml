@@ -1,25 +1,23 @@
 name: Format Dependabot PR Title
 
 on:
-  pull_request_target:
-    types:
-      - opened
-      - synchronize
+  workflow_run:
+    workflows: ["CI: Test"]
+    types: [requested, completed]
+  workflow_dispatch:
 
 permissions:
   pull-requests: write
 
 jobs:
   format-title:
-    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - name: Prefix title
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            const branch = context.payload.pull_request.head.ref;
-            const title = context.payload.pull_request.title;
             const groupPrefixes = [
               [/backend-python-dev-tools group\b/, "deps-dev(pip)"],
               [/ci-docker-tools group\b/, "deps(ci)"],
@@ -35,21 +33,32 @@ jobs:
               [/^dependabot\/docker\//, "deps(docker)"],
               [/^dependabot\/multi-ecosystem\/companion-tauri(?:-|\/)/, "deps(companion)"],
             ];
-            const prefix =
-              groupPrefixes.find(([pattern]) => pattern.test(title))?.[1] ??
-              prefixes.find(([pattern]) => pattern.test(branch))?.[1];
-            if (!prefix) {
-              core.warning(`No title prefix configured for Dependabot branch: ${branch}`);
-              return;
-            }
-
-            if (title.startsWith(`${prefix}: `)) {
-              return;
-            }
-
-            await github.rest.pulls.update({
+            const pullRequests = await github.paginate(github.rest.pulls.list, {
               owner: context.repo.owner,
               repo: context.repo.repo,
-              pull_number: context.issue.number,
-              title: `${prefix}: ${title}`,
+              state: "open",
+              per_page: 100,
             });
+            for (const pullRequest of pullRequests) {
+              if (pullRequest.user?.login !== "dependabot[bot]" || pullRequest.base.ref !== "main") {
+                continue;
+              }
+              const branch = pullRequest.head.ref;
+              const title = pullRequest.title;
+              const prefix =
+                groupPrefixes.find(([pattern]) => pattern.test(title))?.[1] ??
+                prefixes.find(([pattern]) => pattern.test(branch))?.[1];
+              if (!prefix) {
+                core.warning(`No title prefix configured for Dependabot branch: ${branch}`);
+                continue;
+              }
+              if (title.startsWith(`${prefix}: `)) {
+                continue;
+              }
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pullRequest.number,
+                title: `${prefix}: ${title}`,
+              });
+            }

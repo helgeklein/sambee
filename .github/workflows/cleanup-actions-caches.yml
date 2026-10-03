@@ -11,9 +11,8 @@ on:
       - "Release: Create Docker Image"
       - "Deploy: Website"
       - "Release: Build Companion Artifact"
+      - "Maintenance: Signal Closed PR Cache Cleanup"
     types: [completed]
-  pull_request_target:
-    types: [closed]
   schedule:
     - cron: '13 5 * * *'
   workflow_dispatch:

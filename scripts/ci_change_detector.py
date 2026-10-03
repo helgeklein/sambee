@@ -16,6 +16,7 @@ BACKEND_EXTRAS = frozenset(
         "Dockerfile",
         ".github/scripts/cleanup_actions_caches.py",
         ".github/workflows/cleanup-actions-caches.yml",
+        ".github/workflows/signal-closed-pr-cache-cleanup.yml",
         "scripts/install-system-deps",
         "scripts/setup-test-images",
         "scripts/verify-python-runtime-image.py",
