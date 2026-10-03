@@ -191,8 +191,8 @@ def main() -> int:
         message += (
             " Warning: active caches still exceed 8 GiB; monitor cache evictions."
         )
-        if remaining_bytes >= WARN_BYTES:
-            print(f"::warning title=Actions cache storage::{message}")
+    if remaining_bytes >= WARN_BYTES:
+        print(f"::warning title=Actions cache storage::{message}")
     print(message)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:

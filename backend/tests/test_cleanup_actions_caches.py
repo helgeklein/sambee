@@ -20,6 +20,23 @@ RUST_NEW = "v0-rust-companion-Linux-x64-c7b3ef7d-cd520792"
 LINT = "v0-rust-lint-companion-Linux-x64-c7b3ef7d-cd520792"
 
 
+def test_rust_toolchain_changes_supersede_old_main_cache() -> None:
+    older_toolchain = cache(1, cleanup.MAIN_REF, RUST_OLD)
+    newer_toolchain = cache(
+        2,
+        cleanup.MAIN_REF,
+        "v0-rust-companion-Linux-x64-12345678-cd520792",
+        "2026-10-03T01:00:00Z",
+    )
+
+    decisions = cleanup.classify_caches([older_toolchain, newer_toolchain], set(), set())
+
+    assert [entry["reason"] for entry in decisions] == [
+        "delete: superseded cache",
+        "protected: current cache",
+    ]
+
+
 def test_retains_latest_per_ref_and_family_but_removes_closed_pr() -> None:
     caches = [
         cache(1, cleanup.MAIN_REF, RUST_OLD),
@@ -119,3 +136,36 @@ def test_dry_run_and_apply_delete_only_eligible_ids(
     output = capsys.readouterr().out.splitlines()
     assert json.loads(output[1])["reason"] == "protected: current cache"
     assert ("200 bytes deleted" in output[-1]) == apply
+
+
+@pytest.mark.parametrize(
+    ("remaining_bytes", "expected_message"),
+    [
+        (cleanup.WARN_BYTES - 1, None),
+        (cleanup.WARN_BYTES, "Warning: active caches still exceed 8 GiB"),
+        (cleanup.CRITICAL_BYTES, "Critical: active caches still exceed 9 GiB"),
+    ],
+)
+def test_storage_thresholds_emit_annotations(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    remaining_bytes: int,
+    expected_message: str | None,
+) -> None:
+    entry = cache(1, cleanup.MAIN_REF, RUST_NEW)
+    entry["size_in_bytes"] = remaining_bytes
+    monkeypatch.setattr(cleanup, "list_pages", lambda *_args: [entry])
+    monkeypatch.setattr(cleanup, "active_build_refs", lambda *_args: (set(), False))
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example/project")
+    monkeypatch.setenv("GITHUB_RUN_ID", "123")
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    monkeypatch.setattr(sys, "argv", ["cleanup_actions_caches.py"])
+
+    assert cleanup.main() == 0
+    annotations = [line for line in capsys.readouterr().out.splitlines() if line.startswith("::warning")]
+    if expected_message is None:
+        assert not annotations
+    else:
+        assert len(annotations) == 1
+        assert expected_message in annotations[0]
