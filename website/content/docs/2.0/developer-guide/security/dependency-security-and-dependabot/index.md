@@ -83,4 +83,3 @@ Inside the dev container, `pip-audit` and `cargo-audit` are installed during set
 These checks support release safety, but they are not the same as release publication controls.
 
 Use [Container Image Security and Artifact Integrity](../container-image-security-and-artifact-integrity/) for the Trivy image scans, `.trivyignore.yaml` policy, SBOM emission, provenance, and image signing workflow.
-
