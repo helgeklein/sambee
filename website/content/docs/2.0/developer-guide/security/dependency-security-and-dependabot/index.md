@@ -33,7 +33,8 @@ where Dependabot supports dependency groups.
 
 Dependabot generates grouped pull request titles from the group identifier,
 which bypasses its configured prefix. The `Format Dependabot PR Title` workflow
-checks open Dependabot pull requests when `CI: Test` starts and finishes for a pull request, and adds the matching prefix where needed. It runs trusted workflow code with pull-request write access, without using `pull_request_target` or checking out pull-request code. Run it manually to retry title formatting if a CI run did not trigger it. The
+checks open Dependabot pull requests when a `CI: Test` run triggered by
+Dependabot starts and finishes, and adds the matching prefix where needed. It runs trusted workflow code with pull-request write access, without using `pull_request_target` or checking out pull-request code. Run it manually to retry title formatting if a CI run did not trigger it. The
 multi-ecosystem Companion group uses `deps(companion)` because it combines npm
 and Cargo updates.
 
