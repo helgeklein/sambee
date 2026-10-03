@@ -90,3 +90,4 @@ If your browser is too old or lacks features Sambee needs, you'll now see a clea
 ## Internals
 
 - Companion build for Windows: Authenticode signing was removed from PR check builds and only remains on release workflows.
+- GitHub Actions: removed `pull_request_target` as it will be removed on public repositories by default in November.

@@ -33,6 +33,7 @@ Keep new names short, stable, and grouped by what the workflow does rather than 
 | `Maintenance: Backfill Docker Release Tags` | `.github/workflows/docker-image-backfill.yml` | Reattaches release tags and release-channel aliases to an already published candidate digest for an existing release. |
 | `Maintenance: Clean Up Docker Package Versions` | `.github/workflows/docker-image-cleanup.yml` | Removes unprotected SHA-tagged preview GHCR package versions, prunes stale signature artifacts, and deletes unreferenced untagged package versions while preserving release-tagged and channel-protected versions including `test`. |
 | `Maintenance: Clean Up Actions Caches` | `.github/workflows/cleanup-actions-caches.yml` | Removes closed-PR caches and superseded known cache keys without disabling warm caches for active builds. |
+| `Maintenance: Signal Closed PR Cache Cleanup` | `.github/workflows/signal-closed-pr-cache-cleanup.yml` | Triggers cache cleanup after a pull request closes without granting the pull request write access. |
 | `Release: Build Companion Artifact` | `.github/workflows/build-companion.yml` | Builds companion release artifacts for a new unique version or prerelease candidate in the public distribution repository. |
 | `Release: Promote Companion Release` | `.github/workflows/promote-companion-release.yml` | Moves an existing companion release onto one or more update channels. |
 | `Deploy: Website` | `.github/workflows/website-deploy.yml` | Builds the website and deploys `website/public/` to Cloudflare Pages. |
@@ -92,7 +93,7 @@ When dependency manifests or lockfiles change, commit the corresponding lockfile
 
 ### Cache Retention
 
-`Maintenance: Clean Up Actions Caches` runs after cache-producing workflows finish, when a pull request closes, and daily as a fallback. A manual run defaults to a dry run; select **Delete eligible caches** to apply the policy. Its run summary lists selected entries and the amount of storage reclaimed. The cleanup reads only trusted code from `main`, and does not run pull-request code with cache-deletion permissions.
+`Maintenance: Clean Up Actions Caches` runs after cache-producing workflows finish and daily as a fallback. When a pull request closes, an unprivileged signal workflow runs first; its completion triggers the same cleanup. A manual run defaults to a dry run; select **Delete eligible caches** to apply the policy. Its run summary lists selected entries and the amount of storage reclaimed. The cleanup reads only trusted code from `main`, and does not run pull-request code with cache-deletion permissions.
 
 The policy keeps the newest known cache family on `main` and each open pull request. It removes superseded Rust and website cache keys, and deletes all caches for a closed pull request after its builds finish. It skips refs with active builds and leaves unrecognized keys, including individual BuildKit blobs on active refs, alone. GitHub's normal expiration still applies to those unclassified entries. The job deletes caches by ID so a pull request's copy cannot inadvertently delete an identically keyed cache on `main`.
 

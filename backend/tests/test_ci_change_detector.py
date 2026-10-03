@@ -56,6 +56,7 @@ def test_non_topology_component_changes_remain_selective() -> None:
     [
         ".github/scripts/cleanup_actions_caches.py",
         ".github/workflows/cleanup-actions-caches.yml",
+        ".github/workflows/signal-closed-pr-cache-cleanup.yml",
     ],
 )
 def test_cache_cleanup_changes_schedule_backend_tests(path: str) -> None:

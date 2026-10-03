@@ -1,0 +1,14 @@
+name: "Maintenance: Signal Closed PR Cache Cleanup"
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions: {}
+
+jobs:
+  signal:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Signal cache cleanup
+        run: echo "Closed PR cache cleanup will run from the default branch."
