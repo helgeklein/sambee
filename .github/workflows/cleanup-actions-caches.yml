@@ -1,0 +1,54 @@
+name: "Maintenance: Clean Up Actions Caches"
+
+on:
+  workflow_run:
+    workflows:
+      - "CI: Test"
+      - "CI: Lint"
+      - "CI: Validate Docker Image"
+      - "CI: Validate Devcontainer"
+      - "Security: Docker Image Scan"
+      - "Release: Create Docker Image"
+      - "Deploy: Website"
+      - "Release: Build Companion Artifact"
+    types: [completed]
+  pull_request_target:
+    types: [closed]
+  schedule:
+    - cron: '13 5 * * *'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Delete eligible caches (unchecked runs a dry run)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: read
+
+concurrency:
+  group: actions-cache-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted cleanup code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/heads/main
+
+      - name: Classify and clean Actions caches
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          APPLY: ${{ github.event_name != 'workflow_dispatch' || inputs.apply }}
+        shell: bash
+        run: |
+          if [[ "$APPLY" == "true" ]]; then
+            python3 .github/scripts/cleanup_actions_caches.py --apply
+          else
+            python3 .github/scripts/cleanup_actions_caches.py
+          fi

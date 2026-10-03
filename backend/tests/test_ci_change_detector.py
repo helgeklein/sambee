@@ -51,6 +51,22 @@ def test_non_topology_component_changes_remain_selective() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".github/scripts/cleanup_actions_caches.py",
+        ".github/workflows/cleanup-actions-caches.yml",
+    ],
+)
+def test_cache_cleanup_changes_schedule_backend_tests(path: str) -> None:
+    assert classify_paths([path]) == {
+        "backend": True,
+        "frontend": False,
+        "companion": False,
+        "website": False,
+    }
+
+
 def _run_detector(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
